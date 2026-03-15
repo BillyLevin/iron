@@ -15,3 +15,7 @@ unicode-width = "0.2.2"
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -2 }
 missing_errors_doc = "allow"
+
+[dev-dependencies]
+color-eyre = "0.6.5"
+tempfile = "3.27.0"

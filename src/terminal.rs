@@ -1,6 +1,6 @@
 use std::{
     io::{self, Write as _},
-    panic,
+    ops, panic,
 };
 
 use crossterm::{
@@ -8,7 +8,11 @@ use crossterm::{
     style,
 };
 
-use crate::{args::Args, buffer::Buffer, document::Document};
+use crate::{
+    args::Args,
+    buffer::Buffer,
+    document::{Document, Position},
+};
 
 pub struct Terminal {
     out: io::Stdout,
@@ -57,33 +61,40 @@ impl Terminal {
     }
 
     fn run_event_loop(&mut self, args: &Args) -> io::Result<()> {
-        let document = Document::new(&args.file_path)?;
+        let mut document = Document::new(&args.file_path, self.dimensions)?;
         let mut buffer = Buffer::new(self.dimensions);
 
-        document.render(&mut buffer, &self.dimensions);
-        self.draw(&buffer)?;
+        document.render(&mut buffer);
+        self.draw(&buffer, document.visual_cursor_position())?;
 
         loop {
-            match event::read()? {
+            let event_outcome = match event::read()? {
                 Event::Key(key_event) => {
                     if key_event.code == KeyCode::Char('q') {
                         break;
                     }
+
+                    Some(document.handle_key_event(key_event))
                 }
                 Event::Mouse(_mouse_event) => todo!(),
                 Event::Resize(_columns, _rows) => todo!(),
 
-                Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
+                Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
+            };
+
+            match event_outcome {
+                Some(EventOutcome::Handled) => document.render(&mut buffer),
+                Some(EventOutcome::Unhandled) => todo!(),
+                None => todo!(),
             }
 
-            document.render(&mut buffer, &self.dimensions);
-            self.draw(&buffer)?;
+            self.draw(&buffer, document.visual_cursor_position())?;
         }
 
         Ok(())
     }
 
-    fn draw(&mut self, buffer: &Buffer) -> io::Result<()> {
+    fn draw(&mut self, buffer: &Buffer, cursor_position: Position) -> io::Result<()> {
         crossterm::queue!(
             self.out,
             crossterm::cursor::Hide,
@@ -106,7 +117,16 @@ impl Terminal {
             buffer_index += cell.width();
         }
 
-        crossterm::queue!(self.out, crossterm::cursor::Show)?;
+        crossterm::queue!(
+            self.out,
+            crossterm::cursor::MoveTo(
+                u16::try_from(cursor_position.left().value())
+                    .expect("cursor column should be <= u16::MAX"),
+                u16::try_from(cursor_position.top().value())
+                    .expect("cursor row should be <= u16::MAX"),
+            ),
+            crossterm::cursor::Show
+        )?;
 
         self.out.flush()?;
 
@@ -121,7 +141,7 @@ pub(crate) struct Dimensions {
 }
 
 impl Dimensions {
-    const fn new(columns: Columns, rows: Rows) -> Self {
+    pub(crate) const fn new(columns: Columns, rows: Rows) -> Self {
         Self {
             width: columns,
             height: rows,
@@ -153,7 +173,25 @@ impl Dimensions {
 #[from(forward)]
 pub(crate) struct Columns(usize);
 
+impl ops::Add<usize> for Columns {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
+impl ops::AddAssign<usize> for Columns {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
+    }
+}
+
 impl Columns {
+    pub(crate) const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
     pub(crate) const fn value(self) -> usize {
         self.0
     }
@@ -176,7 +214,18 @@ impl Columns {
 pub(crate) struct Rows(usize);
 
 impl Rows {
+    pub(crate) const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
     pub(crate) const fn value(self) -> usize {
         self.0
     }
+}
+
+#[derive(Debug)]
+#[must_use]
+pub enum EventOutcome {
+    Handled,
+    Unhandled,
 }
