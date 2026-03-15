@@ -53,11 +53,11 @@ pub(crate) struct Position {
 }
 
 impl Position {
-    pub(crate) fn top(&self) -> &Rows {
+    pub(crate) const fn top(&self) -> &Rows {
         &self.top
     }
 
-    pub(crate) fn left(&self) -> &Columns {
+    pub(crate) const fn left(&self) -> &Columns {
         &self.left
     }
 

@@ -23,7 +23,7 @@ impl Buffer {
         &self.cells
     }
 
-    fn position_index(&self, position: Position) -> usize {
+    const fn position_index(&self, position: Position) -> usize {
         position.top().value() * self.dimensions.width().value() + position.left().value()
     }
 }
@@ -63,11 +63,11 @@ impl Cell {
         &self.content
     }
 
-    pub(crate) fn foreground(&self) -> &Color {
+    pub(crate) const fn foreground(&self) -> &Color {
         &self.foreground
     }
 
-    pub(crate) fn background(&self) -> &Color {
+    pub(crate) const fn background(&self) -> &Color {
         &self.background
     }
 

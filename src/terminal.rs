@@ -121,18 +121,18 @@ pub(crate) struct Dimensions {
 }
 
 impl Dimensions {
-    fn new(columns: Columns, rows: Rows) -> Self {
+    const fn new(columns: Columns, rows: Rows) -> Self {
         Self {
             width: columns,
             height: rows,
         }
     }
 
-    pub(crate) fn width(&self) -> &Columns {
+    pub(crate) const fn width(&self) -> &Columns {
         &self.width
     }
 
-    pub(crate) fn height(&self) -> &Rows {
+    pub(crate) const fn height(&self) -> &Rows {
         &self.height
     }
 }
@@ -154,7 +154,7 @@ impl Dimensions {
 pub(crate) struct Columns(usize);
 
 impl Columns {
-    pub(crate) fn value(self) -> usize {
+    pub(crate) const fn value(self) -> usize {
         self.0
     }
 }
@@ -176,7 +176,7 @@ impl Columns {
 pub(crate) struct Rows(usize);
 
 impl Rows {
-    pub(crate) fn value(self) -> usize {
+    pub(crate) const fn value(self) -> usize {
         self.0
     }
 }
