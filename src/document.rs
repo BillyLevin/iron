@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use crossterm::event::KeyEvent;
+use crossterm::{event::KeyEvent, style::Color};
 use ropey::{LineType, Rope};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
 use unicode_width::UnicodeWidthStr;
@@ -41,15 +41,37 @@ impl Document {
     pub(crate) fn render(&self, buffer: &mut Buffer) {
         let mut position = Position::default();
 
+        let mut line_number = 1;
+
+        let gutter_width = self.gutter_width();
+
         for grapheme in self.graphemes(..).map(Grapheme::from) {
             if position.top() >= self.dimensions.height() {
                 break;
             }
 
+            if position.left() == &Columns::new(0) {
+                let line_number_str =
+                    format!("{line_number:>width$}", width = gutter_width.value());
+
+                buffer[position]
+                    .set_content(&line_number_str)
+                    .set_foreground(Color::Black)
+                    .set_background(Color::White);
+
+                position = position.advance(&Grapheme::Text(&line_number_str));
+            }
+
+            assert!(position.left() >= &gutter_width);
+
             buffer[position].set_content(match grapheme {
                 Grapheme::LineBreak => " ",
                 Grapheme::Text(text) => text,
             });
+
+            if matches!(grapheme, Grapheme::LineBreak) {
+                line_number += 1;
+            }
 
             position = position.advance(&grapheme);
         }
@@ -87,7 +109,7 @@ impl Document {
             position = next_position;
         }
 
-        position
+        position.col_offset(self.gutter_width())
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -259,9 +281,10 @@ impl Document {
 
     fn line_count(&self) -> usize {
         // NOTE: we are doing this because of:
-        // https://docs.rs/ropey/2.0.0-beta.1/ropey/#a-note-about-line-breaks. if the file has a
-        // trailing line break, ropey counts that in the line count, but we want to act as if it
-        // doesn't exist. so, if the last line is empty, we'll lower the line count
+        // https://docs.rs/ropey/2.0.0-beta.1/ropey/#a-note-about-line-breaks. if the file
+        // has a trailing line break, ropey counts that in the line count, but we want to
+        // act as if it doesn't exist. so, if the last line is empty, we'll lower the line
+        // count
         let lines = self.text.len_lines(LineType::LF_CR);
 
         let last_line = self.text.line(lines.saturating_sub(1), LineType::LF_CR);
@@ -271,6 +294,10 @@ impl Document {
         } else {
             lines
         }
+    }
+
+    fn gutter_width(&self) -> Columns {
+        Columns::from(cmp::max(3, number_of_digits(self.line_count())))
     }
 }
 
@@ -289,6 +316,7 @@ impl Position {
         &self.left
     }
 
+    #[must_use]
     fn advance(self, grapheme: &Grapheme) -> Self {
         match grapheme {
             Grapheme::LineBreak => Self {
@@ -299,6 +327,14 @@ impl Position {
                 left: self.left + Columns::new(text.width()),
                 top: self.top,
             },
+        }
+    }
+
+    #[must_use]
+    fn col_offset(&self, gutter_width: Columns) -> Self {
+        Self {
+            left: self.left + gutter_width,
+            top: self.top,
         }
     }
 }
@@ -371,6 +407,10 @@ struct Selection {
     cursor: ByteIndex,
 }
 
+fn number_of_digits(value: usize) -> usize {
+    (value.checked_ilog10().unwrap_or(0) + 1) as usize
+}
+
 #[cfg(test)]
 mod tests {
     use crossterm::event::KeyCode;
@@ -434,13 +474,13 @@ mod tests {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
             initial_cursor: 0,
-            expected_initial_visual_position: (0, 0),
+            expected_initial_visual_position: (3, 0),
 
             keys: vec!['l'; 8],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 16,
-            expected_visual_position: (10, 0),
+            expected_visual_position: (13, 0),
         }
         .run();
     }
@@ -450,13 +490,13 @@ mod tests {
         TestCase {
             initial_text: "Test",
             initial_cursor: 3,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_visual_position: (6, 0),
 
             keys: vec!['l'; 1],
 
             expected_text: "Test",
             expected_cursor: 3,
-            expected_visual_position: (3, 0),
+            expected_visual_position: (6, 0),
         }
         .run();
     }
@@ -466,13 +506,13 @@ mod tests {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
             initial_cursor: 16,
-            expected_initial_visual_position: (10, 0),
+            expected_initial_visual_position: (13, 0),
 
             keys: vec!['h'; 1],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 12,
-            expected_visual_position: (8, 0),
+            expected_visual_position: (11, 0),
         }
         .run();
     }
@@ -482,13 +522,13 @@ mod tests {
         TestCase {
             initial_text: "Test",
             initial_cursor: 0,
-            expected_initial_visual_position: (0, 0),
+            expected_initial_visual_position: (3, 0),
 
             keys: vec!['h'; 1],
 
             expected_text: "Test",
             expected_cursor: 0,
-            expected_visual_position: (0, 0),
+            expected_visual_position: (3, 0),
         }
         .run();
     }
@@ -498,13 +538,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 0,
-            expected_initial_visual_position: (0, 0),
+            expected_initial_visual_position: (3, 0),
 
             keys: vec!['j'; 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 5,
-            expected_visual_position: (0, 1),
+            expected_visual_position: (3, 1),
         }
         .run();
     }
@@ -514,13 +554,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 5,
-            expected_initial_visual_position: (0, 1),
+            expected_initial_visual_position: (3, 1),
 
             keys: vec!['j'; 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 5,
-            expected_visual_position: (0, 1),
+            expected_visual_position: (3, 1),
         }
         .run();
     }
@@ -530,13 +570,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest\n",
             initial_cursor: 5,
-            expected_initial_visual_position: (0, 1),
+            expected_initial_visual_position: (3, 1),
 
             keys: vec!['j'; 1],
 
             expected_text: "Test\nTest\n",
             expected_cursor: 5,
-            expected_visual_position: (0, 1),
+            expected_visual_position: (3, 1),
         }
         .run();
     }
@@ -546,13 +586,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 5,
-            expected_initial_visual_position: (0, 1),
+            expected_initial_visual_position: (3, 1),
 
             keys: vec!['k'; 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 0,
-            expected_visual_position: (0, 0),
+            expected_visual_position: (3, 0),
         }
         .run();
     }
@@ -562,13 +602,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 1,
-            expected_initial_visual_position: (1, 0),
+            expected_initial_visual_position: (4, 0),
 
             keys: vec!['k'; 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 1,
-            expected_visual_position: (1, 0),
+            expected_visual_position: (4, 0),
         }
         .run();
     }

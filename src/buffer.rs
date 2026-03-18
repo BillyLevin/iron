@@ -71,9 +71,20 @@ impl Cell {
         &self.background
     }
 
-    pub(crate) fn set_content(&mut self, text: &str) {
+    pub(crate) fn set_content(&mut self, text: &str) -> &mut Self {
         self.content.clear();
         self.content.push_str(text);
+        self
+    }
+
+    pub(crate) const fn set_foreground(&mut self, foreground: Color) -> &mut Self {
+        self.foreground = foreground;
+        self
+    }
+
+    pub(crate) const fn set_background(&mut self, background: Color) -> &mut Self {
+        self.background = background;
+        self
     }
 
     pub(crate) fn width(&self) -> usize {
