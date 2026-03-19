@@ -26,6 +26,13 @@ pub(crate) struct Document {
 
     /// Number of lines from the top of the file that the buffer text should start from
     scroll_offset: LineIndex,
+
+    /// When navigating vertically, the cursor will be moved to the left if the next line is
+    /// narrower than the current. We use this field to track where the cursor would ideally be so
+    /// that we can move it there if the line is wide enough
+    ///
+    /// The value is relative to the start of the **text**, and does NOT include the `gutter_width`
+    desired_cursor_column: Option<Columns>,
 }
 
 impl Document {
@@ -36,6 +43,7 @@ impl Document {
             normal_keymap: KeyMap::normal(),
             dimensions,
             scroll_offset: LineIndex::default(),
+            desired_cursor_column: None,
         })
     }
 
@@ -128,24 +136,16 @@ impl Document {
     }
 
     fn move_cursor_down(&mut self) {
-        let line_index = self.byte_to_line(self.selection.cursor);
-        let line_start = self.line_to_byte(line_index);
+        let target_column = self.update_desired_column();
 
-        let target_column: usize = self
-            .text
-            .slice(line_start.value()..self.selection.cursor.value())
-            .chunks()
-            .map(UnicodeWidthStr::width)
-            .sum();
-
-        let next_line_index = line_index + 1;
+        let next_line_index = self.byte_to_line(self.selection.cursor) + 1;
         if next_line_index.value() >= self.line_count() {
             return;
         }
 
         let next_line_start = self.line_to_byte(next_line_index);
 
-        let mut column = 0;
+        let mut column = Columns::new(0);
         let mut byte_index = next_line_start;
 
         for grapheme in self.graphemes(next_line_start..).map(Grapheme::from) {
@@ -166,22 +166,12 @@ impl Document {
     }
 
     fn move_cursor_up(&mut self) {
-        let line_index = self.byte_to_line(self.selection.cursor);
+        let target_column = self.update_desired_column();
 
-        let line_start = self.line_to_byte(line_index);
-
-        let target_column: usize = self
-            .text
-            .slice(line_start.value()..self.selection.cursor.value())
-            .chunks()
-            .map(UnicodeWidthStr::width)
-            .sum();
-
-        let prev_line_index = line_index.saturating_sub(1);
-
+        let prev_line_index = self.byte_to_line(self.selection.cursor).saturating_sub(1);
         let prev_line_start = self.line_to_byte(prev_line_index);
 
-        let mut column = 0;
+        let mut column = Columns::new(0);
         let mut byte_index = prev_line_start;
 
         for grapheme in self.graphemes(prev_line_start..).map(Grapheme::from) {
@@ -208,6 +198,8 @@ impl Document {
             .map_or(0, str::len);
 
         self.set_cursor(self.selection.cursor + next_grapheme_offset);
+
+        self.clear_desired_column();
     }
 
     fn move_cursor_left(&mut self) {
@@ -241,6 +233,8 @@ impl Document {
         };
 
         self.set_cursor(byte_index);
+
+        self.clear_desired_column();
     }
 
     fn byte_to_line(&self, byte: ByteIndex) -> LineIndex {
@@ -317,6 +311,30 @@ impl Document {
                     LineIndex::from(cursor.top().value() - self.dimensions.height().value() + 1);
             }
         }
+    }
+
+    /// Sets the desired column to the current cursor column if it's not already set. Returns the
+    /// column for convenience to the caller
+    fn update_desired_column(&mut self) -> Columns {
+        let column = self.desired_cursor_column.unwrap_or_else(|| {
+            let line_start = self.line_to_byte(self.byte_to_line(self.selection.cursor));
+
+            Columns::from(
+                self.text
+                    .slice(line_start.value()..self.selection.cursor.value())
+                    .chunks()
+                    .map(UnicodeWidthStr::width)
+                    .sum::<usize>(),
+            )
+        });
+        self.desired_cursor_column = Some(column);
+        column
+    }
+
+    /// TODO: shouldn't have to remember to call this in every movement function that needs it.
+    /// should be a way to encode the logic into the type system
+    const fn clear_desired_column(&mut self) {
+        self.desired_cursor_column = None;
     }
 }
 
@@ -445,7 +463,7 @@ mod tests {
     use super::*;
     use std::io::Write as _;
 
-    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80usize), Rows::new(24usize));
+    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
 
     struct TestCase<'text> {
         initial_text: &'text str,
@@ -476,8 +494,16 @@ mod tests {
                 let _ = document.handle_key_event(KeyCode::Char(key).into());
             }
 
-            assert_eq!(document.text.to_string(), self.expected_text);
-            assert_eq!(document.selection.cursor, self.expected_cursor.into());
+            assert_eq!(
+                document.text.to_string(),
+                self.expected_text,
+                "text is incorrect"
+            );
+            assert_eq!(
+                document.selection.cursor,
+                self.expected_cursor.into(),
+                "cursor byte index is incorrect"
+            );
             assert_position(
                 "final position",
                 document.visual_cursor_position(),
@@ -686,6 +712,38 @@ mod tests {
             // visual position stays the same because we scrolled up, keeping the
             // cursor on the first line
             expected_visual_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn maintain_column_down() {
+        TestCase {
+            initial_text: "Long line\nShort\nLong line",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec!['j'; 2],
+
+            expected_text: "Long line\nShort\nLong line",
+            expected_cursor: 24,
+            expected_visual_position: (11, 2),
+        }
+        .run();
+    }
+
+    #[test]
+    fn maintain_column_up() {
+        TestCase {
+            initial_text: "Long line\nShort\nLong line",
+            initial_cursor: 24,
+            expected_initial_visual_position: (11, 2),
+
+            keys: vec!['k'; 2],
+
+            expected_text: "Long line\nShort\nLong line",
+            expected_cursor: 8,
+            expected_visual_position: (11, 0),
         }
         .run();
     }
