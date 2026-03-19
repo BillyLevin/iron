@@ -23,6 +23,9 @@ pub(crate) struct Document {
     selection: Selection,
     normal_keymap: KeyMap,
     dimensions: Dimensions,
+
+    /// Number of lines from the top of the file that the buffer text should start from
+    scroll_offset: LineIndex,
 }
 
 impl Document {
@@ -32,6 +35,7 @@ impl Document {
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
             dimensions,
+            scroll_offset: LineIndex::default(),
         })
     }
 
@@ -41,11 +45,14 @@ impl Document {
     pub(crate) fn render(&self, buffer: &mut Buffer) {
         let mut position = Position::default();
 
-        let mut line_number = 1;
+        let mut line_number = 1 + self.scroll_offset.value();
 
         let gutter_width = self.gutter_width();
 
-        for grapheme in self.graphemes(..).map(Grapheme::from) {
+        for grapheme in self
+            .graphemes(self.line_to_byte(self.scroll_offset)..)
+            .map(Grapheme::from)
+        {
             if position.top() >= self.dimensions.height() {
                 break;
             }
@@ -82,31 +89,26 @@ impl Document {
             .get(key_event)
             .map_or(EventOutcome::Unhandled, |action| {
                 self.apply_action(action);
+
                 self.clamp_cursor();
+                self.recalculate_scroll();
 
                 EventOutcome::Handled
             })
     }
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
-        let graphemes = self.text.chunks().flat_map(|chunk| chunk.graphemes(true));
         let mut position = Position::default();
-        let mut byte_index = ByteIndex::default();
+        let mut byte_index = self.line_to_byte(self.scroll_offset);
 
-        for grapheme in graphemes {
+        for grapheme in self.graphemes(byte_index..) {
             if byte_index == self.selection.cursor {
                 break;
             }
 
             byte_index += grapheme.len();
 
-            let next_position = position.advance(&Grapheme::from(grapheme));
-
-            if next_position.top() >= self.dimensions.height() {
-                break;
-            }
-
-            position = next_position;
+            position = position.advance(&Grapheme::from(grapheme));
         }
 
         position.col_offset(self.gutter_width())
@@ -273,10 +275,10 @@ impl Document {
 
     /// Ensures that the cursor does not go past the end of the file
     fn clamp_cursor(&mut self) {
-        self.selection.cursor = cmp::min(
+        self.set_cursor(cmp::min(
             self.selection.cursor,
-            ByteIndex::from(self.text.len()).saturating_sub(1),
-        );
+            ByteIndex::from(self.text.len().saturating_sub(1)),
+        ));
     }
 
     fn line_count(&self) -> usize {
@@ -298,6 +300,23 @@ impl Document {
 
     fn gutter_width(&self) -> Columns {
         Columns::from(cmp::max(3, number_of_digits(self.line_count())))
+    }
+
+    fn recalculate_scroll(&mut self) {
+        let cursor_line = self.byte_to_line(self.selection.cursor);
+
+        if cursor_line < self.scroll_offset {
+            // upwards scroll
+            self.scroll_offset = cursor_line;
+        } else {
+            let cursor = self.visual_cursor_position();
+
+            // downwards scroll
+            if cursor.top() >= self.dimensions.height() {
+                self.scroll_offset +=
+                    LineIndex::from(cursor.top().value() - self.dimensions.height().value() + 1);
+            }
+        }
     }
 }
 
@@ -361,10 +380,6 @@ impl ByteIndex {
     const fn value(self) -> usize {
         self.0
     }
-
-    const fn saturating_sub(self, rhs: usize) -> Self {
-        Self(self.0.saturating_sub(rhs))
-    }
 }
 
 impl ops::Add<usize> for ByteIndex {
@@ -381,7 +396,19 @@ impl ops::AddAssign<usize> for ByteIndex {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, derive_more::From)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    derive_more::From,
+    derive_more::Add,
+    derive_more::AddAssign,
+)]
 struct LineIndex(usize);
 
 impl LineIndex {
@@ -420,19 +447,19 @@ mod tests {
 
     const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80usize), Rows::new(24usize));
 
-    struct TestCase {
-        initial_text: &'static str,
+    struct TestCase<'text> {
+        initial_text: &'text str,
         initial_cursor: usize,
         expected_initial_visual_position: (usize, usize),
 
         keys: Vec<char>,
 
-        expected_text: &'static str,
+        expected_text: &'text str,
         expected_cursor: usize,
         expected_visual_position: (usize, usize),
     }
 
-    impl TestCase {
+    impl TestCase<'_> {
         fn run(self) {
             let _ = color_eyre::install();
 
@@ -440,6 +467,7 @@ mod tests {
 
             document.set_cursor(self.initial_cursor.into());
             assert_position(
+                "initial position",
                 document.visual_cursor_position(),
                 self.expected_initial_visual_position,
             );
@@ -451,15 +479,24 @@ mod tests {
             assert_eq!(document.text.to_string(), self.expected_text);
             assert_eq!(document.selection.cursor, self.expected_cursor.into());
             assert_position(
+                "final position",
                 document.visual_cursor_position(),
                 self.expected_visual_position,
             );
         }
     }
 
-    fn assert_position(actual: Position, expected: (usize, usize)) {
-        assert_eq!(actual.left(), &Columns::from(expected.0));
-        assert_eq!(actual.top(), &Rows::from(expected.1));
+    fn assert_position(label: &str, actual: Position, expected: (usize, usize)) {
+        assert_eq!(
+            actual.left(),
+            &Columns::from(expected.0),
+            "{label} did not match"
+        );
+        assert_eq!(
+            actual.top(),
+            &Rows::from(expected.1),
+            "{label} did not match"
+        );
     }
 
     fn doc(contents: &str) -> Document {
@@ -608,6 +645,46 @@ mod tests {
 
             expected_text: "Test\nTest",
             expected_cursor: 1,
+            expected_visual_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn scroll_down() {
+        let text = "Test\n".repeat(30);
+
+        TestCase {
+            initial_text: &text,
+            initial_cursor: 23 * 5,
+            expected_initial_visual_position: (3, 23),
+
+            keys: vec!['j'; 1],
+
+            expected_text: &text,
+            expected_cursor: 24 * 5,
+            // visual position stays the same because we scrolled down, keeping the
+            // cursor on the final line
+            expected_visual_position: (3, 23),
+        }
+        .run();
+    }
+
+    #[test]
+    fn scroll_up() {
+        let text = "Test\n".repeat(30);
+
+        TestCase {
+            initial_text: &text,
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: [vec!['j'; 26], vec!['k'; 25]].concat(),
+
+            expected_text: &text,
+            expected_cursor: 6,
+            // visual position stays the same because we scrolled up, keeping the
+            // cursor on the first line
             expected_visual_position: (4, 0),
         }
         .run();

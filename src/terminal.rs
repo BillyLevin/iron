@@ -68,6 +68,8 @@ impl Terminal {
         self.draw(&buffer, document.visual_cursor_position())?;
 
         loop {
+            buffer.clear();
+
             let event_outcome = match event::read()? {
                 Event::Key(key_event) => {
                     if key_event.code == KeyCode::Char('q') {

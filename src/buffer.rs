@@ -23,6 +23,10 @@ impl Buffer {
         &self.cells
     }
 
+    pub(crate) fn clear(&mut self) {
+        self.cells.fill_with(Cell::default);
+    }
+
     const fn position_index(&self, position: Position) -> usize {
         position.top().value() * self.dimensions.width().value() + position.left().value()
     }
