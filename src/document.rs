@@ -6,7 +6,10 @@ use std::{
     path::PathBuf,
 };
 
-use crossterm::{event::KeyEvent, style::Color};
+use crossterm::{
+    event::{KeyCode, KeyEvent, KeyModifiers},
+    style::Color,
+};
 use itertools::Itertools as _;
 use ropey::{LineType, Rope};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
@@ -22,7 +25,10 @@ use crate::{
 pub(crate) struct Document {
     text: Rope,
     selection: Selection,
+
     normal_keymap: KeyMap,
+    insert_keymap: KeyMap,
+
     dimensions: Dimensions,
 
     /// Number of lines from the top of the file that the buffer text should start from
@@ -34,6 +40,8 @@ pub(crate) struct Document {
     ///
     /// The value is relative to the start of the **text**, and does NOT include the `gutter_width`
     desired_cursor_column: Option<Columns>,
+
+    mode: Mode,
 }
 
 impl Document {
@@ -42,9 +50,11 @@ impl Document {
             text: Rope::from_reader(BufReader::new(File::open(file_path)?))?,
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
+            insert_keymap: KeyMap::insert(),
             dimensions,
             scroll_offset: LineIndex::default(),
             desired_cursor_column: None,
+            mode: Mode::Normal,
         })
     }
 
@@ -94,8 +104,14 @@ impl Document {
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> EventOutcome {
-        self.normal_keymap
+        let keymap = match self.mode {
+            Mode::Normal => &self.normal_keymap,
+            Mode::Insert => &self.insert_keymap,
+        };
+
+        keymap
             .get(key_event)
+            .or_else(|| self.event_fallback(key_event))
             .map_or(EventOutcome::Unhandled, |action| {
                 self.apply_action(action);
 
@@ -135,6 +151,9 @@ impl Document {
             Action::MoveLeft => self.move_cursor_left(),
             Action::MoveNextWordStart => self.move_cursor_next_word_start(),
             Action::MovePrevWordStart => self.move_cursor_prev_word_start(),
+            Action::SwitchToInsertMode => self.insert_mode(),
+            Action::InsertChar(ch) => self.insert_char(ch),
+            Action::DeleteGrapheme => self.delete_grapheme(),
         }
     }
 
@@ -206,36 +225,7 @@ impl Document {
     }
 
     fn move_cursor_left(&mut self) {
-        let text_slice = self.text.slice(..self.selection.cursor.value());
-
-        let (mut chunk, mut chunk_start_index) = text_slice.chunk(self.selection.cursor.value());
-
-        let mut grapheme_cursor =
-            GraphemeCursor::new(self.selection.cursor.value(), text_slice.len(), true);
-
-        let byte_index = loop {
-            match grapheme_cursor.prev_boundary(chunk, chunk_start_index) {
-                Ok(None) => break ByteIndex::from(0),
-                Ok(Some(index)) => break ByteIndex::from(index),
-
-                Err(GraphemeIncomplete::PrevChunk) => {
-                    assert!(chunk_start_index > 0);
-                    (chunk, chunk_start_index) = text_slice.chunk(chunk_start_index - 1);
-                }
-
-                Err(GraphemeIncomplete::PreContext(offset)) => {
-                    assert!(offset > 0);
-                    let (context_chunk, context_chunk_start) = text_slice.chunk(offset - 1);
-                    grapheme_cursor.provide_context(context_chunk, context_chunk_start);
-                }
-
-                Err(GraphemeIncomplete::NextChunk | GraphemeIncomplete::InvalidOffset) => {
-                    unreachable!()
-                }
-            }
-        };
-
-        self.set_cursor(byte_index);
+        self.set_cursor(self.previous_grapheme_position(self.selection.cursor));
 
         self.clear_desired_column();
     }
@@ -283,6 +273,38 @@ impl Document {
 
         self.set_cursor(byte_index);
         self.clear_desired_column();
+    }
+
+    /// Gets the byte index of the first byte of the previous grapheme from the given byte
+    /// index
+    fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex {
+        let text_slice = self.text.slice(..from.value());
+
+        let (mut chunk, mut chunk_start_index) = text_slice.chunk(from.value());
+
+        let mut grapheme_cursor = GraphemeCursor::new(from.value(), text_slice.len(), true);
+
+        loop {
+            match grapheme_cursor.prev_boundary(chunk, chunk_start_index) {
+                Ok(None) => break ByteIndex::from(0),
+                Ok(Some(index)) => break ByteIndex::from(index),
+
+                Err(GraphemeIncomplete::PrevChunk) => {
+                    assert!(chunk_start_index > 0);
+                    (chunk, chunk_start_index) = text_slice.chunk(chunk_start_index - 1);
+                }
+
+                Err(GraphemeIncomplete::PreContext(offset)) => {
+                    assert!(offset > 0);
+                    let (context_chunk, context_chunk_start) = text_slice.chunk(offset - 1);
+                    grapheme_cursor.provide_context(context_chunk, context_chunk_start);
+                }
+
+                Err(GraphemeIncomplete::NextChunk | GraphemeIncomplete::InvalidOffset) => {
+                    unreachable!()
+                }
+            }
+        }
     }
 
     fn byte_to_line(&self, byte: ByteIndex) -> LineIndex {
@@ -383,6 +405,40 @@ impl Document {
     /// should be a way to encode the logic into the type system
     const fn clear_desired_column(&mut self) {
         self.desired_cursor_column = None;
+    }
+
+    const fn event_fallback(&self, key_event: KeyEvent) -> Option<Action> {
+        match self.mode {
+            Mode::Normal => None,
+            Mode::Insert => {
+                if let KeyCode::Char(ch) = key_event.code
+                    && !key_event.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key_event.modifiers.contains(KeyModifiers::ALT)
+                {
+                    Some(Action::InsertChar(ch))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    const fn insert_mode(&mut self) {
+        self.mode = Mode::Insert;
+    }
+
+    fn insert_char(&mut self, ch: char) {
+        self.text.insert_char(self.selection.cursor.value(), ch);
+        self.set_cursor(self.selection.cursor + ch.len_utf8());
+    }
+
+    fn delete_grapheme(&mut self) {
+        let start = self.previous_grapheme_position(self.selection.cursor);
+
+        self.text
+            .remove(start.value()..self.selection.cursor.value());
+
+        self.set_cursor(start);
     }
 }
 
@@ -539,12 +595,28 @@ fn is_word_boundary(prev_ch: char, current_ch: char) -> bool {
     prev_kind != current_kind && current_kind != WordBoundaryKind::Whitespace
 }
 
+#[derive(Debug)]
+enum Mode {
+    Normal,
+    Insert,
+}
+
 #[cfg(test)]
 mod tests {
-    use crossterm::event::KeyCode;
+    use crossterm::event::{KeyCode, KeyEvent};
 
     use super::*;
     use std::io::Write as _;
+
+    macro_rules! key_event {
+        ($key:literal) => {
+            KeyEvent::from(KeyCode::Char($key))
+        };
+
+        ($key:ident) => {
+            KeyEvent::from(KeyCode::$key)
+        };
+    }
 
     const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
 
@@ -553,7 +625,7 @@ mod tests {
         initial_cursor: usize,
         expected_initial_visual_position: (usize, usize),
 
-        keys: Vec<char>,
+        keys: Vec<KeyEvent>,
 
         expected_text: &'text str,
         expected_cursor: usize,
@@ -573,8 +645,8 @@ mod tests {
                 self.expected_initial_visual_position,
             );
 
-            for key in self.keys {
-                let _ = document.handle_key_event(KeyCode::Char(key).into());
+            for event in self.keys {
+                let _ = document.handle_key_event(event);
             }
 
             assert_eq!(
@@ -622,7 +694,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['l'; 8],
+            keys: vec![key_event!('l'); 8],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 16,
@@ -638,7 +710,7 @@ mod tests {
             initial_cursor: 3,
             expected_initial_visual_position: (6, 0),
 
-            keys: vec!['l'; 1],
+            keys: vec![key_event!('l'); 1],
 
             expected_text: "Test",
             expected_cursor: 3,
@@ -654,7 +726,7 @@ mod tests {
             initial_cursor: 16,
             expected_initial_visual_position: (13, 0),
 
-            keys: vec!['h'; 1],
+            keys: vec![key_event!('h'); 1],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 12,
@@ -670,7 +742,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['h'; 1],
+            keys: vec![key_event!('h'); 1],
 
             expected_text: "Test",
             expected_cursor: 0,
@@ -686,7 +758,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['j'; 1],
+            keys: vec![key_event!('j'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 5,
@@ -702,7 +774,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (3, 1),
 
-            keys: vec!['j'; 1],
+            keys: vec![key_event!('j'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 5,
@@ -718,7 +790,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (3, 1),
 
-            keys: vec!['j'; 1],
+            keys: vec![key_event!('j'); 1],
 
             expected_text: "Test\nTest\n",
             expected_cursor: 5,
@@ -734,7 +806,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (3, 1),
 
-            keys: vec!['k'; 1],
+            keys: vec![key_event!('k'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 0,
@@ -750,7 +822,7 @@ mod tests {
             initial_cursor: 1,
             expected_initial_visual_position: (4, 0),
 
-            keys: vec!['k'; 1],
+            keys: vec![key_event!('k'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 1,
@@ -768,7 +840,7 @@ mod tests {
             initial_cursor: 23 * 5,
             expected_initial_visual_position: (3, 23),
 
-            keys: vec!['j'; 1],
+            keys: vec![key_event!('j'); 1],
 
             expected_text: &text,
             expected_cursor: 24 * 5,
@@ -788,7 +860,7 @@ mod tests {
             initial_cursor: 1,
             expected_initial_visual_position: (4, 0),
 
-            keys: [vec!['j'; 26], vec!['k'; 25]].concat(),
+            keys: [vec![key_event!('j'); 26], vec![key_event!('k'); 25]].concat(),
 
             expected_text: &text,
             expected_cursor: 6,
@@ -806,7 +878,7 @@ mod tests {
             initial_cursor: 8,
             expected_initial_visual_position: (11, 0),
 
-            keys: vec!['j'; 2],
+            keys: vec![key_event!('j'); 2],
 
             expected_text: "Long line\nShort\nLong line",
             expected_cursor: 24,
@@ -822,7 +894,7 @@ mod tests {
             initial_cursor: 24,
             expected_initial_visual_position: (11, 2),
 
-            keys: vec!['k'; 2],
+            keys: vec![key_event!('k'); 2],
 
             expected_text: "Long line\nShort\nLong line",
             expected_cursor: 8,
@@ -838,7 +910,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "Test text",
             expected_cursor: 5,
@@ -854,7 +926,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "😀 hello",
             expected_cursor: 5,
@@ -870,7 +942,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'; 3],
+            keys: vec![key_event!('w'); 3],
 
             expected_text: "hello world test",
             expected_cursor: 15,
@@ -886,7 +958,7 @@ mod tests {
             initial_cursor: 1,
             expected_initial_visual_position: (4, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello world",
             expected_cursor: 6,
@@ -902,7 +974,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (8, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello world",
             expected_cursor: 6,
@@ -918,7 +990,7 @@ mod tests {
             initial_cursor: 6,
             expected_initial_visual_position: (9, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello world",
             expected_cursor: 10,
@@ -934,7 +1006,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (8, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello, world",
             expected_cursor: 7,
@@ -950,7 +1022,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello    world",
             expected_cursor: 9,
@@ -966,7 +1038,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "test123 abc456",
             expected_cursor: 8,
@@ -982,7 +1054,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello_world test",
             expected_cursor: 12,
@@ -998,7 +1070,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "hello\nworld",
             expected_cursor: 6,
@@ -1014,7 +1086,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['w'],
+            keys: vec![key_event!('w')],
 
             expected_text: "",
             expected_cursor: 0,
@@ -1030,7 +1102,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (8, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "Test text",
             expected_cursor: 0,
@@ -1046,7 +1118,7 @@ mod tests {
             initial_cursor: 5,
             expected_initial_visual_position: (6, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "😀 hello",
             expected_cursor: 0,
@@ -1062,7 +1134,7 @@ mod tests {
             initial_cursor: 15,
             expected_initial_visual_position: (18, 0),
 
-            keys: vec!['b'; 2],
+            keys: vec![key_event!('b'); 2],
 
             expected_text: "hello world test",
             expected_cursor: 6,
@@ -1078,7 +1150,7 @@ mod tests {
             initial_cursor: 8,
             expected_initial_visual_position: (11, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "hello world",
             expected_cursor: 6,
@@ -1094,7 +1166,7 @@ mod tests {
             initial_cursor: 11,
             expected_initial_visual_position: (14, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "hello world ",
             expected_cursor: 6,
@@ -1110,7 +1182,7 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "hello world",
             expected_cursor: 0,
@@ -1126,7 +1198,7 @@ mod tests {
             initial_cursor: 13,
             expected_initial_visual_position: (16, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "hello world  ,",
             expected_cursor: 6,
@@ -1142,7 +1214,7 @@ mod tests {
             initial_cursor: 8,
             expected_initial_visual_position: (11, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "test123 abc456",
             expected_cursor: 0,
@@ -1158,7 +1230,7 @@ mod tests {
             initial_cursor: 12,
             expected_initial_visual_position: (15, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "hello_world test",
             expected_cursor: 0,
@@ -1174,7 +1246,7 @@ mod tests {
             initial_cursor: 6,
             expected_initial_visual_position: (3, 1),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "hello\nworld",
             expected_cursor: 0,
@@ -1190,11 +1262,86 @@ mod tests {
             initial_cursor: 0,
             expected_initial_visual_position: (3, 0),
 
-            keys: vec!['b'],
+            keys: vec![key_event!('b')],
 
             expected_text: "",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn insert() {
+        TestCase {
+            initial_text: "lo",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![
+                key_event!('i'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('l'),
+            ],
+
+            expected_text: "Hello",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_simple() {
+        TestCase {
+            initial_text: "Hello!",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('i'), key_event!(Backspace)],
+
+            expected_text: "Hllo!",
+            expected_cursor: 1,
+            expected_visual_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_emoji() {
+        TestCase {
+            initial_text: "Hello ⚒️ !!",
+            initial_cursor: 12,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![key_event!('i'), key_event!(Backspace)],
+
+            expected_text: "Hello  !!",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_and_insert() {
+        TestCase {
+            initial_text: "Hello!!",
+            initial_cursor: 6,
+            expected_initial_visual_position: (9, 0),
+
+            keys: vec![
+                key_event!('i'),
+                key_event!(Backspace),
+                key_event!(Backspace),
+                key_event!(Backspace),
+                key_event!(Backspace),
+                key_event!('y'),
+            ],
+            expected_text: "Hey!",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
         }
         .run();
     }

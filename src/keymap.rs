@@ -28,7 +28,15 @@ impl KeyMap {
                 KeyEvent::from(KeyCode::Char('b')),
                 Action::MovePrevWordStart,
             ),
+            (
+                KeyEvent::from(KeyCode::Char('i')),
+                Action::SwitchToInsertMode,
+            ),
         ])
+    }
+
+    pub(crate) fn insert() -> Self {
+        Self::new(&[(KeyEvent::from(KeyCode::Backspace), Action::DeleteGrapheme)])
     }
 
     pub(crate) fn get(&self, key_event: KeyEvent) -> Option<Action> {
@@ -44,4 +52,7 @@ pub(crate) enum Action {
     MoveLeft,
     MoveNextWordStart,
     MovePrevWordStart,
+    SwitchToInsertMode,
+    InsertChar(char),
+    DeleteGrapheme,
 }
