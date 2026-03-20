@@ -20,6 +20,10 @@ impl KeyMap {
             (KeyEvent::from(KeyCode::Char('k')), Action::MoveUp),
             (KeyEvent::from(KeyCode::Char('l')), Action::MoveRight),
             (KeyEvent::from(KeyCode::Char('h')), Action::MoveLeft),
+            (
+                KeyEvent::from(KeyCode::Char('w')),
+                Action::MoveNextWordStart,
+            ),
         ])
     }
 
@@ -34,4 +38,5 @@ pub(crate) enum Action {
     MoveUp,
     MoveRight,
     MoveLeft,
+    MoveNextWordStart,
 }

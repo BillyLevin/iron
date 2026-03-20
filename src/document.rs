@@ -2,11 +2,12 @@ use std::{
     cmp,
     fs::File,
     io::{self, BufReader},
-    ops::{self, Bound},
+    ops::{self, Bound, ControlFlow},
     path::PathBuf,
 };
 
 use crossterm::{event::KeyEvent, style::Color};
+use itertools::Itertools as _;
 use ropey::{LineType, Rope};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
 use unicode_width::UnicodeWidthStr;
@@ -132,6 +133,7 @@ impl Document {
             Action::MoveUp => self.move_cursor_up(),
             Action::MoveRight => self.move_cursor_right(),
             Action::MoveLeft => self.move_cursor_left(),
+            Action::MoveNextWordStart => self.move_cursor_next_word_start(),
         }
     }
 
@@ -234,6 +236,28 @@ impl Document {
 
         self.set_cursor(byte_index);
 
+        self.clear_desired_column();
+    }
+
+    fn move_cursor_next_word_start(&mut self) {
+        let byte_index = match self
+            .text
+            .slice(self.selection.cursor.value()..)
+            .chars()
+            .tuple_windows()
+            .try_fold(self.selection.cursor, |index, (prev, ch)| {
+                let index = index + prev.len_utf8();
+
+                if is_word_boundary(prev, ch) {
+                    ControlFlow::Break(index)
+                } else {
+                    ControlFlow::Continue(index)
+                }
+            }) {
+            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+        };
+
+        self.set_cursor(byte_index);
         self.clear_desired_column();
     }
 
@@ -454,6 +478,33 @@ struct Selection {
 
 fn number_of_digits(value: usize) -> usize {
     (value.checked_ilog10().unwrap_or(0) + 1) as usize
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum WordBoundaryKind {
+    /// letters, digits, underscores
+    WordPart,
+    Whitespace,
+    Other,
+}
+
+impl From<char> for WordBoundaryKind {
+    fn from(ch: char) -> Self {
+        if ch.is_whitespace() {
+            Self::Whitespace
+        } else if ch.is_alphanumeric() || ch == '_' {
+            Self::WordPart
+        } else {
+            Self::Other
+        }
+    }
+}
+
+fn is_word_boundary(prev_ch: char, current_ch: char) -> bool {
+    let prev_kind = WordBoundaryKind::from(prev_ch);
+    let current_kind = WordBoundaryKind::from(current_ch);
+
+    prev_kind != current_kind && current_kind != WordBoundaryKind::Whitespace
 }
 
 #[cfg(test)]
@@ -744,6 +795,198 @@ mod tests {
             expected_text: "Long line\nShort\nLong line",
             expected_cursor: 8,
             expected_visual_position: (11, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start() {
+        TestCase {
+            initial_text: "Test text",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "Test text",
+            expected_cursor: 5,
+            expected_visual_position: (8, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_emoji() {
+        TestCase {
+            initial_text: "😀 hello",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "😀 hello",
+            expected_cursor: 5,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_multiple() {
+        TestCase {
+            initial_text: "hello world test",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'; 3],
+
+            expected_text: "hello world test",
+            expected_cursor: 15,
+            expected_visual_position: (18, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_mid_word() {
+        TestCase {
+            initial_text: "hello world",
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello world",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_at_space() {
+        TestCase {
+            initial_text: "hello world",
+            initial_cursor: 5,
+            expected_initial_visual_position: (8, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello world",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_end_of_file() {
+        TestCase {
+            initial_text: "hello world",
+            initial_cursor: 6,
+            expected_initial_visual_position: (9, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello world",
+            expected_cursor: 10,
+            expected_visual_position: (13, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_punctuation_to_word() {
+        TestCase {
+            initial_text: "hello, world",
+            initial_cursor: 5,
+            expected_initial_visual_position: (8, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello, world",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_multiple_spaces() {
+        TestCase {
+            initial_text: "hello    world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello    world",
+            expected_cursor: 9,
+            expected_visual_position: (12, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_with_numbers() {
+        TestCase {
+            initial_text: "test123 abc456",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "test123 abc456",
+            expected_cursor: 8,
+            expected_visual_position: (11, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_ignore_underscore() {
+        TestCase {
+            initial_text: "hello_world test",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello_world test",
+            expected_cursor: 12,
+            expected_visual_position: (15, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_across_lines() {
+        TestCase {
+            initial_text: "hello\nworld",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "hello\nworld",
+            expected_cursor: 6,
+            expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_word_start_empty_file() {
+        TestCase {
+            initial_text: "",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['w'],
+
+            expected_text: "",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }
