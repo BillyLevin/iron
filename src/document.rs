@@ -134,6 +134,7 @@ impl Document {
             Action::MoveRight => self.move_cursor_right(),
             Action::MoveLeft => self.move_cursor_left(),
             Action::MoveNextWordStart => self.move_cursor_next_word_start(),
+            Action::MovePrevWordStart => self.move_cursor_prev_word_start(),
         }
     }
 
@@ -256,6 +257,29 @@ impl Document {
             }) {
             ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
         };
+
+        self.set_cursor(byte_index);
+        self.clear_desired_column();
+    }
+
+    fn move_cursor_prev_word_start(&mut self) {
+        let byte_index = self
+            .text
+            .slice(..self.selection.cursor.value())
+            .chars_at(self.selection.cursor.value())
+            .reversed()
+            .tuple_windows()
+            .try_fold(self.selection.cursor, |index, (prev, ch)| {
+                let index = index.saturating_sub(prev.len_utf8());
+
+                if is_word_boundary(ch, prev) {
+                    ControlFlow::Break(index)
+                } else {
+                    ControlFlow::Continue(index)
+                }
+            })
+            .break_value()
+            .unwrap_or(ByteIndex::new(0));
 
         self.set_cursor(byte_index);
         self.clear_desired_column();
@@ -419,8 +443,16 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
 struct ByteIndex(usize);
 
 impl ByteIndex {
+    const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
     const fn value(self) -> usize {
         self.0
+    }
+
+    const fn saturating_sub(self, rhs: usize) -> Self {
+        Self(self.0.saturating_sub(rhs))
     }
 }
 
@@ -983,6 +1015,182 @@ mod tests {
             expected_initial_visual_position: (3, 0),
 
             keys: vec!['w'],
+
+            expected_text: "",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start() {
+        TestCase {
+            initial_text: "Test text",
+            initial_cursor: 5,
+            expected_initial_visual_position: (8, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "Test text",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_emoji() {
+        TestCase {
+            initial_text: "😀 hello",
+            initial_cursor: 5,
+            expected_initial_visual_position: (6, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "😀 hello",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_multiple() {
+        TestCase {
+            initial_text: "hello world test",
+            initial_cursor: 15,
+            expected_initial_visual_position: (18, 0),
+
+            keys: vec!['b'; 2],
+
+            expected_text: "hello world test",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_mid_word() {
+        TestCase {
+            initial_text: "hello world",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "hello world",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_at_space() {
+        TestCase {
+            initial_text: "hello world ",
+            initial_cursor: 11,
+            expected_initial_visual_position: (14, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "hello world ",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_start_of_file() {
+        TestCase {
+            initial_text: "hello world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "hello world",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_punctuation_to_word() {
+        TestCase {
+            initial_text: "hello world  ,",
+            initial_cursor: 13,
+            expected_initial_visual_position: (16, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "hello world  ,",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_with_numbers() {
+        TestCase {
+            initial_text: "test123 abc456",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "test123 abc456",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_ignore_underscore() {
+        TestCase {
+            initial_text: "hello_world test",
+            initial_cursor: 12,
+            expected_initial_visual_position: (15, 0),
+
+            keys: vec!['b'],
+
+            expected_text: "hello_world test",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_across_lines() {
+        TestCase {
+            initial_text: "hello\nworld",
+            initial_cursor: 6,
+            expected_initial_visual_position: (3, 1),
+
+            keys: vec!['b'],
+
+            expected_text: "hello\nworld",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_empty_file() {
+        TestCase {
+            initial_text: "",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec!['b'],
 
             expected_text: "",
             expected_cursor: 0,
