@@ -32,6 +32,7 @@ impl KeyMap {
                 KeyEvent::from(KeyCode::Char('i')),
                 Action::SwitchToInsertMode,
             ),
+            (KeyEvent::from(KeyCode::Char('$')), Action::MoveLineEnd),
         ])
     }
 
@@ -56,6 +57,7 @@ pub(crate) enum Action {
     MoveLeft,
     MoveNextWordStart,
     MovePrevWordStart,
+    MoveLineEnd,
     SwitchToInsertMode,
     SwitchToNormalMode,
     InsertChar(char),

@@ -11,7 +11,7 @@ use crossterm::{
     style::Color,
 };
 use itertools::Itertools as _;
-use ropey::{LineType, Rope};
+use ropey::{LineType, Rope, RopeSlice};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
 use unicode_width::UnicodeWidthStr;
 
@@ -156,6 +156,7 @@ impl Document {
             Action::InsertChar(ch) => self.insert_char(ch),
             Action::DeleteGrapheme => self.delete_grapheme(),
             Action::InsertNewline => self.insert_newline(),
+            Action::MoveLineEnd => self.move_cursor_line_end(),
         }
     }
 
@@ -320,6 +321,10 @@ impl Document {
         ByteIndex::from(self.text.line_to_byte_idx(line.value(), LineType::LF_CR))
     }
 
+    fn line(&self, line_index: LineIndex) -> RopeSlice<'_> {
+        self.text.line(line_index.value(), LineType::LF_CR)
+    }
+
     fn graphemes(&self, range: impl ops::RangeBounds<ByteIndex>) -> impl Iterator<Item = &str> {
         let start = match range.start_bound() {
             Bound::Included(byte) => Bound::Included(byte.value()),
@@ -450,6 +455,18 @@ impl Document {
     fn insert_newline(&mut self) {
         self.insert_char('\n');
     }
+
+    fn move_cursor_line_end(&mut self) {
+        let line_index = self.byte_to_line(self.selection.cursor);
+        let line = self.line(line_index);
+
+        let offset = ByteIndex::from(
+            line.trailing_line_break_idx(LineType::LF_CR)
+                .unwrap_or_else(|| line.len()),
+        );
+
+        self.set_cursor(self.line_to_byte(line_index) + offset);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -505,7 +522,9 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, derive_more::From)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, derive_more::From, derive_more::Add,
+)]
 struct ByteIndex(usize);
 
 impl ByteIndex {
@@ -1388,6 +1407,54 @@ mod tests {
             expected_text: "He\nllo!",
             expected_cursor: 3,
             expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_line_end() {
+        TestCase {
+            initial_text: "Hello!!",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('$')],
+
+            expected_text: "Hello!!",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_line_end_with_lf() {
+        TestCase {
+            initial_text: "Hello!!\nNext line",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('$')],
+
+            expected_text: "Hello!!\nNext line",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_line_end_with_crlf() {
+        TestCase {
+            initial_text: "Hello!!\r\nNext line",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('$')],
+
+            expected_text: "Hello!!\r\nNext line",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
         }
         .run();
     }
