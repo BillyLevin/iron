@@ -66,3 +66,24 @@ pub(crate) enum Action {
     DeleteGrapheme,
     InsertNewline,
 }
+
+impl Action {
+    pub(crate) const fn is_non_vertical_movement(self) -> bool {
+        match self {
+            Self::MoveRight
+            | Self::MoveLeft
+            | Self::MoveNextWordStart
+            | Self::MovePrevWordStart
+            | Self::MoveLineStart
+            | Self::MoveLineEnd => true,
+
+            Self::MoveDown
+            | Self::MoveUp
+            | Self::SwitchToInsertMode
+            | Self::SwitchToNormalMode
+            | Self::InsertChar(_)
+            | Self::DeleteGrapheme
+            | Self::InsertNewline => false,
+        }
+    }
+}

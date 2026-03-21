@@ -159,6 +159,10 @@ impl Document {
             Action::MoveLineEnd => self.move_cursor_line_end(),
             Action::MoveLineStart => self.move_cursor_line_start(),
         }
+
+        if action.is_non_vertical_movement() {
+            self.clear_desired_column();
+        }
     }
 
     fn move_cursor_down(&mut self) {
@@ -224,14 +228,10 @@ impl Document {
             .map_or(0, str::len);
 
         self.set_cursor(self.selection.cursor + next_grapheme_offset);
-
-        self.clear_desired_column();
     }
 
     fn move_cursor_left(&mut self) {
         self.set_cursor(self.previous_grapheme_position(self.selection.cursor));
-
-        self.clear_desired_column();
     }
 
     fn move_cursor_next_word_start(&mut self) {
@@ -253,7 +253,6 @@ impl Document {
         };
 
         self.set_cursor(byte_index);
-        self.clear_desired_column();
     }
 
     fn move_cursor_prev_word_start(&mut self) {
@@ -276,7 +275,6 @@ impl Document {
             .unwrap_or(ByteIndex::new(0));
 
         self.set_cursor(byte_index);
-        self.clear_desired_column();
     }
 
     /// Gets the byte index of the first byte of the previous grapheme from the given byte
@@ -409,8 +407,6 @@ impl Document {
         column
     }
 
-    /// TODO: shouldn't have to remember to call this in every movement function that needs it.
-    /// should be a way to encode the logic into the type system
     const fn clear_desired_column(&mut self) {
         self.desired_cursor_column = None;
     }
