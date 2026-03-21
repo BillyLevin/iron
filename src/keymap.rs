@@ -36,7 +36,10 @@ impl KeyMap {
     }
 
     pub(crate) fn insert() -> Self {
-        Self::new(&[(KeyEvent::from(KeyCode::Backspace), Action::DeleteGrapheme)])
+        Self::new(&[
+            (KeyEvent::from(KeyCode::Backspace), Action::DeleteGrapheme),
+            (KeyEvent::from(KeyCode::Esc), Action::SwitchToNormalMode),
+        ])
     }
 
     pub(crate) fn get(&self, key_event: KeyEvent) -> Option<Action> {
@@ -53,6 +56,7 @@ pub(crate) enum Action {
     MoveNextWordStart,
     MovePrevWordStart,
     SwitchToInsertMode,
+    SwitchToNormalMode,
     InsertChar(char),
     DeleteGrapheme,
 }

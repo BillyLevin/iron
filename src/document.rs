@@ -152,6 +152,7 @@ impl Document {
             Action::MoveNextWordStart => self.move_cursor_next_word_start(),
             Action::MovePrevWordStart => self.move_cursor_prev_word_start(),
             Action::SwitchToInsertMode => self.insert_mode(),
+            Action::SwitchToNormalMode => self.normal_mode(),
             Action::InsertChar(ch) => self.insert_char(ch),
             Action::DeleteGrapheme => self.delete_grapheme(),
         }
@@ -425,6 +426,10 @@ impl Document {
 
     const fn insert_mode(&mut self) {
         self.mode = Mode::Insert;
+    }
+
+    const fn normal_mode(&mut self) {
+        self.mode = Mode::Normal;
     }
 
     fn insert_char(&mut self, ch: char) {
@@ -1342,6 +1347,27 @@ mod tests {
             expected_text: "Hey!",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn normal_mode() {
+        TestCase {
+            initial_text: "Hello!",
+            initial_cursor: 5,
+            expected_initial_visual_position: (8, 0),
+
+            keys: vec![
+                key_event!('i'),
+                key_event!('!'),
+                key_event!(Esc),
+                key_event!('h'),
+                key_event!('h'),
+            ],
+            expected_text: "Hello!!",
+            expected_cursor: 4,
+            expected_visual_position: (7, 0),
         }
         .run();
     }
