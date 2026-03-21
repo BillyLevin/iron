@@ -157,6 +157,7 @@ impl Document {
             Action::DeleteGrapheme => self.delete_grapheme(),
             Action::InsertNewline => self.insert_newline(),
             Action::MoveLineEnd => self.move_cursor_line_end(),
+            Action::MoveLineStart => self.move_cursor_line_start(),
         }
     }
 
@@ -466,6 +467,10 @@ impl Document {
         );
 
         self.set_cursor(self.line_to_byte(line_index) + offset);
+    }
+
+    fn move_cursor_line_start(&mut self) {
+        self.set_cursor(self.line_to_byte(self.byte_to_line(self.selection.cursor)));
     }
 }
 
@@ -1455,6 +1460,22 @@ mod tests {
             expected_text: "Hello!!\r\nNext line",
             expected_cursor: 7,
             expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_line_start() {
+        TestCase {
+            initial_text: "Hello!!",
+            initial_cursor: 3,
+            expected_initial_visual_position: (6, 0),
+
+            keys: vec![key_event!('0')],
+
+            expected_text: "Hello!!",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }
