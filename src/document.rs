@@ -162,6 +162,7 @@ impl Document {
             Action::MoveLineEnd => self.move_cursor_line_end(),
             Action::MoveLineStart => self.move_cursor_line_start(),
             Action::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
+            Action::MoveNextParagraph => self.move_cursor_next_paragraph(),
         }
 
         if action.is_non_vertical_movement() {
@@ -491,6 +492,23 @@ impl Document {
             .sum();
 
         self.set_cursor(self.line_to_byte(line_index) + offset);
+    }
+
+    fn move_cursor_next_paragraph(&mut self) {
+        let line_index = self.byte_to_line(self.selection.cursor);
+
+        let line_offset = self
+            .text
+            .lines_at(line_index.value(), LineType::LF_CR)
+            .enumerate()
+            .skip_while(|&(_i, line)| line.chars().all(char::is_whitespace))
+            .find(|&(_i, line)| line.chars().all(char::is_whitespace))
+            .map(|(i, _line)| i);
+
+        self.set_cursor(match line_offset {
+            Some(offset) => self.line_to_byte(line_index + offset),
+            None => ByteIndex::new(self.text.len()),
+        });
     }
 }
 
@@ -1522,6 +1540,38 @@ mod tests {
             expected_text: "   Hello!!",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_paragraph() {
+        TestCase {
+            initial_text: "hello\nworld\n\nparagraph",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('}')],
+
+            expected_text: "hello\nworld\n\nparagraph",
+            expected_cursor: 12,
+            expected_visual_position: (3, 2),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_next_paragraph_consecutive_empty_lines() {
+        TestCase {
+            initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('}'); 2],
+
+            expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            expected_cursor: 26,
+            expected_visual_position: (3, 7),
         }
         .run();
     }
