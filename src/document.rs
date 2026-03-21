@@ -31,14 +31,14 @@ pub(crate) struct Document {
 
     dimensions: Dimensions,
 
-    /// Number of lines from the top of the file that the buffer text should start from
+    /// Number of lines from the top of the file that the buffer text should start from.
     scroll_offset: LineIndex,
 
     /// When navigating vertically, the cursor will be moved to the left if the next line is
     /// narrower than the current. We use this field to track where the cursor would ideally be so
-    /// that we can move it there if the line is wide enough
+    /// that we can move it there if the line is wide enough.
     ///
-    /// The value is relative to the start of the **text**, and does NOT include the `gutter_width`
+    /// The value is relative to the start of the **text**, and does NOT include the `gutter_width`.
     desired_cursor_column: Option<Columns>,
 
     mode: Mode,
@@ -60,7 +60,7 @@ impl Document {
 
     /// Fills the editor's [`Buffer`].
     ///
-    /// This buffer will later be used to draw the content to the terminal
+    /// This buffer will later be used to draw the content to the terminal.
     pub(crate) fn render(&self, buffer: &mut Buffer) {
         let mut position = Position::default();
 
@@ -88,7 +88,10 @@ impl Document {
                 position = position.advance(&Grapheme::Text(&line_number_str));
             }
 
-            assert!(position.left() >= &gutter_width);
+            assert!(
+                position.left() >= &gutter_width,
+                "filling in the gutter should've taken the position past the gutter"
+            );
 
             buffer[position].set_content(match grapheme {
                 Grapheme::LineBreak => " ",
@@ -241,12 +244,12 @@ impl Document {
             .chars()
             .tuple_windows()
             .try_fold(self.selection.cursor, |index, (prev, ch)| {
-                let index = index + prev.len_utf8();
+                let next_index = index + prev.len_utf8();
 
                 if is_word_boundary(prev, ch) {
-                    ControlFlow::Break(index)
+                    ControlFlow::Break(next_index)
                 } else {
-                    ControlFlow::Continue(index)
+                    ControlFlow::Continue(next_index)
                 }
             }) {
             ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
@@ -263,12 +266,12 @@ impl Document {
             .reversed()
             .tuple_windows()
             .try_fold(self.selection.cursor, |index, (prev, ch)| {
-                let index = index.saturating_sub(prev.len_utf8());
+                let next_index = index.saturating_sub(prev.len_utf8());
 
                 if is_word_boundary(ch, prev) {
-                    ControlFlow::Break(index)
+                    ControlFlow::Break(next_index)
                 } else {
-                    ControlFlow::Continue(index)
+                    ControlFlow::Continue(next_index)
                 }
             })
             .break_value()
@@ -278,7 +281,7 @@ impl Document {
     }
 
     /// Gets the byte index of the first byte of the previous grapheme from the given byte
-    /// index
+    /// index.
     fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex {
         let text_slice = self.text.slice(..from.value());
 
@@ -292,12 +295,19 @@ impl Document {
                 Ok(Some(index)) => break ByteIndex::from(index),
 
                 Err(GraphemeIncomplete::PrevChunk) => {
-                    assert!(chunk_start_index > 0);
+                    assert!(
+                        chunk_start_index > 0,
+                        "docs assert that `chunk_start_index` will be non-zero in this branch"
+                    );
                     (chunk, chunk_start_index) = text_slice.chunk(chunk_start_index - 1);
                 }
 
                 Err(GraphemeIncomplete::PreContext(offset)) => {
-                    assert!(offset > 0);
+                    assert!(
+                        offset > 0,
+                        "there should be a chunk that ends at `offset`, and therefore it must be non-zero"
+                    );
+
                     let (context_chunk, context_chunk_start) = text_slice.chunk(offset - 1);
                     grapheme_cursor.provide_context(context_chunk, context_chunk_start);
                 }
@@ -343,7 +353,7 @@ impl Document {
             .flat_map(|chunk| chunk.graphemes(true))
     }
 
-    /// Ensures that the cursor does not go past the end of the file
+    /// Ensures that the cursor does not go past the end of the file.
     fn clamp_cursor(&mut self) {
         self.set_cursor(cmp::min(
             self.selection.cursor,
@@ -390,7 +400,7 @@ impl Document {
     }
 
     /// Sets the desired column to the current cursor column if it's not already set. Returns the
-    /// column for convenience to the caller
+    /// column for convenience to the caller.
     fn update_desired_column(&mut self) -> Columns {
         let column = self.desired_cursor_column.unwrap_or_else(|| {
             let line_start = self.line_to_byte(self.byte_to_line(self.selection.cursor));
@@ -487,7 +497,7 @@ impl Position {
 
     #[must_use]
     fn advance(self, grapheme: &Grapheme) -> Self {
-        match grapheme {
+        match *grapheme {
             Grapheme::LineBreak => Self {
                 left: Columns::new(0),
                 top: self.top + Rows::new(1),
@@ -600,7 +610,7 @@ fn number_of_digits(value: usize) -> usize {
 
 #[derive(Debug, PartialEq, Eq)]
 enum WordBoundaryKind {
-    /// letters, digits, underscores
+    /// letters, digits, underscores.
     WordPart,
     Whitespace,
     Other,
