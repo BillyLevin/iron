@@ -406,13 +406,12 @@ impl Document {
         let column = self.desired_cursor_column.unwrap_or_else(|| {
             let line_start = self.line_to_byte(self.byte_to_line(self.selection.cursor));
 
-            Columns::from(
-                self.text
-                    .slice(line_start.value()..self.selection.cursor.value())
-                    .chunks()
-                    .map(UnicodeWidthStr::width)
-                    .sum::<usize>(),
-            )
+            self.text
+                .slice(line_start.value()..self.selection.cursor.value())
+                .chunks()
+                .map(UnicodeWidthStr::width)
+                .map(Columns::new)
+                .sum()
         });
         self.desired_cursor_column = Some(column);
         column

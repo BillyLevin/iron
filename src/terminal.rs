@@ -171,6 +171,7 @@ impl Dimensions {
     derive_more::From,
     derive_more::Add,
     derive_more::AddAssign,
+    derive_more::Sum,
 )]
 #[from(forward)]
 pub(crate) struct Columns(usize);
