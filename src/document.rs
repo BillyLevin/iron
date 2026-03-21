@@ -155,6 +155,7 @@ impl Document {
             Action::SwitchToNormalMode => self.normal_mode(),
             Action::InsertChar(ch) => self.insert_char(ch),
             Action::DeleteGrapheme => self.delete_grapheme(),
+            Action::InsertNewline => self.insert_newline(),
         }
     }
 
@@ -444,6 +445,10 @@ impl Document {
             .remove(start.value()..self.selection.cursor.value());
 
         self.set_cursor(start);
+    }
+
+    fn insert_newline(&mut self) {
+        self.insert_char('\n');
     }
 }
 
@@ -1368,6 +1373,21 @@ mod tests {
             expected_text: "Hello!!",
             expected_cursor: 4,
             expected_visual_position: (7, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn insert_newline() {
+        TestCase {
+            initial_text: "Hello!",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('i'), key_event!(Enter)],
+            expected_text: "He\nllo!",
+            expected_cursor: 3,
+            expected_visual_position: (3, 1),
         }
         .run();
     }

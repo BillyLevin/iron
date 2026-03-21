@@ -39,6 +39,7 @@ impl KeyMap {
         Self::new(&[
             (KeyEvent::from(KeyCode::Backspace), Action::DeleteGrapheme),
             (KeyEvent::from(KeyCode::Esc), Action::SwitchToNormalMode),
+            (KeyEvent::from(KeyCode::Enter), Action::InsertNewline),
         ])
     }
 
@@ -59,4 +60,5 @@ pub(crate) enum Action {
     SwitchToNormalMode,
     InsertChar(char),
     DeleteGrapheme,
+    InsertNewline,
 }
