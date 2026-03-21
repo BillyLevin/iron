@@ -161,6 +161,7 @@ impl Document {
             Action::InsertNewline => self.insert_newline(),
             Action::MoveLineEnd => self.move_cursor_line_end(),
             Action::MoveLineStart => self.move_cursor_line_start(),
+            Action::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
         }
 
         if action.is_non_vertical_movement() {
@@ -478,6 +479,20 @@ impl Document {
     fn move_cursor_line_start(&mut self) {
         self.set_cursor(self.line_to_byte(self.byte_to_line(self.selection.cursor)));
     }
+
+    /// Moves the cursor to the first non-whitespace character on the current line.
+    fn move_cursor_first_non_blank(&mut self) {
+        let line_index = self.byte_to_line(self.selection.cursor);
+        let line = self.line(line_index);
+
+        let offset: ByteIndex = line
+            .chars()
+            .take_while(|ch| ch.is_whitespace())
+            .map(|ch| ByteIndex::new(ch.len_utf8()))
+            .sum();
+
+        self.set_cursor(self.line_to_byte(line_index) + offset);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -534,7 +549,17 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
 }
 
 #[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, derive_more::From, derive_more::Add,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    derive_more::From,
+    derive_more::Add,
+    derive_more::Sum,
 )]
 struct ByteIndex(usize);
 
@@ -1482,6 +1507,22 @@ mod tests {
             expected_text: "Hello!!",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_first_non_blank() {
+        TestCase {
+            initial_text: "   Hello!!",
+            initial_cursor: 7,
+            expected_initial_visual_position: (10, 0),
+
+            keys: vec![key_event!('^')],
+
+            expected_text: "   Hello!!",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
         }
         .run();
     }

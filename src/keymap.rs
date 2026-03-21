@@ -34,6 +34,10 @@ impl KeyMap {
             ),
             (KeyEvent::from(KeyCode::Char('$')), Action::MoveLineEnd),
             (KeyEvent::from(KeyCode::Char('0')), Action::MoveLineStart),
+            (
+                KeyEvent::from(KeyCode::Char('^')),
+                Action::MoveLineFirstNonBlank,
+            ),
         ])
     }
 
@@ -60,6 +64,7 @@ pub(crate) enum Action {
     MovePrevWordStart,
     MoveLineStart,
     MoveLineEnd,
+    MoveLineFirstNonBlank,
     SwitchToInsertMode,
     SwitchToNormalMode,
     InsertChar(char),
@@ -75,7 +80,8 @@ impl Action {
             | Self::MoveNextWordStart
             | Self::MovePrevWordStart
             | Self::MoveLineStart
-            | Self::MoveLineEnd => true,
+            | Self::MoveLineEnd
+            | Self::MoveLineFirstNonBlank => true,
 
             Self::MoveDown
             | Self::MoveUp
