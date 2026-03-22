@@ -42,6 +42,8 @@ impl KeyMap {
         map.register(&[key!('{')], Action::MovePrevParagraph);
         map.register(&[key!('G')], Action::GoToLastLine);
 
+        map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
+
         map
     }
 

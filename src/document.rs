@@ -1680,4 +1680,20 @@ mod tests {
         }
         .run();
     }
+
+    #[test]
+    fn go_to_last_line_alias() {
+        TestCase {
+            initial_text: "hello\nworld\n",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('g'), key_event!('e')],
+
+            expected_text: "hello\nworld\n",
+            expected_cursor: 6,
+            expected_visual_position: (3, 1),
+        }
+        .run();
+    }
 }
