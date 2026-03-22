@@ -46,6 +46,7 @@ impl KeyMap {
                 KeyEvent::from(KeyCode::Char('{')),
                 Action::MovePrevParagraph,
             ),
+            (KeyEvent::from(KeyCode::Char('G')), Action::GoToLastLine),
         ])
     }
 
@@ -80,6 +81,7 @@ pub(crate) enum Action {
     InsertNewline,
     MoveNextParagraph,
     MovePrevParagraph,
+    GoToLastLine,
 }
 
 impl Action {
@@ -93,7 +95,8 @@ impl Action {
             | Self::MoveLineEnd
             | Self::MoveLineFirstNonBlank
             | Self::MoveNextParagraph
-            | Self::MovePrevParagraph => true,
+            | Self::MovePrevParagraph
+            | Self::GoToLastLine => true,
 
             Self::MoveDown
             | Self::MoveUp

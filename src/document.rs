@@ -164,6 +164,7 @@ impl Document {
             Action::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
             Action::MoveNextParagraph => self.move_cursor_next_paragraph(),
             Action::MovePrevParagraph => self.move_cursor_prev_paragraph(),
+            Action::GoToLastLine => self.go_to_last_line(),
         }
 
         if action.is_non_vertical_movement() {
@@ -535,6 +536,10 @@ impl Document {
             None => ByteIndex::new(0),
         });
     }
+
+    fn go_to_last_line(&mut self) {
+        self.set_cursor(self.line_to_byte(LineIndex::new(self.line_count().saturating_sub(1))));
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -649,6 +654,10 @@ impl ops::AddAssign<usize> for ByteIndex {
 struct LineIndex(usize);
 
 impl LineIndex {
+    const fn new(value: usize) -> Self {
+        Self(value)
+    }
+
     const fn value(self) -> usize {
         self.0
     }
@@ -1629,6 +1638,22 @@ mod tests {
             expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn go_to_last_line() {
+        TestCase {
+            initial_text: "hello\nworld\n",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('G')],
+
+            expected_text: "hello\nworld\n",
+            expected_cursor: 6,
+            expected_visual_position: (3, 1),
         }
         .run();
     }
