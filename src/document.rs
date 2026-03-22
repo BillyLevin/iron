@@ -163,6 +163,7 @@ impl Document {
             Action::MoveLineStart => self.move_cursor_line_start(),
             Action::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
             Action::MoveNextParagraph => self.move_cursor_next_paragraph(),
+            Action::MovePrevParagraph => self.move_cursor_prev_paragraph(),
         }
 
         if action.is_non_vertical_movement() {
@@ -508,6 +509,30 @@ impl Document {
         self.set_cursor(match line_offset {
             Some(offset) => self.line_to_byte(line_index + offset),
             None => ByteIndex::new(self.text.len()),
+        });
+    }
+
+    fn move_cursor_prev_paragraph(&mut self) {
+        let line_index = self.byte_to_line(self.selection.cursor);
+
+        let line_offset = self
+            .text
+            // NOTE: +1 because when we use `reversed()`, the iterator does not consume the
+            // line at the provided index
+            .lines_at(line_index.value() + 1, LineType::LF_CR)
+            .reversed()
+            .enumerate()
+            .skip_while(|&(_i, line)| line.chars().all(char::is_whitespace))
+            .find(|&(_i, line)| line.chars().all(char::is_whitespace))
+            .map(|(i, _line)| i);
+
+        #[expect(
+            clippy::option_if_let_else,
+            reason = "TODO: decide whether I want this lint or not"
+        )]
+        self.set_cursor(match line_offset {
+            Some(offset) => self.line_to_byte(line_index.saturating_sub(offset)),
+            None => ByteIndex::new(0),
         });
     }
 }
@@ -1572,6 +1597,38 @@ mod tests {
             expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             expected_cursor: 26,
             expected_visual_position: (3, 7),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_paragraph() {
+        TestCase {
+            initial_text: "hello\n\nworld\n\n",
+            initial_cursor: 13,
+            expected_initial_visual_position: (3, 3),
+
+            keys: vec![key_event!('{')],
+
+            expected_text: "hello\n\nworld\n\n",
+            expected_cursor: 6,
+            expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_paragraph_consecutive_empty_lines() {
+        TestCase {
+            initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            initial_cursor: 26,
+            expected_initial_visual_position: (3, 7),
+
+            keys: vec![key_event!('{'); 2],
+
+            expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }

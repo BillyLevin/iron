@@ -42,6 +42,10 @@ impl KeyMap {
                 KeyEvent::from(KeyCode::Char('}')),
                 Action::MoveNextParagraph,
             ),
+            (
+                KeyEvent::from(KeyCode::Char('{')),
+                Action::MovePrevParagraph,
+            ),
         ])
     }
 
@@ -75,6 +79,7 @@ pub(crate) enum Action {
     DeleteGrapheme,
     InsertNewline,
     MoveNextParagraph,
+    MovePrevParagraph,
 }
 
 impl Action {
@@ -87,7 +92,8 @@ impl Action {
             | Self::MoveLineStart
             | Self::MoveLineEnd
             | Self::MoveLineFirstNonBlank
-            | Self::MoveNextParagraph => true,
+            | Self::MoveNextParagraph
+            | Self::MovePrevParagraph => true,
 
             Self::MoveDown
             | Self::MoveUp
