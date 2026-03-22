@@ -1,6 +1,12 @@
-use crate::document::{Grapheme, Position, WrapOutcome};
-use crate::terminal::Columns;
-use crate::text::ByteIndex;
+use crate::{
+    document::{
+        Grapheme,
+        Position,
+        WrapOutcome,
+    },
+    terminal::Columns,
+    text::ByteIndex,
+};
 
 pub(crate) struct GraphemeLayoutIterator<'text, Graphemes>
 where

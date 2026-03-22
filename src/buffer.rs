@@ -3,7 +3,10 @@ use std::ops;
 use crossterm::style::Color;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{document::Position, terminal::Dimensions};
+use crate::{
+    document::Position,
+    terminal::Dimensions,
+};
 
 #[derive(Debug)]
 pub(crate) struct Buffer {

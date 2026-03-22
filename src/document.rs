@@ -1,25 +1,49 @@
 use std::{
     cmp,
     fs::File,
-    io::{self, BufReader},
+    io::{
+        self,
+        BufReader,
+    },
     ops::ControlFlow,
     path::PathBuf,
 };
 
 use crossterm::{
-    event::{KeyCode, KeyEvent, KeyModifiers},
+    event::{
+        KeyCode,
+        KeyEvent,
+        KeyModifiers,
+    },
     style::Color,
 };
 use itertools::Itertools as _;
-use ropey::{LineType, Rope};
+use ropey::{
+    LineType,
+    Rope,
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
     grapheme_layout::GraphemeLayoutIterator,
-    keymap::{Action, KeyMap, KeySequence},
-    terminal::{Columns, Dimensions, EventOutcome, Rows},
-    text::{ByteIndex, LineIndex, RopeSliceExt as _, VisualLineInfo},
+    keymap::{
+        Action,
+        KeyMap,
+        KeySequence,
+    },
+    terminal::{
+        Columns,
+        Dimensions,
+        EventOutcome,
+        Rows,
+    },
+    text::{
+        ByteIndex,
+        LineIndex,
+        RopeSliceExt as _,
+        VisualLineInfo,
+    },
 };
 
 #[derive(Debug)]
@@ -32,20 +56,23 @@ pub(crate) struct Document {
 
     dimensions: Dimensions,
 
-    /// Number of lines from the top of the file that the buffer text should start from.
+    /// Number of lines from the top of the file that the buffer text should
+    /// start from.
     scroll_offset: LineIndex,
 
-    /// When navigating vertically, the cursor will be moved to the left if the next line is
-    /// narrower than the current. We use this field to track where the cursor would ideally be so
-    /// that we can move it there if the line is wide enough.
+    /// When navigating vertically, the cursor will be moved to the left if the
+    /// next line is narrower than the current. We use this field to track
+    /// where the cursor would ideally be so that we can move it there if
+    /// the line is wide enough.
     ///
-    /// The value is relative to the start of the **text**, and does NOT include the `gutter_width`.
+    /// The value is relative to the start of the **text**, and does NOT include
+    /// the `gutter_width`.
     desired_cursor_column: Option<Columns>,
 
     mode: Mode,
 
-    /// The keys that have been pressed which may add up to a registered keybinding. Used in
-    /// the `KeyMap` lookups.
+    /// The keys that have been pressed which may add up to a registered
+    /// keybinding. Used in the `KeyMap` lookups.
     key_sequence: KeySequence,
 }
 
@@ -329,8 +356,8 @@ impl Document {
         self.scroll_offset = cmp::min(cursor_line, self.scroll_offset);
     }
 
-    /// Gets (or inserts the current cursor column) the desired column to navigate to on
-    /// vertical cursor movement.
+    /// Gets (or inserts the current cursor column) the desired column to
+    /// navigate to on vertical cursor movement.
     fn desired_column(&mut self) -> Columns {
         let width = self.max_text_width();
 
@@ -418,7 +445,8 @@ impl Document {
         self.set_cursor(text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor)));
     }
 
-    /// Moves the cursor to the first non-whitespace character on the current line.
+    /// Moves the cursor to the first non-whitespace character on the current
+    /// line.
     fn move_cursor_first_non_blank(&mut self) {
         let text = self.text.slice(..);
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
@@ -490,15 +518,16 @@ impl Document {
         self.set_cursor(ByteIndex::new(0));
     }
 
-    /// Determines the maximum room for text based on the dimensions of the [`Document`] and
-    /// the size of its gutter.
+    /// Determines the maximum room for text based on the dimensions of the
+    /// [`Document`] and the size of its gutter.
     fn max_text_width(&self) -> Columns {
-        // TODO: what about the unlikely case that width <= gutter_width? add an assert and
-        // panic? allow weird behaviour? explicitly handle?
+        // TODO: what about the unlikely case that width <= gutter_width? add an assert
+        // and panic? allow weird behaviour? explicitly handle?
         *self.dimensions.width() - self.gutter_width()
     }
 
-    /// Deletes from the current cursor position up to (but not including) the start of the next word.
+    /// Deletes from the current cursor position up to (but not including) the
+    /// start of the next word.
     fn delete_word(&mut self) {
         let end = match self
             .text
@@ -544,14 +573,18 @@ impl Position {
     #[must_use]
     pub(crate) fn advance(self, grapheme: &Grapheme) -> Self {
         match *grapheme {
-            Grapheme::LineBreak => Self {
-                left: Columns::new(0),
-                top: self.top + Rows::new(1),
-            },
-            Grapheme::Text(text) => Self {
-                left: self.left + Columns::new(text.width()),
-                top: self.top,
-            },
+            Grapheme::LineBreak => {
+                Self {
+                    left: Columns::new(0),
+                    top: self.top + Rows::new(1),
+                }
+            }
+            Grapheme::Text(text) => {
+                Self {
+                    left: self.left + Columns::new(text.width()),
+                    top: self.top,
+                }
+            }
         }
     }
 
@@ -644,10 +677,14 @@ enum Mode {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEvent};
+    use std::io::Write as _;
+
+    use crossterm::event::{
+        KeyCode,
+        KeyEvent,
+    };
 
     use super::*;
-    use std::io::Write as _;
 
     macro_rules! key_event {
         ($key:literal) => {

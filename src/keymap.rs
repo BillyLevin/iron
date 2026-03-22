@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{
+    KeyCode,
+    KeyEvent,
+};
 
 macro_rules! key {
     ($key:literal) => {

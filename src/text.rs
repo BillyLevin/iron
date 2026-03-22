@@ -1,10 +1,22 @@
 use std::ops;
 
-use ropey::{LineType, Rope, RopeSlice};
-use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
+use ropey::{
+    LineType,
+    Rope,
+    RopeSlice,
+};
+use unicode_segmentation::{
+    GraphemeCursor,
+    GraphemeIncomplete,
+    UnicodeSegmentation as _,
+};
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{document::Grapheme, grapheme_layout::GraphemeLayoutIterator, terminal::Columns};
+use crate::{
+    document::Grapheme,
+    grapheme_layout::GraphemeLayoutIterator,
+    terminal::Columns,
+};
 
 pub(crate) trait RopeSliceExt<'rope> {
     fn line_idx_containing_byte(&self, byte: ByteIndex) -> LineIndex;
@@ -13,8 +25,8 @@ pub(crate) trait RopeSliceExt<'rope> {
 
     fn line_at(&self, line_index: LineIndex) -> RopeSlice<'rope>;
 
-    /// Gets the byte index of the first byte of the previous grapheme from the given byte
-    /// index.
+    /// Gets the byte index of the first byte of the previous grapheme from the
+    /// given byte index.
     fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex;
 
     fn graphemes(&self) -> impl Iterator<Item = &'rope str>;
@@ -27,9 +39,11 @@ pub(crate) trait RopeSliceExt<'rope> {
 
     /// Gets the byte index of either:
     ///   * the byte index corresponding to the given column; or:
-    ///   * the byte index corresponding to the last column (if the text is narrower than the given column)
+    ///   * the byte index corresponding to the last column (if the text is
+    ///     narrower than the given column)
     ///
-    /// NOTE: the returned byte index is relative to the start of the text slice.
+    /// NOTE: the returned byte index is relative to the start of the text
+    /// slice.
     fn byte_at_column(&self, target_column: Columns) -> ByteIndex;
 }
 
@@ -69,7 +83,8 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
                 Err(GraphemeIncomplete::PreContext(offset)) => {
                     assert!(
                         offset > 0,
-                        "there should be a chunk that ends at `offset`, and therefore it must be non-zero"
+                        "there should be a chunk that ends at `offset`, and therefore it must be \
+                         non-zero"
                     );
 
                     let (context_chunk, context_chunk_start) = text_slice.chunk(offset - 1);
@@ -90,9 +105,9 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     fn line_count(&self) -> usize {
         // NOTE: we are doing this because of:
         // https://docs.rs/ropey/2.0.0-beta.1/ropey/#a-note-about-line-breaks. if the file
-        // has a trailing line break, ropey counts that in the line count, but we want to
-        // act as if it doesn't exist. so, if the last line is empty, we'll lower the line
-        // count
+        // has a trailing line break, ropey counts that in the line count, but we want
+        // to act as if it doesn't exist. so, if the last line is empty, we'll
+        // lower the line count
         let lines = self.len_lines(LineType::LF_CR);
 
         let last_line = self.line(lines.saturating_sub(1), LineType::LF_CR);
@@ -223,8 +238,8 @@ impl ops::Add<usize> for LineIndex {
 pub(crate) struct VisualLineInfo<'text> {
     text: &'text Rope,
     line_index: LineIndex,
-    /// Byte indices of the start of the **visual** lines produced by the text line. These
-    /// indices are relative to the start of the text slice.
+    /// Byte indices of the start of the **visual** lines produced by the text
+    /// line. These indices are relative to the start of the text slice.
     ///
     /// A line can have multiple visual lines due to text wrapping.
     visual_line_starts: Vec<ByteIndex>,
@@ -256,9 +271,10 @@ impl<'text> VisualLineInfo<'text> {
         }
     }
 
-    /// Attempts to get the byte index of the target column (or lower if the line isn't wide
-    /// enough) on the **previous visual line** from the given `byte_index`. If the visual line doesn't
-    /// exist, simply returns `None`.
+    /// Attempts to get the byte index of the target column (or lower if the
+    /// line isn't wide enough) on the **previous visual line** from the
+    /// given `byte_index`. If the visual line doesn't exist, simply returns
+    /// `None`.
     pub(crate) fn prev_at_column(
         &self,
         byte_index: ByteIndex,
@@ -268,9 +284,10 @@ impl<'text> VisualLineInfo<'text> {
         Some(start + self.text.slice(start.value()..).byte_at_column(column))
     }
 
-    /// Attempts to get the byte index of the target column (or lower if the line isn't wide
-    /// enough) on the **next visual line** from the given `byte_index`. If the visual line doesn't
-    /// exist, simply returns `None`.
+    /// Attempts to get the byte index of the target column (or lower if the
+    /// line isn't wide enough) on the **next visual line** from the given
+    /// `byte_index`. If the visual line doesn't exist, simply returns
+    /// `None`.
     pub(crate) fn next_at_column(
         &self,
         byte_index: ByteIndex,
@@ -280,9 +297,10 @@ impl<'text> VisualLineInfo<'text> {
         Some(start + self.text.slice(start.value()..).byte_at_column(column))
     }
 
-    /// Gets the **start byte** of the **visual** line above the visual line that contains the
-    /// given byte index. This could either be part of the current text line (if it's wrapped)
-    /// or the previous text line (if it exists).
+    /// Gets the **start byte** of the **visual** line above the visual line
+    /// that contains the given byte index. This could either be part of the
+    /// current text line (if it's wrapped) or the previous text line (if it
+    /// exists).
     fn prev_visual_line(&self, byte_index: ByteIndex) -> Option<ByteIndex> {
         debug_assert!(
             self.visual_line_starts.is_sorted(),
@@ -293,10 +311,11 @@ impl<'text> VisualLineInfo<'text> {
             .visual_line_starts
             .partition_point(|start_index| *start_index <= byte_index);
 
-        // the partition logic actually gets the index of the **next** visual line (if it
-        // exists), and so we have to subtract two from the result. this works even if
-        // there isn't a visual line below the current one, since `partition_point` returns
-        // the length of `visual_line_starts` if the predicate matches for all elements
+        // the partition logic actually gets the index of the **next** visual line (if
+        // it exists), and so we have to subtract two from the result. this
+        // works even if there isn't a visual line below the current one, since
+        // `partition_point` returns the length of `visual_line_starts` if the
+        // predicate matches for all elements
         if partition >= 2 {
             self.visual_line_starts.get(partition - 2).copied()
         } else {
@@ -305,9 +324,10 @@ impl<'text> VisualLineInfo<'text> {
         }
     }
 
-    /// Gets the **start byte** of the **visual** line below the visual line that contains the
-    /// given byte index. This could either be part of the current text line (if it's wrapped)
-    /// or the next text line (if it exists).
+    /// Gets the **start byte** of the **visual** line below the visual line
+    /// that contains the given byte index. This could either be part of the
+    /// current text line (if it's wrapped) or the next text line (if it
+    /// exists).
     fn next_visual_line(&self, byte_index: ByteIndex) -> Option<ByteIndex> {
         debug_assert!(
             self.visual_line_starts.is_sorted(),

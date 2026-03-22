@@ -1,17 +1,28 @@
 use std::{
-    io::{self, Write as _},
-    ops, panic,
+    io::{
+        self,
+        Write as _,
+    },
+    ops,
+    panic,
 };
 
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{
+        self,
+        Event,
+        KeyCode,
+    },
     style,
 };
 
 use crate::{
     args::Args,
     buffer::Buffer,
-    document::{Document, Position},
+    document::{
+        Document,
+        Position,
+    },
 };
 
 pub struct Terminal {
