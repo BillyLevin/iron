@@ -2,64 +2,98 @@ use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent};
 
+macro_rules! key {
+    ($key:literal) => {
+        ::crossterm::event::KeyEvent::from(KeyCode::Char($key))
+    };
+
+    ($key:ident) => {
+        ::crossterm::event::KeyEvent::from(KeyCode::$key)
+    };
+}
+
 #[derive(Debug)]
-pub(crate) struct KeyMap {
-    map: HashMap<KeyEvent, Action>,
+pub(crate) enum KeyMap {
+    BindingPart { map: HashMap<KeyEvent, Self> },
+    Action(Action),
 }
 
 impl KeyMap {
-    fn new(mappings: &[(KeyEvent, Action)]) -> Self {
-        Self {
-            map: mappings.iter().copied().collect(),
+    fn new() -> Self {
+        Self::BindingPart {
+            map: HashMap::new(),
         }
     }
 
     pub(crate) fn normal() -> Self {
-        Self::new(&[
-            (KeyEvent::from(KeyCode::Char('j')), Action::MoveDown),
-            (KeyEvent::from(KeyCode::Char('k')), Action::MoveUp),
-            (KeyEvent::from(KeyCode::Char('l')), Action::MoveRight),
-            (KeyEvent::from(KeyCode::Char('h')), Action::MoveLeft),
-            (
-                KeyEvent::from(KeyCode::Char('w')),
-                Action::MoveNextWordStart,
-            ),
-            (
-                KeyEvent::from(KeyCode::Char('b')),
-                Action::MovePrevWordStart,
-            ),
-            (
-                KeyEvent::from(KeyCode::Char('i')),
-                Action::SwitchToInsertMode,
-            ),
-            (KeyEvent::from(KeyCode::Char('$')), Action::MoveLineEnd),
-            (KeyEvent::from(KeyCode::Char('0')), Action::MoveLineStart),
-            (
-                KeyEvent::from(KeyCode::Char('^')),
-                Action::MoveLineFirstNonBlank,
-            ),
-            (
-                KeyEvent::from(KeyCode::Char('}')),
-                Action::MoveNextParagraph,
-            ),
-            (
-                KeyEvent::from(KeyCode::Char('{')),
-                Action::MovePrevParagraph,
-            ),
-            (KeyEvent::from(KeyCode::Char('G')), Action::GoToLastLine),
-        ])
+        let mut map = Self::new();
+
+        map.register(&[key!('j')], Action::MoveDown);
+        map.register(&[key!('k')], Action::MoveUp);
+        map.register(&[key!('l')], Action::MoveRight);
+        map.register(&[key!('h')], Action::MoveLeft);
+        map.register(&[key!('w')], Action::MoveNextWordStart);
+        map.register(&[key!('b')], Action::MovePrevWordStart);
+        map.register(&[key!('i')], Action::SwitchToInsertMode);
+        map.register(&[key!('$')], Action::MoveLineEnd);
+        map.register(&[key!('0')], Action::MoveLineStart);
+        map.register(&[key!('^')], Action::MoveLineFirstNonBlank);
+        map.register(&[key!('}')], Action::MoveNextParagraph);
+        map.register(&[key!('{')], Action::MovePrevParagraph);
+        map.register(&[key!('G')], Action::GoToLastLine);
+
+        map
     }
 
     pub(crate) fn insert() -> Self {
-        Self::new(&[
-            (KeyEvent::from(KeyCode::Backspace), Action::DeleteGrapheme),
-            (KeyEvent::from(KeyCode::Esc), Action::SwitchToNormalMode),
-            (KeyEvent::from(KeyCode::Enter), Action::InsertNewline),
-        ])
+        let mut map = Self::new();
+
+        map.register(&[key!(Backspace)], Action::DeleteGrapheme);
+        map.register(&[key!(Esc)], Action::SwitchToNormalMode);
+        map.register(&[key!(Enter)], Action::InsertNewline);
+
+        map
     }
 
-    pub(crate) fn get(&self, key_event: KeyEvent) -> Option<Action> {
-        self.map.get(&key_event).copied()
+    pub(crate) fn get(&self, keys: &KeySequence) -> Option<&Self> {
+        let mut current = self;
+
+        for key in keys {
+            current = match *current {
+                Self::BindingPart { ref map } => map.get(key),
+                Self::Action(_) => None,
+            }?;
+        }
+
+        Some(current)
+    }
+
+    fn register(&mut self, keys: &[KeyEvent], action: Action) {
+        match *keys {
+            [] => {}
+            [key] => {
+                match *self {
+                    Self::BindingPart { ref mut map } => {
+                        map.insert(key, Self::Action(action));
+                    }
+                    // TODO: should we error rather than silently ignore? can the types be
+                    // reworked so that this is impossible in the first place?
+                    Self::Action(_) => {}
+                }
+            }
+            [key, ref rest @ ..] => {
+                match *self {
+                    Self::BindingPart { ref mut map } => {
+                        map.entry(key)
+                            .or_insert_with(Self::new)
+                            .register(rest, action);
+                    }
+                    // TODO: should we error rather than silently ignore? can the types be
+                    // reworked so that this is impossible in the first place?
+                    Self::Action(_) => {}
+                }
+            }
+        }
     }
 }
 
@@ -106,5 +140,21 @@ impl Action {
             | Self::DeleteGrapheme
             | Self::InsertNewline => false,
         }
+    }
+}
+
+#[derive(Debug, Default, derive_more::IntoIterator)]
+pub(crate) struct KeySequence {
+    #[into_iterator(owned, ref)]
+    keys: Vec<KeyEvent>,
+}
+
+impl KeySequence {
+    pub(crate) fn clear(&mut self) {
+        self.keys.clear();
+    }
+
+    pub(crate) fn push(&mut self, key: KeyEvent) {
+        self.keys.push(key);
     }
 }

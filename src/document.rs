@@ -17,7 +17,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
-    keymap::{Action, KeyMap},
+    keymap::{Action, KeyMap, KeySequence},
     terminal::{Columns, Dimensions, EventOutcome, Rows},
 };
 
@@ -42,6 +42,10 @@ pub(crate) struct Document {
     desired_cursor_column: Option<Columns>,
 
     mode: Mode,
+
+    /// The keys that have been pressed which may add up to a registered keybinding. Used in
+    /// the `KeyMap` lookups.
+    key_sequence: KeySequence,
 }
 
 impl Document {
@@ -55,6 +59,7 @@ impl Document {
             scroll_offset: LineIndex::default(),
             desired_cursor_column: None,
             mode: Mode::Normal,
+            key_sequence: KeySequence::default(),
         })
     }
 
@@ -112,17 +117,35 @@ impl Document {
             Mode::Insert => &self.insert_keymap,
         };
 
-        keymap
-            .get(key_event)
-            .or_else(|| self.event_fallback(key_event))
-            .map_or(EventOutcome::Unhandled, |action| {
-                self.apply_action(action);
+        self.key_sequence.push(key_event);
 
-                self.clamp_cursor();
-                self.recalculate_scroll();
+        let maybe_action = match keymap.get(&self.key_sequence) {
+            Some(&KeyMap::BindingPart { .. }) => {
+                // the key sequence could form a binding with subsequent key events. since
+                // we'd already pushed the latest event to the sequence store, we are done
+                return EventOutcome::Handled;
+            }
+            Some(&KeyMap::Action(action)) => Some(action),
+            None => {
+                // the current key sequence does not form a binding for any of the registered
+                // commands. therefore, we clear the sequence
+                self.key_sequence.clear();
 
-                EventOutcome::Handled
-            })
+                // look for any fallback events that aren't registered in the map
+                self.event_fallback(key_event)
+            }
+        };
+
+        maybe_action.map_or(EventOutcome::Unhandled, |action| {
+            self.apply_action(action);
+
+            self.key_sequence.clear();
+
+            self.clamp_cursor();
+            self.recalculate_scroll();
+
+            EventOutcome::Handled
+        })
     }
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
