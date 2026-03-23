@@ -188,6 +188,7 @@ impl Document {
             Action::MoveNextParagraph => self.move_cursor_next_paragraph(),
             Action::MovePrevParagraph => self.move_cursor_prev_paragraph(),
             Action::GoToLastLine => self.go_to_last_line(),
+            Action::GoToFirstLine => self.go_to_first_line(),
         }
 
         if action.is_non_vertical_movement() {
@@ -562,6 +563,10 @@ impl Document {
 
     fn go_to_last_line(&mut self) {
         self.set_cursor(self.line_to_byte(LineIndex::new(self.line_count().saturating_sub(1))));
+    }
+
+    const fn go_to_first_line(&mut self) {
+        self.set_cursor(ByteIndex::new(0));
     }
 }
 
@@ -1693,6 +1698,22 @@ mod tests {
             expected_text: "hello\nworld\n",
             expected_cursor: 6,
             expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn go_to_first_line() {
+        TestCase {
+            initial_text: "hello\nworld\n",
+            initial_cursor: 6,
+            expected_initial_visual_position: (3, 1),
+
+            keys: vec![key_event!('g'), key_event!('g')],
+
+            expected_text: "hello\nworld\n",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }

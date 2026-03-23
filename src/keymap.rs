@@ -43,6 +43,7 @@ impl KeyMap {
         map.register(&[key!('G')], Action::GoToLastLine);
 
         map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
+        map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
 
         map
     }
@@ -118,6 +119,7 @@ pub(crate) enum Action {
     MoveNextParagraph,
     MovePrevParagraph,
     GoToLastLine,
+    GoToFirstLine,
 }
 
 impl Action {
@@ -132,7 +134,8 @@ impl Action {
             | Self::MoveLineFirstNonBlank
             | Self::MoveNextParagraph
             | Self::MovePrevParagraph
-            | Self::GoToLastLine => true,
+            | Self::GoToLastLine
+            | Self::GoToFirstLine => true,
 
             Self::MoveDown
             | Self::MoveUp
