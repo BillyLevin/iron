@@ -2,7 +2,7 @@ use std::{
     cmp,
     fs::File,
     io::{self, BufReader},
-    ops::{self, Bound, ControlFlow},
+    ops::ControlFlow,
     path::PathBuf,
 };
 
@@ -11,14 +11,14 @@ use crossterm::{
     style::Color,
 };
 use itertools::Itertools as _;
-use ropey::{LineType, Rope, RopeSlice};
-use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
+use ropey::{LineType, Rope};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
     keymap::{Action, KeyMap, KeySequence},
     terminal::{Columns, Dimensions, EventOutcome, Rows},
+    text::{ByteIndex, LineIndex, RopeSliceExt as _},
 };
 
 #[derive(Debug)]
@@ -73,8 +73,10 @@ impl Document {
 
         let gutter_width = self.gutter_width();
 
-        for grapheme in self
-            .graphemes(self.line_to_byte(self.scroll_offset)..)
+        let text = self.text.slice(..);
+
+        for grapheme in text
+            .graphemes(text.line_start_byte(self.scroll_offset)..)
             .map(Grapheme::from)
         {
             if position.top() >= self.dimensions.height() {
@@ -100,7 +102,7 @@ impl Document {
 
             buffer[position].set_content(match grapheme {
                 Grapheme::LineBreak => " ",
-                Grapheme::Text(text) => text,
+                Grapheme::Text(raw) => raw,
             });
 
             if matches!(grapheme, Grapheme::LineBreak) {
@@ -150,9 +152,10 @@ impl Document {
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
         let mut position = Position::default();
-        let mut byte_index = self.line_to_byte(self.scroll_offset);
+        let text = self.text.slice(..);
+        let mut byte_index = text.line_start_byte(self.scroll_offset);
 
-        for grapheme in self.graphemes(byte_index..) {
+        for grapheme in text.graphemes(byte_index..) {
             if byte_index == self.selection.cursor {
                 break;
             }
@@ -198,27 +201,28 @@ impl Document {
 
     fn move_cursor_down(&mut self) {
         let target_column = self.update_desired_column();
+        let text = self.text.slice(..);
 
-        let next_line_index = self.byte_to_line(self.selection.cursor) + 1;
-        if next_line_index.value() >= self.line_count() {
+        let next_line_index = text.line_idx_containing_byte(self.selection.cursor) + 1;
+        if next_line_index.value() >= text.line_count() {
             return;
         }
 
-        let next_line_start = self.line_to_byte(next_line_index);
+        let next_line_start = text.line_start_byte(next_line_index);
 
         let mut column = Columns::new(0);
         let mut byte_index = next_line_start;
 
-        for grapheme in self.graphemes(next_line_start..).map(Grapheme::from) {
+        for grapheme in text.graphemes(next_line_start..).map(Grapheme::from) {
             if column >= target_column {
                 break;
             }
 
             match grapheme {
                 Grapheme::LineBreak => break,
-                Grapheme::Text(text) => {
-                    column += text.width();
-                    byte_index += text.len();
+                Grapheme::Text(raw) => {
+                    column += raw.width();
+                    byte_index += raw.len();
                 }
             }
         }
@@ -229,22 +233,26 @@ impl Document {
     fn move_cursor_up(&mut self) {
         let target_column = self.update_desired_column();
 
-        let prev_line_index = self.byte_to_line(self.selection.cursor).saturating_sub(1);
-        let prev_line_start = self.line_to_byte(prev_line_index);
+        let text = self.text.slice(..);
+
+        let prev_line_index = text
+            .line_idx_containing_byte(self.selection.cursor)
+            .saturating_sub(1);
+        let prev_line_start = text.line_start_byte(prev_line_index);
 
         let mut column = Columns::new(0);
         let mut byte_index = prev_line_start;
 
-        for grapheme in self.graphemes(prev_line_start..).map(Grapheme::from) {
+        for grapheme in text.graphemes(prev_line_start..).map(Grapheme::from) {
             if column >= target_column {
                 break;
             }
 
             match grapheme {
                 Grapheme::LineBreak => break,
-                Grapheme::Text(text) => {
-                    column += text.width();
-                    byte_index += text.len();
+                Grapheme::Text(raw) => {
+                    column += raw.width();
+                    byte_index += raw.len();
                 }
             }
         }
@@ -254,6 +262,8 @@ impl Document {
 
     fn move_cursor_right(&mut self) {
         let next_grapheme_offset = self
+            .text
+            .slice(..)
             .graphemes(self.selection.cursor..)
             .next()
             .map_or(0, str::len);
@@ -262,7 +272,11 @@ impl Document {
     }
 
     fn move_cursor_left(&mut self) {
-        self.set_cursor(self.previous_grapheme_position(self.selection.cursor));
+        self.set_cursor(
+            self.text
+                .slice(..)
+                .previous_grapheme_position(self.selection.cursor),
+        );
     }
 
     fn move_cursor_next_word_start(&mut self) {
@@ -308,110 +322,26 @@ impl Document {
         self.set_cursor(byte_index);
     }
 
-    /// Gets the byte index of the first byte of the previous grapheme from the given byte
-    /// index.
-    fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex {
-        let text_slice = self.text.slice(..from.value());
-
-        let (mut chunk, mut chunk_start_index) = text_slice.chunk(from.value());
-
-        let mut grapheme_cursor = GraphemeCursor::new(from.value(), text_slice.len(), true);
-
-        loop {
-            match grapheme_cursor.prev_boundary(chunk, chunk_start_index) {
-                Ok(None) => break ByteIndex::from(0),
-                Ok(Some(index)) => break ByteIndex::from(index),
-
-                Err(GraphemeIncomplete::PrevChunk) => {
-                    assert!(
-                        chunk_start_index > 0,
-                        "docs assert that `chunk_start_index` will be non-zero in this branch"
-                    );
-                    (chunk, chunk_start_index) = text_slice.chunk(chunk_start_index - 1);
-                }
-
-                Err(GraphemeIncomplete::PreContext(offset)) => {
-                    assert!(
-                        offset > 0,
-                        "there should be a chunk that ends at `offset`, and therefore it must be non-zero"
-                    );
-
-                    let (context_chunk, context_chunk_start) = text_slice.chunk(offset - 1);
-                    grapheme_cursor.provide_context(context_chunk, context_chunk_start);
-                }
-
-                Err(GraphemeIncomplete::NextChunk | GraphemeIncomplete::InvalidOffset) => {
-                    unreachable!()
-                }
-            }
-        }
-    }
-
-    fn byte_to_line(&self, byte: ByteIndex) -> LineIndex {
-        LineIndex::from(
-            self.text
-                .byte_to_line_idx(byte.value(), ropey::LineType::LF_CR),
-        )
-    }
-
-    fn line_to_byte(&self, line: LineIndex) -> ByteIndex {
-        ByteIndex::from(self.text.line_to_byte_idx(line.value(), LineType::LF_CR))
-    }
-
-    fn line(&self, line_index: LineIndex) -> RopeSlice<'_> {
-        self.text.line(line_index.value(), LineType::LF_CR)
-    }
-
-    fn graphemes(&self, range: impl ops::RangeBounds<ByteIndex>) -> impl Iterator<Item = &str> {
-        let start = match range.start_bound() {
-            Bound::Included(byte) => Bound::Included(byte.value()),
-            Bound::Excluded(byte) => Bound::Excluded(byte.value()),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-
-        let end = match range.end_bound() {
-            Bound::Included(byte) => Bound::Included(byte.value()),
-            Bound::Excluded(byte) => Bound::Excluded(byte.value()),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-
-        self.text
-            .slice((start, end))
-            .chunks()
-            .flat_map(|chunk| chunk.graphemes(true))
-    }
-
     /// Ensures that the cursor does not go past the end of the file.
     fn clamp_cursor(&mut self) {
         self.set_cursor(cmp::min(
             self.selection.cursor,
-            ByteIndex::from(self.text.len().saturating_sub(1)),
+            ByteIndex::new(self.text.slice(..).len().saturating_sub(1)),
         ));
     }
 
-    fn line_count(&self) -> usize {
-        // NOTE: we are doing this because of:
-        // https://docs.rs/ropey/2.0.0-beta.1/ropey/#a-note-about-line-breaks. if the file
-        // has a trailing line break, ropey counts that in the line count, but we want to
-        // act as if it doesn't exist. so, if the last line is empty, we'll lower the line
-        // count
-        let lines = self.text.len_lines(LineType::LF_CR);
-
-        let last_line = self.text.line(lines.saturating_sub(1), LineType::LF_CR);
-
-        if last_line.len() == 0 {
-            lines.saturating_sub(1)
-        } else {
-            lines
-        }
-    }
-
     fn gutter_width(&self) -> Columns {
-        Columns::from(cmp::max(3, number_of_digits(self.line_count())))
+        Columns::from(cmp::max(
+            3,
+            number_of_digits(self.text.slice(..).line_count()),
+        ))
     }
 
     fn recalculate_scroll(&mut self) {
-        let cursor_line = self.byte_to_line(self.selection.cursor);
+        let cursor_line = self
+            .text
+            .slice(..)
+            .line_idx_containing_byte(self.selection.cursor);
 
         if cursor_line < self.scroll_offset {
             // upwards scroll
@@ -431,7 +361,10 @@ impl Document {
     /// column for convenience to the caller.
     fn update_desired_column(&mut self) -> Columns {
         let column = self.desired_cursor_column.unwrap_or_else(|| {
-            let line_start = self.line_to_byte(self.byte_to_line(self.selection.cursor));
+            let text = self.text.slice(..);
+
+            let line_start =
+                text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
 
             self.text
                 .slice(line_start.value()..self.selection.cursor.value())
@@ -478,7 +411,10 @@ impl Document {
     }
 
     fn delete_grapheme(&mut self) {
-        let start = self.previous_grapheme_position(self.selection.cursor);
+        let start = self
+            .text
+            .slice(..)
+            .previous_grapheme_position(self.selection.cursor);
 
         self.text
             .remove(start.value()..self.selection.cursor.value());
@@ -491,25 +427,30 @@ impl Document {
     }
 
     fn move_cursor_line_end(&mut self) {
-        let line_index = self.byte_to_line(self.selection.cursor);
-        let line = self.line(line_index);
+        let text = self.text.slice(..);
+
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
 
         let offset = ByteIndex::from(
             line.trailing_line_break_idx(LineType::LF_CR)
                 .unwrap_or_else(|| line.len()),
         );
 
-        self.set_cursor(self.line_to_byte(line_index) + offset);
+        self.set_cursor(text.line_start_byte(line_index) + offset);
     }
 
     fn move_cursor_line_start(&mut self) {
-        self.set_cursor(self.line_to_byte(self.byte_to_line(self.selection.cursor)));
+        let text = self.text.slice(..);
+
+        self.set_cursor(text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor)));
     }
 
     /// Moves the cursor to the first non-whitespace character on the current line.
     fn move_cursor_first_non_blank(&mut self) {
-        let line_index = self.byte_to_line(self.selection.cursor);
-        let line = self.line(line_index);
+        let text = self.text.slice(..);
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
 
         let offset: ByteIndex = line
             .chars()
@@ -517,28 +458,34 @@ impl Document {
             .map(|ch| ByteIndex::new(ch.len_utf8()))
             .sum();
 
-        self.set_cursor(self.line_to_byte(line_index) + offset);
+        self.set_cursor(text.line_start_byte(line_index) + offset);
     }
 
     fn move_cursor_next_paragraph(&mut self) {
-        let line_index = self.byte_to_line(self.selection.cursor);
+        let text = self.text.slice(..);
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
         let line_offset = self
             .text
             .lines_at(line_index.value(), LineType::LF_CR)
             .enumerate()
-            .skip_while(|&(_i, line)| line.chars().all(char::is_whitespace))
-            .find(|&(_i, line)| line.chars().all(char::is_whitespace))
+            .skip_while(|&(_i, line)| line.is_whitespace())
+            .find(|&(_i, line)| line.is_whitespace())
             .map(|(i, _line)| i);
 
+        #[expect(
+            clippy::option_if_let_else,
+            reason = "TODO: decide whether I want this lint"
+        )]
         self.set_cursor(match line_offset {
-            Some(offset) => self.line_to_byte(line_index + offset),
-            None => ByteIndex::new(self.text.len()),
+            Some(offset) => text.line_start_byte(line_index + offset),
+            None => ByteIndex::new(text.len()),
         });
     }
 
     fn move_cursor_prev_paragraph(&mut self) {
-        let line_index = self.byte_to_line(self.selection.cursor);
+        let text = self.text.slice(..);
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
         let line_offset = self
             .text
@@ -547,8 +494,8 @@ impl Document {
             .lines_at(line_index.value() + 1, LineType::LF_CR)
             .reversed()
             .enumerate()
-            .skip_while(|&(_i, line)| line.chars().all(char::is_whitespace))
-            .find(|&(_i, line)| line.chars().all(char::is_whitespace))
+            .skip_while(|&(_i, line)| line.is_whitespace())
+            .find(|&(_i, line)| line.is_whitespace())
             .map(|(i, _line)| i);
 
         #[expect(
@@ -556,13 +503,15 @@ impl Document {
             reason = "TODO: decide whether I want this lint or not"
         )]
         self.set_cursor(match line_offset {
-            Some(offset) => self.line_to_byte(line_index.saturating_sub(offset)),
+            Some(offset) => text.line_start_byte(line_index.saturating_sub(offset)),
             None => ByteIndex::new(0),
         });
     }
 
     fn go_to_last_line(&mut self) {
-        self.set_cursor(self.line_to_byte(LineIndex::new(self.line_count().saturating_sub(1))));
+        let text = self.text.slice(..);
+
+        self.set_cursor(text.line_start_byte(text.last_line_idx()));
     }
 
     const fn go_to_first_line(&mut self) {
@@ -620,86 +569,6 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
             "\n" | "\r\n" => Self::LineBreak,
             _ => Self::Text(value),
         }
-    }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    derive_more::From,
-    derive_more::Add,
-    derive_more::Sum,
-)]
-struct ByteIndex(usize);
-
-impl ByteIndex {
-    const fn new(value: usize) -> Self {
-        Self(value)
-    }
-
-    const fn value(self) -> usize {
-        self.0
-    }
-
-    const fn saturating_sub(self, rhs: usize) -> Self {
-        Self(self.0.saturating_sub(rhs))
-    }
-}
-
-impl ops::Add<usize> for ByteIndex {
-    type Output = Self;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs)
-    }
-}
-
-impl ops::AddAssign<usize> for ByteIndex {
-    fn add_assign(&mut self, rhs: usize) {
-        self.0 += rhs;
-    }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    derive_more::From,
-    derive_more::Add,
-    derive_more::AddAssign,
-)]
-struct LineIndex(usize);
-
-impl LineIndex {
-    const fn new(value: usize) -> Self {
-        Self(value)
-    }
-
-    const fn value(self) -> usize {
-        self.0
-    }
-
-    const fn saturating_sub(self, rhs: usize) -> Self {
-        Self(self.0.saturating_sub(rhs))
-    }
-}
-
-impl ops::Add<usize> for LineIndex {
-    type Output = Self;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs)
     }
 }
 
