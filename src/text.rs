@@ -1,7 +1,10 @@
-use std::ops::{self, Bound};
+use std::ops;
 
-use ropey::{LineType, RopeSlice};
+use ropey::{LineType, Rope, RopeSlice};
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete, UnicodeSegmentation as _};
+use unicode_width::UnicodeWidthStr as _;
+
+use crate::{document::Grapheme, grapheme_layout::GraphemeLayoutIterator, terminal::Columns};
 
 pub(crate) trait RopeSliceExt<'rope> {
     fn line_idx_containing_byte(&self, byte: ByteIndex) -> LineIndex;
@@ -14,16 +17,20 @@ pub(crate) trait RopeSliceExt<'rope> {
     /// index.
     fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex;
 
-    fn graphemes(
-        &self,
-        range: impl ops::RangeBounds<ByteIndex>,
-    ) -> impl Iterator<Item = &'rope str>;
+    fn graphemes(&self) -> impl Iterator<Item = &'rope str>;
 
     fn line_count(&self) -> usize;
 
     fn last_line_idx(&self) -> LineIndex;
 
     fn is_whitespace(&self) -> bool;
+
+    /// Gets the byte index of either:
+    ///   * the byte index corresponding to the given column; or:
+    ///   * the byte index corresponding to the last column (if the text is narrower than the given column)
+    ///
+    /// NOTE: the returned byte index is relative to the start of the text slice.
+    fn byte_at_column(&self, target_column: Columns) -> ByteIndex;
 }
 
 impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
@@ -76,25 +83,8 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
         }
     }
 
-    fn graphemes(
-        &self,
-        range: impl ops::RangeBounds<ByteIndex>,
-    ) -> impl Iterator<Item = &'rope str> {
-        let start = match range.start_bound() {
-            Bound::Included(byte) => Bound::Included(byte.value()),
-            Bound::Excluded(byte) => Bound::Excluded(byte.value()),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-
-        let end = match range.end_bound() {
-            Bound::Included(byte) => Bound::Included(byte.value()),
-            Bound::Excluded(byte) => Bound::Excluded(byte.value()),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-
-        self.slice((start, end))
-            .chunks()
-            .flat_map(|chunk| chunk.graphemes(true))
+    fn graphemes(&self) -> impl Iterator<Item = &'rope str> {
+        self.chunks().flat_map(|chunk| chunk.graphemes(true))
     }
 
     fn line_count(&self) -> usize {
@@ -121,6 +111,27 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     fn is_whitespace(&self) -> bool {
         self.chars().all(char::is_whitespace)
     }
+
+    fn byte_at_column(&self, target_column: Columns) -> ByteIndex {
+        let mut column = Columns::new(0);
+        let mut byte_index = ByteIndex::new(0);
+
+        for grapheme in self.graphemes().map(Grapheme::from) {
+            if column >= target_column {
+                break;
+            }
+
+            match grapheme {
+                Grapheme::LineBreak => break,
+                Grapheme::Text(raw) => {
+                    column += raw.width();
+                    byte_index += raw.len();
+                }
+            }
+        }
+
+        byte_index
+    }
 }
 
 #[derive(
@@ -134,6 +145,7 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     Ord,
     derive_more::From,
     derive_more::Add,
+    derive_more::AddAssign,
     derive_more::Sum,
 )]
 pub(crate) struct ByteIndex(usize);
@@ -193,6 +205,10 @@ impl LineIndex {
     pub(crate) const fn saturating_sub(self, rhs: usize) -> Self {
         Self(self.0.saturating_sub(rhs))
     }
+
+    pub(crate) fn checked_sub(self, rhs: usize) -> Option<Self> {
+        Some(Self(self.0.checked_sub(rhs)?))
+    }
 }
 
 impl ops::Add<usize> for LineIndex {
@@ -200,5 +216,124 @@ impl ops::Add<usize> for LineIndex {
 
     fn add(self, rhs: usize) -> Self::Output {
         Self(self.0 + rhs)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct VisualLineInfo<'text> {
+    text: &'text Rope,
+    line_index: LineIndex,
+    /// Byte indices of the start of the **visual** lines produced by the text line. These
+    /// indices are relative to the start of the text slice.
+    ///
+    /// A line can have multiple visual lines due to text wrapping.
+    visual_line_starts: Vec<ByteIndex>,
+    /// The maximum visual width of a line before the text needs to wrap.
+    max_width: Columns,
+}
+
+impl<'text> VisualLineInfo<'text> {
+    pub(crate) fn new(text: &'text Rope, line_index: LineIndex, max_width: Columns) -> Self {
+        let mut visual_line_starts = Vec::new();
+
+        let text_slice = text.slice(..);
+
+        let start = text_slice.line_start_byte(line_index);
+
+        for grapheme in
+            GraphemeLayoutIterator::new(text_slice.line_at(line_index).graphemes(), max_width)
+        {
+            if *grapheme.position().left() == Columns::new(0) {
+                visual_line_starts.push(start + grapheme.byte_index());
+            }
+        }
+
+        Self {
+            text,
+            line_index,
+            visual_line_starts,
+            max_width,
+        }
+    }
+
+    /// Attempts to get the byte index of the target column (or lower if the line isn't wide
+    /// enough) on the **previous visual line** from the given `byte_index`. If the visual line doesn't
+    /// exist, simply returns `None`.
+    pub(crate) fn prev_at_column(
+        &self,
+        byte_index: ByteIndex,
+        column: Columns,
+    ) -> Option<ByteIndex> {
+        let start = self.prev_visual_line(byte_index)?;
+        Some(start + self.text.slice(start.value()..).byte_at_column(column))
+    }
+
+    /// Attempts to get the byte index of the target column (or lower if the line isn't wide
+    /// enough) on the **next visual line** from the given `byte_index`. If the visual line doesn't
+    /// exist, simply returns `None`.
+    pub(crate) fn next_at_column(
+        &self,
+        byte_index: ByteIndex,
+        column: Columns,
+    ) -> Option<ByteIndex> {
+        let start = self.next_visual_line(byte_index)?;
+        Some(start + self.text.slice(start.value()..).byte_at_column(column))
+    }
+
+    /// Gets the **start byte** of the **visual** line above the visual line that contains the
+    /// given byte index. This could either be part of the current text line (if it's wrapped)
+    /// or the previous text line (if it exists).
+    fn prev_visual_line(&self, byte_index: ByteIndex) -> Option<ByteIndex> {
+        debug_assert!(
+            self.visual_line_starts.is_sorted(),
+            "`partition_point` will only work properly if the indices are sorted"
+        );
+
+        let partition = self
+            .visual_line_starts
+            .partition_point(|start_index| *start_index <= byte_index);
+
+        // the partition logic actually gets the index of the **next** visual line (if it
+        // exists), and so we have to subtract two from the result. this works even if
+        // there isn't a visual line below the current one, since `partition_point` returns
+        // the length of `visual_line_starts` if the predicate matches for all elements
+        if partition >= 2 {
+            self.visual_line_starts.get(partition - 2).copied()
+        } else {
+            Self::new(self.text, self.line_index.checked_sub(1)?, self.max_width)
+                .bottom_visual_line()
+        }
+    }
+
+    /// Gets the **start byte** of the **visual** line below the visual line that contains the
+    /// given byte index. This could either be part of the current text line (if it's wrapped)
+    /// or the next text line (if it exists).
+    fn next_visual_line(&self, byte_index: ByteIndex) -> Option<ByteIndex> {
+        debug_assert!(
+            self.visual_line_starts.is_sorted(),
+            "`partition_point` will only work properly if the indices are sorted"
+        );
+
+        let partition = self
+            .visual_line_starts
+            .partition_point(|start_index| *start_index <= byte_index);
+
+        self.visual_line_starts.get(partition).copied().or_else(|| {
+            if self.text.slice(..).last_line_idx() == self.line_index {
+                None
+            } else {
+                Self::new(self.text, self.line_index + 1, self.max_width).top_visual_line()
+            }
+        })
+    }
+
+    /// Gets the **start byte** of the bottom **visual** line of the text line.
+    fn bottom_visual_line(&self) -> Option<ByteIndex> {
+        self.visual_line_starts.last().copied()
+    }
+
+    /// Gets the **start byte** of the top **visual** line of the text line.
+    fn top_visual_line(&self) -> Option<ByteIndex> {
+        self.visual_line_starts.first().copied()
     }
 }

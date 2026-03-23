@@ -172,6 +172,7 @@ impl Dimensions {
     derive_more::Add,
     derive_more::AddAssign,
     derive_more::Sum,
+    derive_more::Sub,
 )]
 #[from(forward)]
 pub(crate) struct Columns(usize);
@@ -197,6 +198,10 @@ impl Columns {
 
     pub(crate) const fn value(self) -> usize {
         self.0
+    }
+
+    pub(crate) fn map(self, map_fn: impl FnOnce(usize) -> usize) -> Self {
+        Self(map_fn(self.0))
     }
 }
 

@@ -16,9 +16,10 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
+    grapheme_layout::GraphemeLayoutIterator,
     keymap::{Action, KeyMap, KeySequence},
     terminal::{Columns, Dimensions, EventOutcome, Rows},
-    text::{ByteIndex, LineIndex, RopeSliceExt as _},
+    text::{ByteIndex, LineIndex, RopeSliceExt as _, VisualLineInfo},
 };
 
 #[derive(Debug)]
@@ -67,40 +68,44 @@ impl Document {
     ///
     /// This buffer will later be used to draw the content to the terminal.
     pub(crate) fn render(&self, buffer: &mut Buffer) {
-        let mut position = Position::default();
-
         let mut line_number = 1 + self.scroll_offset.value();
 
         let gutter_width = self.gutter_width();
 
-        let text = self.text.slice(..);
+        let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
+        let text = self.text.slice(start_byte.value()..);
 
-        for grapheme in text
-            .graphemes(text.line_start_byte(self.scroll_offset)..)
-            .map(Grapheme::from)
+        for visual_grapheme in GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width())
         {
-            if position.top() >= self.dimensions.height() {
+            if visual_grapheme.position().top() >= self.dimensions.height() {
                 break;
             }
 
-            if position.left() == &Columns::new(0) {
-                let line_number_str =
-                    format!("{line_number:>width$}", width = gutter_width.value());
+            if visual_grapheme.position().left() == &Columns::new(0) {
+                // we only display the line number on the first visual row of a wrapped
+                // line; the rest are just empty
+                let gutter_contents = if visual_grapheme.is_wrapped() {
+                    " ".repeat(gutter_width.value())
+                } else {
+                    format!("{line_number:>width$}", width = gutter_width.value())
+                };
 
-                buffer[position]
-                    .set_content(&line_number_str)
+                buffer[visual_grapheme.position()]
+                    .set_content(&gutter_contents)
                     .set_foreground(Color::Black)
                     .set_background(Color::White);
-
-                position = position.advance(&Grapheme::Text(&line_number_str));
             }
 
+            let translated_position = visual_grapheme.position().col_offset(gutter_width);
+
             assert!(
-                position.left() >= &gutter_width,
+                *translated_position.left() >= gutter_width,
                 "filling in the gutter should've taken the position past the gutter"
             );
 
-            buffer[position].set_content(match grapheme {
+            let grapheme = visual_grapheme.grapheme();
+
+            buffer[translated_position].set_content(match *grapheme {
                 Grapheme::LineBreak => " ",
                 Grapheme::Text(raw) => raw,
             });
@@ -108,8 +113,6 @@ impl Document {
             if matches!(grapheme, Grapheme::LineBreak) {
                 line_number += 1;
             }
-
-            position = position.advance(&grapheme);
         }
     }
 
@@ -151,21 +154,16 @@ impl Document {
     }
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
-        let mut position = Position::default();
-        let text = self.text.slice(..);
-        let mut byte_index = text.line_start_byte(self.scroll_offset);
+        let start = self.text.slice(..).line_start_byte(self.scroll_offset);
 
-        for grapheme in text.graphemes(byte_index..) {
-            if byte_index == self.selection.cursor {
-                break;
-            }
-
-            byte_index += grapheme.len();
-
-            position = position.advance(&Grapheme::from(grapheme));
-        }
-
-        position.col_offset(self.gutter_width())
+        GraphemeLayoutIterator::new(
+            self.text.slice(start.value()..).graphemes(),
+            self.max_text_width(),
+        )
+        .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
+        .map(|grapheme| grapheme.position())
+        .unwrap_or_default()
+        .col_offset(self.gutter_width())
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -200,71 +198,43 @@ impl Document {
     }
 
     fn move_cursor_down(&mut self) {
-        let target_column = self.update_desired_column();
+        let target_column = self.desired_column();
         let text = self.text.slice(..);
 
-        let next_line_index = text.line_idx_containing_byte(self.selection.cursor) + 1;
-        if next_line_index.value() >= text.line_count() {
-            return;
+        let byte = VisualLineInfo::new(
+            &self.text,
+            text.line_idx_containing_byte(self.selection.cursor),
+            self.max_text_width(),
+        )
+        .next_at_column(self.selection.cursor, target_column);
+
+        if let Some(byte_index) = byte {
+            self.set_cursor(byte_index);
         }
-
-        let next_line_start = text.line_start_byte(next_line_index);
-
-        let mut column = Columns::new(0);
-        let mut byte_index = next_line_start;
-
-        for grapheme in text.graphemes(next_line_start..).map(Grapheme::from) {
-            if column >= target_column {
-                break;
-            }
-
-            match grapheme {
-                Grapheme::LineBreak => break,
-                Grapheme::Text(raw) => {
-                    column += raw.width();
-                    byte_index += raw.len();
-                }
-            }
-        }
-
-        self.set_cursor(byte_index);
     }
 
     fn move_cursor_up(&mut self) {
-        let target_column = self.update_desired_column();
+        let target_column = self.desired_column();
 
         let text = self.text.slice(..);
 
-        let prev_line_index = text
-            .line_idx_containing_byte(self.selection.cursor)
-            .saturating_sub(1);
-        let prev_line_start = text.line_start_byte(prev_line_index);
+        let byte = VisualLineInfo::new(
+            &self.text,
+            text.line_idx_containing_byte(self.selection.cursor),
+            self.max_text_width(),
+        )
+        .prev_at_column(self.selection.cursor, target_column);
 
-        let mut column = Columns::new(0);
-        let mut byte_index = prev_line_start;
-
-        for grapheme in text.graphemes(prev_line_start..).map(Grapheme::from) {
-            if column >= target_column {
-                break;
-            }
-
-            match grapheme {
-                Grapheme::LineBreak => break,
-                Grapheme::Text(raw) => {
-                    column += raw.width();
-                    byte_index += raw.len();
-                }
-            }
+        if let Some(byte_index) = byte {
+            self.set_cursor(byte_index);
         }
-
-        self.set_cursor(byte_index);
     }
 
     fn move_cursor_right(&mut self) {
         let next_grapheme_offset = self
             .text
-            .slice(..)
-            .graphemes(self.selection.cursor..)
+            .slice(self.selection.cursor.value()..)
+            .graphemes()
             .next()
             .map_or(0, str::len);
 
@@ -357,24 +327,24 @@ impl Document {
         }
     }
 
-    /// Sets the desired column to the current cursor column if it's not already set. Returns the
-    /// column for convenience to the caller.
-    fn update_desired_column(&mut self) -> Columns {
-        let column = self.desired_cursor_column.unwrap_or_else(|| {
+    /// Gets (or inserts the current cursor column) the desired column to navigate to on
+    /// vertical cursor movement.
+    fn desired_column(&mut self) -> Columns {
+        let width = self.max_text_width();
+
+        *self.desired_cursor_column.get_or_insert_with(|| {
             let text = self.text.slice(..);
 
             let line_start =
                 text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
 
-            self.text
-                .slice(line_start.value()..self.selection.cursor.value())
+            text.slice(line_start.value()..self.selection.cursor.value())
                 .chunks()
                 .map(UnicodeWidthStr::width)
                 .map(Columns::new)
-                .sum()
-        });
-        self.desired_cursor_column = Some(column);
-        column
+                .sum::<Columns>()
+                .map(|cols| cols % width.value())
+        })
     }
 
     const fn clear_desired_column(&mut self) {
@@ -517,6 +487,14 @@ impl Document {
     const fn go_to_first_line(&mut self) {
         self.set_cursor(ByteIndex::new(0));
     }
+
+    /// Determines the maximum room for text based on the dimensions of the [`Document`] and
+    /// the size of its gutter.
+    fn max_text_width(&self) -> Columns {
+        // TODO: what about the unlikely case that width <= gutter_width? add an assert and
+        // panic? allow weird behaviour? explicitly handle?
+        *self.dimensions.width() - self.gutter_width()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -535,7 +513,7 @@ impl Position {
     }
 
     #[must_use]
-    fn advance(self, grapheme: &Grapheme) -> Self {
+    pub(crate) fn advance(self, grapheme: &Grapheme) -> Self {
         match *grapheme {
             Grapheme::LineBreak => Self {
                 left: Columns::new(0),
@@ -549,6 +527,21 @@ impl Position {
     }
 
     #[must_use]
+    pub(crate) fn wrap(&self, max_width: Columns) -> (Self, WrapOutcome) {
+        if *self.left() < max_width {
+            (*self, WrapOutcome::NotWrapped)
+        } else {
+            (
+                Self {
+                    left: Columns::new(0),
+                    top: self.top + Rows::new(1),
+                },
+                WrapOutcome::Wrapped,
+            )
+        }
+    }
+
+    #[must_use]
     fn col_offset(&self, gutter_width: Columns) -> Self {
         Self {
             left: self.left + gutter_width,
@@ -558,7 +551,13 @@ impl Position {
 }
 
 #[derive(Debug)]
-enum Grapheme<'grapheme> {
+pub(crate) enum WrapOutcome {
+    Wrapped,
+    NotWrapped,
+}
+
+#[derive(Debug)]
+pub(crate) enum Grapheme<'grapheme> {
     LineBreak,
     Text(&'grapheme str),
 }
@@ -813,6 +812,22 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_down_wrapped() {
+        TestCase {
+            initial_text: &"a".repeat(200),
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('j')],
+
+            expected_text: &"a".repeat(200),
+            expected_cursor: 77,
+            expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
     fn move_cursor_up() {
         TestCase {
             initial_text: "Test\nTest",
@@ -840,6 +855,38 @@ mod tests {
             expected_text: "Test\nTest",
             expected_cursor: 1,
             expected_visual_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_up_wrapped() {
+        TestCase {
+            initial_text: &"a".repeat(200),
+            initial_cursor: 77,
+            expected_initial_visual_position: (3, 1),
+
+            keys: vec![key_event!('k')],
+
+            expected_text: &"a".repeat(200),
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn maintain_column_up_multiple_lines() {
+        TestCase {
+            initial_text: "Long line\nShort\nLong line",
+            initial_cursor: 24,
+            expected_initial_visual_position: (11, 2),
+
+            keys: vec![key_event!('k'); 1],
+
+            expected_text: "Long line\nShort\nLong line",
+            expected_cursor: 15,
+            expected_visual_position: (8, 1),
         }
         .run();
     }
