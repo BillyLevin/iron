@@ -308,10 +308,8 @@ impl Document {
     }
 
     fn recalculate_scroll(&mut self) {
-        let cursor_line = self
-            .text
-            .slice(..)
-            .line_idx_containing_byte(self.selection.cursor);
+        let text = self.text.slice(..);
+        let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
 
         if cursor_line < self.scroll_offset {
             // upwards scroll
@@ -325,6 +323,8 @@ impl Document {
                     LineIndex::from(cursor.top().value() - self.dimensions.height().value() + 1);
             }
         }
+
+        self.scroll_offset = cmp::min(cursor_line, self.scroll_offset);
     }
 
     /// Gets (or inserts the current cursor column) the desired column to navigate to on
@@ -907,6 +907,25 @@ mod tests {
             // visual position stays the same because we scrolled down, keeping the
             // cursor on the final line
             expected_visual_position: (3, 23),
+        }
+        .run();
+    }
+
+    #[test]
+    fn scroll_down_wrapped() {
+        let line = "a".repeat(200);
+        let text = format!("{line}\n").repeat(100);
+
+        TestCase {
+            initial_text: &text,
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('G'); 1],
+
+            expected_text: &text,
+            expected_cursor: (200 * 99) + 99,
+            expected_visual_position: (3, 0),
         }
         .run();
     }
