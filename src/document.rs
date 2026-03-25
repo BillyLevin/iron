@@ -190,6 +190,7 @@ impl Document {
             Action::MovePrevParagraph => self.move_cursor_prev_paragraph(),
             Action::GoToLastLine => self.go_to_last_line(),
             Action::GoToFirstLine => self.go_to_first_line(),
+            Action::DeleteWord => self.delete_word(),
         }
 
         if action.is_non_vertical_movement() {
@@ -494,6 +495,28 @@ impl Document {
         // TODO: what about the unlikely case that width <= gutter_width? add an assert and
         // panic? allow weird behaviour? explicitly handle?
         *self.dimensions.width() - self.gutter_width()
+    }
+
+    /// Deletes from the current cursor position up to (but not including) the start of the next word.
+    fn delete_word(&mut self) {
+        let end = match self
+            .text
+            .slice(self.selection.cursor.value()..)
+            .chars()
+            .tuple_windows()
+            .try_fold(self.selection.cursor, |index, (prev, ch)| {
+                let next_index = index + prev.len_utf8();
+
+                if is_word_boundary(prev, ch) {
+                    ControlFlow::Break(next_index)
+                } else {
+                    ControlFlow::Continue(next_index)
+                }
+            }) {
+            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+        };
+
+        self.text.remove(self.selection.cursor.value()..end.value());
     }
 }
 
@@ -1647,6 +1670,70 @@ mod tests {
             keys: vec![key_event!('g'), key_event!('g')],
 
             expected_text: "hello\nworld\n",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_from_start() {
+        TestCase {
+            initial_text: "Hello world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "world",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_from_middle() {
+        TestCase {
+            initial_text: "Hello world",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "Heworld",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_stop_at_hyphen() {
+        TestCase {
+            initial_text: "Hello-world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "-world",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_leading_whitespace() {
+        TestCase {
+            initial_text: "      Hello-world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "Hello-world",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
         }
