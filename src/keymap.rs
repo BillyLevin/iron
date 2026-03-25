@@ -46,6 +46,7 @@ impl KeyMap {
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
 
         map.register(&[key!('d'), key!('w')], Action::DeleteWord);
+        map.register(&[key!('c'), key!('w')], Action::ChangeWord);
 
         map
     }
@@ -123,6 +124,7 @@ pub(crate) enum Action {
     GoToLastLine,
     GoToFirstLine,
     DeleteWord,
+    ChangeWord,
 }
 
 impl Action {
@@ -142,7 +144,8 @@ impl Action {
             | Self::InsertChar(_)
             | Self::DeleteGrapheme
             | Self::InsertNewline
-            | Self::DeleteWord => true,
+            | Self::DeleteWord
+            | Self::ChangeWord => true,
 
             Self::MoveDown | Self::MoveUp | Self::SwitchToInsertMode | Self::SwitchToNormalMode => {
                 false

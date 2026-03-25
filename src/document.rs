@@ -191,6 +191,7 @@ impl Document {
             Action::GoToLastLine => self.go_to_last_line(),
             Action::GoToFirstLine => self.go_to_first_line(),
             Action::DeleteWord => self.delete_word(),
+            Action::ChangeWord => self.change_word(),
         }
 
         if action.is_non_vertical_movement() {
@@ -517,6 +518,11 @@ impl Document {
         };
 
         self.text.remove(self.selection.cursor.value()..end.value());
+    }
+
+    fn change_word(&mut self) {
+        self.delete_word();
+        self.insert_mode();
     }
 }
 
@@ -1736,6 +1742,90 @@ mod tests {
             expected_text: "Hello-world",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_word_from_start() {
+        TestCase {
+            initial_text: "Hello world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('w'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "hiworld",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_word_from_middle() {
+        TestCase {
+            initial_text: "Hello world",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('w'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "Hehiworld",
+            expected_cursor: 4,
+            expected_visual_position: (7, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_word_stop_at_hyphen() {
+        TestCase {
+            initial_text: "Hello-world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('w'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "hi-world",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_word_leading_whitespace() {
+        TestCase {
+            initial_text: "      Hello-world",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('w'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "hiHello-world",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
         }
         .run();
     }
