@@ -1,23 +1,27 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt,
+};
 
 use crossterm::event::{
     KeyCode,
     KeyEvent,
+    KeyModifiers,
 };
 
 macro_rules! key {
     ($key:literal) => {
-        ::crossterm::event::KeyEvent::from(KeyCode::Char($key))
+        KeyBinding::from(KeyCode::Char($key))
     };
 
     ($key:ident) => {
-        ::crossterm::event::KeyEvent::from(KeyCode::$key)
+        KeyBinding::from(KeyCode::$key)
     };
 }
 
 #[derive(Debug)]
 pub(crate) enum KeyMap {
-    BindingPart { map: HashMap<KeyEvent, Self> },
+    BindingPart { map: HashMap<KeyBinding, Self> },
     Action(Action),
 }
 
@@ -83,7 +87,7 @@ impl KeyMap {
         Some(current)
     }
 
-    fn register(&mut self, keys: &[KeyEvent], action: Action) {
+    fn register(&mut self, keys: &[KeyBinding], action: Action) {
         match *keys {
             [] => {}
             [key] => {
@@ -109,6 +113,52 @@ impl KeyMap {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct KeyBinding {
+    code: KeyCode,
+    modifiers: KeyModifiers,
+}
+
+impl From<KeyCode> for KeyBinding {
+    fn from(code: KeyCode) -> Self {
+        Self {
+            code,
+            modifiers: KeyModifiers::empty(),
+        }
+    }
+}
+
+impl From<KeyEvent> for KeyBinding {
+    fn from(event: KeyEvent) -> Self {
+        Self {
+            code: event.code,
+            modifiers: event.modifiers,
+        }
+    }
+}
+
+impl fmt::Display for KeyBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.modifiers.contains(KeyModifiers::CONTROL) {
+            write!(f, "C-")?;
+        }
+
+        if self.modifiers.contains(KeyModifiers::ALT) {
+            write!(f, "A-")?;
+        }
+
+        if self.modifiers.contains(KeyModifiers::SHIFT) {
+            write!(f, "S-")?;
+        }
+
+        if self.modifiers.contains(KeyModifiers::META) {
+            write!(f, "M-")?;
+        }
+
+        write!(f, "{}", self.code)
     }
 }
 
@@ -171,12 +221,42 @@ impl Action {
             }
         }
     }
+
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::MoveDown => "Move cursor down",
+            Self::MoveUp => "Move cursor up",
+            Self::MoveRight => "Move cursor right",
+            Self::MoveLeft => "Move cursor left",
+            Self::MoveNextWordStart => "Move to next word start",
+            Self::MovePrevWordStart => "Move to previous word start",
+            Self::MoveLineStart => "Move to start of line",
+            Self::MoveLineEnd => "Move to end of line",
+            Self::MoveLineFirstNonBlank => "Move to first non-blank character",
+            Self::SwitchToInsertMode => "Switch to insert mode",
+            Self::SwitchToNormalMode => "Switch to normal mode",
+            Self::InsertChar(_) => "Insert character",
+            Self::DeleteGrapheme => "Delete character",
+            Self::InsertNewline => "Insert newline",
+            Self::MoveNextParagraph => "Move to next paragraph",
+            Self::MovePrevParagraph => "Move to previous paragraph",
+            Self::GoToLastLine => "Go to last line",
+            Self::GoToFirstLine => "Go to first line",
+            Self::DeleteWord => "Delete word",
+            Self::ChangeWord => "Change word",
+            Self::DeleteToLineEnd => "Delete to end of line",
+            Self::ChangeToLineEnd => "Change to end of line",
+            Self::DeleteToLineStart => "Delete to start of line",
+            Self::DeleteToLineFirstNonBlank => "Delete to first non-blank character",
+            Self::DeleteLine => "Delete line",
+        }
+    }
 }
 
 #[derive(Debug, Default, derive_more::IntoIterator)]
 pub(crate) struct KeySequence {
     #[into_iterator(owned, ref)]
-    keys: Vec<KeyEvent>,
+    keys: Vec<KeyBinding>,
 }
 
 impl KeySequence {
@@ -184,7 +264,11 @@ impl KeySequence {
         self.keys.clear();
     }
 
-    pub(crate) fn push(&mut self, key: KeyEvent) {
+    pub(crate) fn push(&mut self, key: KeyBinding) {
         self.keys.push(key);
+    }
+
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.keys.is_empty()
     }
 }

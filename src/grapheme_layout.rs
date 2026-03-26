@@ -16,17 +16,23 @@ where
     max_width: Columns,
     position: Position,
     byte_index: ByteIndex,
+    wrap_behavior: WrapBehavior,
 }
 impl<'text, Graphemes> GraphemeLayoutIterator<'text, Graphemes>
 where
     Graphemes: Iterator<Item = &'text str>,
 {
-    pub(crate) fn new(graphemes: Graphemes, max_width: Columns) -> Self {
+    pub(crate) fn new(
+        graphemes: Graphemes,
+        max_width: Columns,
+        wrap_behavior: WrapBehavior,
+    ) -> Self {
         Self {
             graphemes,
             max_width,
             position: Position::default(),
             byte_index: ByteIndex::new(0),
+            wrap_behavior,
         }
     }
 }
@@ -45,11 +51,18 @@ where
 
         let grapheme = Grapheme::from(grapheme);
 
-        let (position, outcome) = self.position.wrap(self.max_width);
+        let (is_wrapped, position) = match self.wrap_behavior {
+            WrapBehavior::NoWrap => (false, self.position),
+            WrapBehavior::Wrap => {
+                let (position, outcome) = self.position.wrap(self.max_width);
 
-        let is_wrapped = match outcome {
-            WrapOutcome::Wrapped => true,
-            WrapOutcome::NotWrapped => false,
+                let is_wrapped = match outcome {
+                    WrapOutcome::Wrapped => true,
+                    WrapOutcome::NotWrapped => false,
+                };
+
+                (is_wrapped, position)
+            }
         };
 
         self.position = position.advance(&grapheme);
@@ -61,6 +74,12 @@ where
             byte_index,
         })
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum WrapBehavior {
+    Wrap,
+    NoWrap,
 }
 
 #[derive(Debug)]

@@ -188,20 +188,6 @@ impl Dimensions {
 #[from(forward)]
 pub(crate) struct Columns(usize);
 
-impl ops::Add<usize> for Columns {
-    type Output = Self;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs)
-    }
-}
-
-impl ops::AddAssign<usize> for Columns {
-    fn add_assign(&mut self, rhs: usize) {
-        self.0 += rhs;
-    }
-}
-
 impl Columns {
     pub(crate) const fn new(value: usize) -> Self {
         Self(value)
@@ -213,6 +199,20 @@ impl Columns {
 
     pub(crate) fn map(self, map_fn: impl FnOnce(usize) -> usize) -> Self {
         Self(map_fn(self.0))
+    }
+}
+
+impl ops::Add<usize> for Columns {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
+impl ops::AddAssign<usize> for Columns {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
     }
 }
 
@@ -228,6 +228,8 @@ impl Columns {
     derive_more::From,
     derive_more::Add,
     derive_more::AddAssign,
+    derive_more::Div,
+    derive_more::Sub,
 )]
 #[from(forward)]
 pub(crate) struct Rows(usize);

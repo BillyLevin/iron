@@ -14,7 +14,10 @@ use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     document::Grapheme,
-    grapheme_layout::GraphemeLayoutIterator,
+    grapheme_layout::{
+        GraphemeLayoutIterator,
+        WrapBehavior,
+    },
     terminal::Columns,
 };
 
@@ -255,9 +258,11 @@ impl<'text> VisualLineInfo<'text> {
 
         let start = text_slice.line_start_byte(line_index);
 
-        for grapheme in
-            GraphemeLayoutIterator::new(text_slice.line_at(line_index).graphemes(), max_width)
-        {
+        for grapheme in GraphemeLayoutIterator::new(
+            text_slice.line_at(line_index).graphemes(),
+            max_width,
+            WrapBehavior::Wrap,
+        ) {
             if *grapheme.position().left() == Columns::new(0) {
                 visual_line_starts.push(start + grapheme.byte_index());
             }

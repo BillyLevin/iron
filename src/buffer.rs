@@ -58,7 +58,7 @@ pub(crate) struct Cell {
 }
 
 impl Cell {
-    fn new(content: &str) -> Self {
+    pub(crate) fn new(content: &str) -> Self {
         Self {
             content: String::from(content),
             foreground: Color::Reset,
@@ -96,6 +96,11 @@ impl Cell {
 
     pub(crate) fn width(&self) -> usize {
         self.content.width()
+    }
+
+    pub(crate) fn reset(&mut self) -> &mut Self {
+        *self = Self::default();
+        self
     }
 }
 

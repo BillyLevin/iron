@@ -22,13 +22,18 @@ use ropey::{
     LineType,
     Rope,
 };
+use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
-    grapheme_layout::GraphemeLayoutIterator,
+    grapheme_layout::{
+        GraphemeLayoutIterator,
+        WrapBehavior,
+    },
     keymap::{
         Action,
+        KeyBinding,
         KeyMap,
         KeySequence,
     },
@@ -102,7 +107,8 @@ impl Document {
         let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
         let text = self.text.slice(start_byte.value()..);
 
-        for visual_grapheme in GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width())
+        for visual_grapheme in
+            GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
         {
             if visual_grapheme.position().top() >= self.dimensions.height() {
                 break;
@@ -132,15 +138,14 @@ impl Document {
 
             let grapheme = visual_grapheme.grapheme();
 
-            buffer[translated_position].set_content(match *grapheme {
-                Grapheme::LineBreak => " ",
-                Grapheme::Text(raw) => raw,
-            });
+            buffer[translated_position].set_content(grapheme.as_str());
 
             if matches!(grapheme, Grapheme::LineBreak) {
                 line_number += 1;
             }
         }
+
+        self.render_key_hint(buffer);
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> EventOutcome {
@@ -149,7 +154,7 @@ impl Document {
             Mode::Insert => &self.insert_keymap,
         };
 
-        self.key_sequence.push(key_event);
+        self.key_sequence.push(KeyBinding::from(key_event));
 
         let maybe_action = match keymap.get(&self.key_sequence) {
             Some(&KeyMap::BindingPart { .. }) => {
@@ -186,11 +191,87 @@ impl Document {
         GraphemeLayoutIterator::new(
             self.text.slice(start.value()..).graphemes(),
             self.max_text_width(),
+            WrapBehavior::Wrap,
         )
         .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
         .map(|grapheme| grapheme.position())
         .unwrap_or_default()
         .col_offset(self.gutter_width())
+    }
+
+    /// Displays the keybindings (if any) that are currently possible for the
+    /// user to invoke, based on the current sequence of key events.
+    fn render_key_hint(&self, buffer: &mut Buffer) {
+        if self.key_sequence.is_empty() {
+            return;
+        }
+
+        let keymap = match self.mode {
+            Mode::Normal => &self.normal_keymap,
+            Mode::Insert => &self.insert_keymap,
+        };
+
+        let Some(&KeyMap::BindingPart { ref map }) = keymap.get(&self.key_sequence) else {
+            return;
+        };
+
+        let (hints, max_width, max_height) = map.iter().fold(
+            (String::new(), Columns::new(0), Rows::new(0)),
+            |(hints, max_width, max_height), (event, map_node)| {
+                let key = event.to_string();
+                let label = match *map_node {
+                    KeyMap::BindingPart { .. } => "...",
+                    KeyMap::Action(action) => action.label(),
+                };
+
+                let hint = format!("{key}: {label}\n");
+
+                (
+                    hints + &hint,
+                    cmp::max(max_width, Columns::new(hint.width())),
+                    // we will disable wrapping so we can simply increment the count
+                    max_height + Rows::new(1),
+                )
+            },
+        );
+
+        let width = cmp::min(*self.dimensions.width(), max_width);
+        let height = cmp::min(*self.dimensions.height(), max_height);
+
+        let offset = Offset::new(
+            *self.dimensions.width() - width,
+            *self.dimensions.height() - height,
+        );
+
+        let top_left = Position::default().offset(offset);
+
+        for position in top_left.area_iter(width, height) {
+            buffer[position]
+                .reset()
+                .set_background(Color::Rgb {
+                    r: 235,
+                    g: 219,
+                    b: 178,
+                })
+                .set_foreground(Color::White);
+        }
+
+        for visual_grapheme in
+            GraphemeLayoutIterator::new(hints.graphemes(true), width, WrapBehavior::NoWrap)
+        {
+            if *visual_grapheme.position().top() >= height {
+                break;
+            }
+
+            // wrapping has been turned off, and therefore we ignore all graphemes
+            // that would overflow
+            if *visual_grapheme.position().left() >= width {
+                continue;
+            }
+
+            buffer[visual_grapheme.position().offset(offset)]
+                .set_content(visual_grapheme.grapheme().as_str());
+        }
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -678,6 +759,41 @@ impl Position {
             top: self.top,
         }
     }
+
+    #[must_use]
+    fn offset(self, offset: Offset) -> Self {
+        Self {
+            left: offset.left + self.left,
+            top: offset.top + self.top,
+        }
+    }
+
+    /// Creates an iterator over each [`Position`] in the given area, assuming
+    /// that `self` is at the top-left of the area.
+    fn area_iter(&self, width: Columns, height: Rows) -> impl Iterator<Item = Self> {
+        // TODO: iter::Step for Columns/Rows would make this cleaner but currently
+        // unstable: https://github.com/rust-lang/rust/issues/42168
+        (0..height.value()).flat_map(move |row| {
+            (0..width.value()).map(move |col| {
+                Self {
+                    left: self.left + Columns::new(col),
+                    top: self.top + Rows::new(row),
+                }
+            })
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Offset {
+    left: Columns,
+    top: Rows,
+}
+
+impl Offset {
+    const fn new(left: Columns, top: Rows) -> Self {
+        Self { left, top }
+    }
 }
 
 #[derive(Debug)]
@@ -690,6 +806,15 @@ pub(crate) enum WrapOutcome {
 pub(crate) enum Grapheme<'grapheme> {
     LineBreak,
     Text(&'grapheme str),
+}
+
+impl Grapheme<'_> {
+    pub(crate) const fn as_str(&self) -> &str {
+        match *self {
+            Grapheme::LineBreak => " ",
+            Grapheme::Text(text) => text,
+        }
+    }
 }
 
 impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
