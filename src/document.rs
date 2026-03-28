@@ -220,6 +220,7 @@ impl Document {
             Action::DeleteWord => self.delete_word(),
             Action::ChangeWord => self.change_word(),
             Action::DeleteToLineEnd => self.delete_to_line_end(),
+            Action::ChangeToLineEnd => self.change_to_line_end(),
         }
 
         if action.is_non_vertical_movement() {
@@ -569,6 +570,12 @@ impl Document {
         let end = text.line_start_byte(line_index) + offset;
 
         self.text.remove(self.selection.cursor.value()..end.value());
+    }
+
+    fn change_to_line_end(&mut self) {
+        self.delete_to_line_end();
+
+        self.insert_mode();
     }
 }
 
@@ -1896,6 +1903,27 @@ mod tests {
             expected_text: "He\nNext line",
             expected_cursor: 2,
             expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_line_end() {
+        TestCase {
+            initial_text: "Hello there!\nNext line",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('$'),
+                key_event!('y'),
+                key_event!('!'),
+            ],
+
+            expected_text: "Hey!\nNext line",
+            expected_cursor: 4,
+            expected_visual_position: (7, 0),
         }
         .run();
     }
