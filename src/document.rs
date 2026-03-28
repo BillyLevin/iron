@@ -222,6 +222,7 @@ impl Document {
             Action::DeleteToLineEnd => self.delete_to_line_end(),
             Action::ChangeToLineEnd => self.change_to_line_end(),
             Action::DeleteToLineStart => self.delete_to_line_start(),
+            Action::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
         }
 
         if action.is_non_vertical_movement() {
@@ -588,6 +589,25 @@ impl Document {
             .remove(line_start.value()..=self.selection.cursor.value());
 
         self.set_cursor(line_start);
+    }
+
+    fn delete_to_first_non_blank(&mut self) {
+        let text = self.text.slice(..);
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
+
+        let offset: ByteIndex = line
+            .chars()
+            .take_while(|ch| ch.is_whitespace())
+            .map(|ch| ByteIndex::new(ch.len_utf8()))
+            .sum();
+
+        let start = text.line_start_byte(line_index) + offset;
+
+        self.text
+            .remove(start.value()..=self.selection.cursor.value());
+
+        self.set_cursor(start);
     }
 }
 
@@ -1952,6 +1972,22 @@ mod tests {
             expected_text: "Hello there!\n!",
             expected_cursor: 13,
             expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_line_first_non_blank() {
+        TestCase {
+            initial_text: "Hello there!\n     Next line!",
+            initial_cursor: 26,
+            expected_initial_visual_position: (16, 1),
+
+            keys: vec![key_event!('d'), key_event!('^')],
+
+            expected_text: "Hello there!\n     !",
+            expected_cursor: 18,
+            expected_visual_position: (8, 1),
         }
         .run();
     }

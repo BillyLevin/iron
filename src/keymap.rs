@@ -51,6 +51,7 @@ impl KeyMap {
         map.register(&[key!('d'), key!('w')], Action::DeleteWord);
         map.register(&[key!('d'), key!('$')], Action::DeleteToLineEnd);
         map.register(&[key!('d'), key!('0')], Action::DeleteToLineStart);
+        map.register(&[key!('d'), key!('^')], Action::DeleteToLineFirstNonBlank);
 
         map.register(&[key!('c'), key!('w')], Action::ChangeWord);
         map.register(&[key!('c'), key!('$')], Action::ChangeToLineEnd);
@@ -135,6 +136,7 @@ pub(crate) enum Action {
     DeleteToLineEnd,
     ChangeToLineEnd,
     DeleteToLineStart,
+    DeleteToLineFirstNonBlank,
 }
 
 impl Action {
@@ -158,7 +160,8 @@ impl Action {
             | Self::ChangeWord
             | Self::DeleteToLineEnd
             | Self::ChangeToLineEnd
-            | Self::DeleteToLineStart => true,
+            | Self::DeleteToLineStart
+            | Self::DeleteToLineFirstNonBlank => true,
 
             Self::MoveDown | Self::MoveUp | Self::SwitchToInsertMode | Self::SwitchToNormalMode => {
                 false
