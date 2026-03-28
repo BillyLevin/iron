@@ -219,6 +219,7 @@ impl Document {
             Action::GoToFirstLine => self.go_to_first_line(),
             Action::DeleteWord => self.delete_word(),
             Action::ChangeWord => self.change_word(),
+            Action::DeleteToLineEnd => self.delete_to_line_end(),
         }
 
         if action.is_non_vertical_movement() {
@@ -552,6 +553,22 @@ impl Document {
     fn change_word(&mut self) {
         self.delete_word();
         self.insert_mode();
+    }
+
+    fn delete_to_line_end(&mut self) {
+        let text = self.text.slice(..);
+
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
+
+        let offset = ByteIndex::from(
+            line.trailing_line_break_idx(LineType::LF_CR)
+                .unwrap_or_else(|| line.len()),
+        );
+
+        let end = text.line_start_byte(line_index) + offset;
+
+        self.text.remove(self.selection.cursor.value()..end.value());
     }
 }
 
@@ -1861,6 +1878,22 @@ mod tests {
             ],
 
             expected_text: "hiHello-world",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_line_end() {
+        TestCase {
+            initial_text: "Hello there!\nNext line",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('d'), key_event!('$')],
+
+            expected_text: "He\nNext line",
             expected_cursor: 2,
             expected_visual_position: (5, 0),
         }
