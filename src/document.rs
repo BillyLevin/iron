@@ -223,6 +223,7 @@ impl Document {
             Action::ChangeToLineEnd => self.change_to_line_end(),
             Action::DeleteToLineStart => self.delete_to_line_start(),
             Action::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
+            Action::DeleteLine => self.delete_line(),
         }
 
         if action.is_non_vertical_movement() {
@@ -607,6 +608,17 @@ impl Document {
         self.text
             .remove(start.value()..=self.selection.cursor.value());
 
+        self.set_cursor(start);
+    }
+
+    fn delete_line(&mut self) {
+        let text = self.text.slice(..);
+
+        let index = text.line_idx_containing_byte(self.selection.cursor);
+        let start = text.line_start_byte(index);
+        let end = start + ByteIndex::new(text.line_at(index).len());
+
+        self.text.remove(start.value()..end.value());
         self.set_cursor(start);
     }
 }
@@ -1988,6 +2000,22 @@ mod tests {
             expected_text: "Hello there!\n     !",
             expected_cursor: 18,
             expected_visual_position: (8, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_line() {
+        TestCase {
+            initial_text: "Hello there!\nNext line!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![key_event!('d'), key_event!('d')],
+
+            expected_text: "Next line!",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }
