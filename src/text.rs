@@ -408,6 +408,13 @@ impl LeftChar {
     pub(crate) const fn ch(self) -> char {
         self.0
     }
+
+    pub(crate) fn is_word_end(self, right: RightChar) -> bool {
+        let left_kind = WordBoundaryKind::from(self);
+        let right_kind = WordBoundaryKind::from(right);
+
+        left_kind != right_kind && left_kind != WordBoundaryKind::Whitespace
+    }
 }
 
 /// A semantic wrapper around a `char` - only meaningful when paired with a

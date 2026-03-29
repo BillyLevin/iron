@@ -5,6 +5,7 @@ use std::{
         self,
         BufReader,
     },
+    iter,
     ops::ControlFlow,
     path::PathBuf,
 };
@@ -307,6 +308,7 @@ impl Document {
             Action::DeleteToLineStart => self.delete_to_line_start(),
             Action::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
             Action::DeleteLine => self.delete_line(),
+            Action::DeleteWholeWord => self.delete_whole_word(),
         }
 
         if action.is_non_vertical_movement() {
@@ -703,6 +705,54 @@ impl Document {
         let index = text.line_idx_containing_byte(self.selection.cursor);
         let start = text.line_start_byte(index);
         let end = start + ByteIndex::new(text.line_at(index).len());
+
+        self.text.remove(start.value()..end.value());
+        self.set_cursor(start);
+    }
+
+    fn delete_whole_word(&mut self) {
+        let current_ch = self.text.char(self.selection.cursor.value());
+
+        let reversed_chars = self
+            .text
+            .slice(..=self.selection.cursor.value())
+            .chars_at(self.selection.cursor.value())
+            .reversed();
+
+        let start = iter::once(current_ch)
+            .chain(reversed_chars)
+            .tuple_windows()
+            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
+                if right.is_word_start(left) {
+                    ControlFlow::Break(index)
+                } else {
+                    ControlFlow::Continue(index.saturating_sub(left.ch().len_utf8()))
+                }
+            })
+            .break_value()
+            .unwrap_or(ByteIndex::new(0));
+
+        let end = match self
+            .text
+            .slice(self.selection.cursor.value()..)
+            .chars()
+            .tuple_windows()
+            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
+                let next_index = index + left.ch().len_utf8();
+
+                if left.is_word_end(right) {
+                    // we started at the leftmost byte of the `left` char, and we want to
+                    // delete it, and so the byte index we provide is the start of the next
+                    // char, allowing us to use an exclusive range in the `remove` call below
+                    ControlFlow::Break(next_index)
+                } else {
+                    ControlFlow::Continue(next_index)
+                }
+            }) {
+            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+        };
 
         self.text.remove(start.value()..end.value());
         self.set_cursor(start);
@@ -2117,6 +2167,54 @@ mod tests {
             keys: vec![key_event!('d'), key_event!('d')],
 
             expected_text: "Next line!",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_whole_word() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
+
+            expected_text: "Hello !!!",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_whole_word_from_start() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
+
+            expected_text: " there!!!",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_whole_word_from_end() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
+
+            expected_text: " there!!!",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
         }
