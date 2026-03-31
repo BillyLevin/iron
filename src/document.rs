@@ -309,6 +309,7 @@ impl Document {
             Action::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
             Action::DeleteLine => self.delete_line(),
             Action::DeleteWholeWord => self.delete_whole_word(),
+            Action::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
         }
 
         if action.is_non_vertical_movement() {
@@ -397,8 +398,8 @@ impl Document {
             .chars_at(self.selection.cursor.value())
             .reversed()
             .tuple_windows()
-            .map(|(right, left)| (RightChar::new(right), LeftChar::new(left)))
-            .try_fold(self.selection.cursor, |index, (right, left)| {
+            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
                 let next_index = index.saturating_sub(left.ch().len_utf8());
 
                 if right.is_word_start(left) {
@@ -755,6 +756,32 @@ impl Document {
         };
 
         self.text.remove(start.value()..end.value());
+        self.set_cursor(start);
+    }
+
+    fn delete_to_prev_word_start(&mut self) {
+        let start = self
+            .text
+            .slice(..self.selection.cursor.value())
+            .chars_at(self.selection.cursor.value())
+            .reversed()
+            .tuple_windows()
+            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
+                let next_index = index.saturating_sub(left.ch().len_utf8());
+
+                if right.is_word_start(left) {
+                    ControlFlow::Break(next_index)
+                } else {
+                    ControlFlow::Continue(next_index)
+                }
+            })
+            .break_value()
+            .unwrap_or(ByteIndex::new(0));
+
+        self.text
+            .remove(start.value()..self.selection.cursor.value());
+
         self.set_cursor(start);
     }
 }
@@ -2215,6 +2242,22 @@ mod tests {
             keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
 
             expected_text: " there!!!",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_prev_word_start() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 6,
+            expected_initial_visual_position: (9, 0),
+
+            keys: vec![key_event!('d'), key_event!('b')],
+
+            expected_text: "there!!!",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
         }
