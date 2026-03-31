@@ -45,7 +45,9 @@ use crate::{
     },
     text::{
         ByteIndex,
+        LeftChar,
         LineIndex,
+        RightChar,
         RopeSliceExt as _,
         VisualLineInfo,
     },
@@ -370,10 +372,11 @@ impl Document {
             .slice(self.selection.cursor.value()..)
             .chars()
             .tuple_windows()
-            .try_fold(self.selection.cursor, |index, (prev, ch)| {
-                let next_index = index + prev.len_utf8();
+            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
+                let next_index = index + left.ch().len_utf8();
 
-                if is_word_boundary(prev, ch) {
+                if right.is_word_start(left) {
                     ControlFlow::Break(next_index)
                 } else {
                     ControlFlow::Continue(next_index)
@@ -392,10 +395,11 @@ impl Document {
             .chars_at(self.selection.cursor.value())
             .reversed()
             .tuple_windows()
-            .try_fold(self.selection.cursor, |index, (prev, ch)| {
-                let next_index = index.saturating_sub(prev.len_utf8());
+            .map(|(right, left)| (RightChar::new(right), LeftChar::new(left)))
+            .try_fold(self.selection.cursor, |index, (right, left)| {
+                let next_index = index.saturating_sub(left.ch().len_utf8());
 
-                if is_word_boundary(ch, prev) {
+                if right.is_word_start(left) {
                     ControlFlow::Break(next_index)
                 } else {
                     ControlFlow::Continue(next_index)
@@ -620,10 +624,11 @@ impl Document {
             .slice(self.selection.cursor.value()..)
             .chars()
             .tuple_windows()
-            .try_fold(self.selection.cursor, |index, (prev, ch)| {
-                let next_index = index + prev.len_utf8();
+            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
+                let next_index = index + left.ch().len_utf8();
 
-                if is_word_boundary(prev, ch) {
+                if right.is_word_start(left) {
                     ControlFlow::Break(next_index)
                 } else {
                     ControlFlow::Continue(next_index)
@@ -833,33 +838,6 @@ struct Selection {
 
 fn number_of_digits(value: usize) -> usize {
     (value.checked_ilog10().unwrap_or(0) + 1) as usize
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum WordBoundaryKind {
-    /// letters, digits, underscores.
-    WordPart,
-    Whitespace,
-    Other,
-}
-
-impl From<char> for WordBoundaryKind {
-    fn from(ch: char) -> Self {
-        if ch.is_whitespace() {
-            Self::Whitespace
-        } else if ch.is_alphanumeric() || ch == '_' {
-            Self::WordPart
-        } else {
-            Self::Other
-        }
-    }
-}
-
-fn is_word_boundary(prev_ch: char, current_ch: char) -> bool {
-    let prev_kind = WordBoundaryKind::from(prev_ch);
-    let current_kind = WordBoundaryKind::from(current_ch);
-
-    prev_kind != current_kind && current_kind != WordBoundaryKind::Whitespace
 }
 
 #[derive(Debug)]

@@ -362,3 +362,68 @@ impl<'text> VisualLineInfo<'text> {
         self.visual_line_starts.first().copied()
     }
 }
+
+#[derive(Debug, PartialEq, Eq)]
+enum WordBoundaryKind {
+    /// letters, digits, underscores.
+    WordPart,
+    Whitespace,
+    Other,
+}
+
+impl From<char> for WordBoundaryKind {
+    fn from(ch: char) -> Self {
+        if ch.is_whitespace() {
+            Self::Whitespace
+        } else if ch.is_alphanumeric() || ch == '_' {
+            Self::WordPart
+        } else {
+            Self::Other
+        }
+    }
+}
+
+impl From<LeftChar> for WordBoundaryKind {
+    fn from(left: LeftChar) -> Self {
+        Self::from(left.0)
+    }
+}
+
+impl From<RightChar> for WordBoundaryKind {
+    fn from(right: RightChar) -> Self {
+        Self::from(right.0)
+    }
+}
+
+/// A semantic wrapper around a `char` - only meaningful when paired with a
+/// corresponding [`RightChar`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LeftChar(char);
+
+impl LeftChar {
+    pub(crate) const fn new(ch: char) -> Self {
+        Self(ch)
+    }
+
+    pub(crate) const fn ch(self) -> char {
+        self.0
+    }
+}
+
+/// A semantic wrapper around a `char` - only meaningful when paired with a
+/// corresponding [`LeftChar`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RightChar(char);
+
+impl RightChar {
+    pub(crate) const fn new(ch: char) -> Self {
+        Self(ch)
+    }
+
+    pub(crate) fn is_word_start(self, left: LeftChar) -> bool {
+        let left_kind = WordBoundaryKind::from(left);
+        let right_kind = WordBoundaryKind::from(self);
+
+        left_kind != right_kind && right_kind != WordBoundaryKind::Whitespace
+    }
+}
