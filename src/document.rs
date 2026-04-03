@@ -310,6 +310,7 @@ impl Document {
             Action::DeleteLine => self.delete_line(),
             Action::DeleteWholeWord => self.delete_whole_word(),
             Action::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
+            Action::AppendText => self.append_text(),
         }
 
         if action.is_non_vertical_movement() {
@@ -783,6 +784,11 @@ impl Document {
             .remove(start.value()..self.selection.cursor.value());
 
         self.set_cursor(start);
+    }
+
+    fn append_text(&mut self) {
+        self.move_cursor_right();
+        self.insert_mode();
     }
 }
 
@@ -2260,6 +2266,22 @@ mod tests {
             expected_text: "there!!!",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn append_text() {
+        TestCase {
+            initial_text: "Hello",
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: vec![key_event!('a'), key_event!('y'), key_event!('y')],
+
+            expected_text: "Heyyllo",
+            expected_cursor: 4,
+            expected_visual_position: (7, 0),
         }
         .run();
     }
