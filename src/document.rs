@@ -311,6 +311,7 @@ impl Document {
             Action::DeleteWholeWord => self.delete_whole_word(),
             Action::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
             Action::AppendText => self.append_text(),
+            Action::AppendTextLineEnd => self.append_text_line_end(),
         }
 
         if action.should_reset_desired_column() {
@@ -567,10 +568,6 @@ impl Document {
             .find(|&(_i, line)| line.is_whitespace())
             .map(|(i, _line)| i);
 
-        #[expect(
-            clippy::option_if_let_else,
-            reason = "TODO: decide whether I want this lint"
-        )]
         self.set_cursor(match line_offset {
             Some(offset) => text.line_start_byte(line_index + offset),
             None => ByteIndex::new(text.len()),
@@ -592,10 +589,6 @@ impl Document {
             .find(|&(_i, line)| line.is_whitespace())
             .map(|(i, _line)| i);
 
-        #[expect(
-            clippy::option_if_let_else,
-            reason = "TODO: decide whether I want this lint or not"
-        )]
         self.set_cursor(match line_offset {
             Some(offset) => text.line_start_byte(line_index.saturating_sub(offset)),
             None => ByteIndex::new(0),
@@ -788,6 +781,31 @@ impl Document {
 
     fn append_text(&mut self) {
         self.move_cursor_right();
+        self.insert_mode();
+    }
+
+    fn append_text_line_end(&mut self) {
+        let text = self.text.slice(..);
+
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
+
+        let (offset, has_linebreak) = match line.trailing_line_break_idx(LineType::LF_CR) {
+            Some(offset) => (offset, true),
+            None => (line.len(), false),
+        };
+
+        self.set_cursor(text.line_start_byte(line_index) + offset);
+
+        // there is no linebreak, and so we need to make room to append text by adding
+        // one. we will not shift the cursor, so the user will overwrite the
+        // empty space when they enter text
+        if !has_linebreak {
+            // TODO: use the same linebreak style that the rest of the document uses, if
+            // applicable
+            self.text.insert_char(self.selection.cursor.value(), '\n');
+        }
+
         self.insert_mode();
     }
 }
@@ -2282,6 +2300,38 @@ mod tests {
             expected_text: "Heyyllo",
             expected_cursor: 4,
             expected_visual_position: (7, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn append_text_end_of_line_no_newline() {
+        TestCase {
+            initial_text: "Hello",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('A'), key_event!('!'), key_event!('!')],
+
+            expected_text: "Hello!!\n",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn append_text_end_of_line_with_newline() {
+        TestCase {
+            initial_text: "Hello\n",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('A'), key_event!('!'), key_event!('!')],
+
+            expected_text: "Hello!!\n",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
         }
         .run();
     }
