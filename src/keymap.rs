@@ -198,7 +198,11 @@ pub(crate) enum Action {
 }
 
 impl Action {
-    pub(crate) const fn is_non_vertical_movement(self) -> bool {
+    /// The desired cursor column should be reset on all potential cursor
+    /// movements that aren't vertical (i.e. `j`/`k` commands) in order to
+    /// prevent the cursor from jumping to unexpected columns when
+    /// navigating.
+    pub(crate) const fn should_reset_desired_column(self) -> bool {
         match self {
             Self::MoveRight
             | Self::MoveLeft

@@ -313,7 +313,7 @@ impl Document {
             Action::AppendText => self.append_text(),
         }
 
-        if action.is_non_vertical_movement() {
+        if action.should_reset_desired_column() {
             self.clear_desired_column();
         }
     }
