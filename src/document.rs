@@ -314,6 +314,7 @@ impl Document {
             Action::AppendTextLineEnd => self.append_text_line_end(),
             Action::MoveWordEnd => self.move_cursor_word_end(),
             Action::DeleteToWordEnd => self.delete_to_word_end(),
+            Action::ChangeToLineStart => self.change_to_line_start(),
         }
 
         if action.should_reset_desired_column() {
@@ -878,6 +879,11 @@ impl Document {
 
         self.text
             .remove(self.selection.cursor.value()..word_end.value());
+    }
+
+    fn change_to_line_start(&mut self) {
+        self.delete_to_line_start();
+        self.insert_mode();
     }
 }
 
@@ -2435,6 +2441,28 @@ mod tests {
             expected_text: "He there",
             expected_cursor: 2,
             expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_line_start() {
+        TestCase {
+            initial_text: "Hello there!\n     Next line!",
+            initial_cursor: 26,
+            expected_initial_visual_position: (16, 1),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('0'),
+                key_event!('y'),
+                key_event!('o'),
+                key_event!('!'),
+            ],
+
+            expected_text: "Hello there!\nyo!!",
+            expected_cursor: 16,
+            expected_visual_position: (6, 1),
         }
         .run();
     }
