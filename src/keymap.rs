@@ -67,6 +67,7 @@ impl KeyMap {
         map.register(&[key!('c'), key!('w')], Action::ChangeWord);
         map.register(&[key!('c'), key!('$')], Action::ChangeToLineEnd);
         map.register(&[key!('c'), key!('0')], Action::ChangeToLineStart);
+        map.register(&[key!('c'), key!('^')], Action::ChangeToLineFirstNonBlank);
 
         map
     }
@@ -213,6 +214,7 @@ pub(crate) enum Action {
     MoveWordEnd,
     DeleteToWordEnd,
     ChangeToLineStart,
+    ChangeToLineFirstNonBlank,
 }
 
 impl Action {
@@ -249,7 +251,8 @@ impl Action {
             | Self::AppendTextLineEnd
             | Self::MoveWordEnd
             | Self::DeleteToWordEnd
-            | Self::ChangeToLineStart => true,
+            | Self::ChangeToLineStart
+            | Self::ChangeToLineFirstNonBlank => true,
 
             Self::MoveDown | Self::MoveUp | Self::SwitchToInsertMode | Self::SwitchToNormalMode => {
                 false
@@ -291,6 +294,7 @@ impl Action {
             Self::MoveWordEnd => "Move to end of word",
             Self::DeleteToWordEnd => "Delete to end of word",
             Self::ChangeToLineStart => "Change to start of line",
+            Self::ChangeToLineFirstNonBlank => "Change to first non-blank character",
         }
     }
 }
