@@ -313,6 +313,7 @@ impl Document {
             Action::AppendText => self.append_text(),
             Action::AppendTextLineEnd => self.append_text_line_end(),
             Action::MoveWordEnd => self.move_cursor_word_end(),
+            Action::DeleteToWordEnd => self.delete_to_word_end(),
         }
 
         if action.should_reset_desired_column() {
@@ -840,6 +841,43 @@ impl Document {
         };
 
         self.set_cursor(word_end);
+    }
+
+    fn delete_to_word_end(&mut self) {
+        let next_grapheme_offset = self
+            .text
+            .slice(self.selection.cursor.value()..)
+            .graphemes()
+            .next()
+            .map_or(0, str::len);
+
+        // we start searching at the next grapheme so that the cursor doesn't stay where
+        // it is if it's already at the end of a word (in that case, we want to
+        // go to the end of the **next** word)
+        let search_start = self.selection.cursor + next_grapheme_offset;
+
+        let word_end = match self
+            .text
+            .slice(search_start.value()..)
+            .chars()
+            .tuple_windows()
+            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(search_start, |index, (left, right)| {
+                let next_index = index + left.ch().len_utf8();
+
+                if left.is_word_end(right) {
+                    // we want to delete the whole character, which may be multiple bytes,
+                    // and so we delete up to (but not including) the next character index
+                    ControlFlow::Break(next_index)
+                } else {
+                    ControlFlow::Continue(next_index)
+                }
+            }) {
+            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+        };
+
+        self.text
+            .remove(self.selection.cursor.value()..word_end.value());
     }
 }
 
@@ -2381,6 +2419,22 @@ mod tests {
             expected_text: "Hello__123: there",
             expected_cursor: 9,
             expected_visual_position: (12, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_word_end() {
+        TestCase {
+            initial_text: "Hello there",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('d'), key_event!('e')],
+
+            expected_text: "He there",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
         }
         .run();
     }
