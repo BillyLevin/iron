@@ -316,6 +316,7 @@ impl Document {
             Action::DeleteToWordEnd => self.delete_to_word_end(),
             Action::ChangeToLineStart => self.change_to_line_start(),
             Action::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
+            Action::ChangeLine => self.change_line(),
         }
 
         if action.should_reset_desired_column() {
@@ -889,6 +890,36 @@ impl Document {
 
     fn change_to_first_non_blank(&mut self) {
         self.delete_to_first_non_blank();
+        self.insert_mode();
+    }
+
+    fn change_line(&mut self) {
+        let text = self.text.slice(..);
+
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
+
+        let (offset, has_linebreak) = match line.trailing_line_break_idx(LineType::LF_CR) {
+            Some(offset) => (offset, true),
+            None => (line.len(), false),
+        };
+
+        let line_start = text.line_start_byte(line_index);
+        let line_end = line_start + offset;
+
+        self.text.remove(line_start.value()..line_end.value());
+
+        self.set_cursor(line_start);
+
+        // there is no linebreak, and so we need to make room to append text by adding
+        // one. we will not shift the cursor, so the user will overwrite the
+        // empty space when they enter text
+        if !has_linebreak {
+            // TODO: use the same linebreak style that the rest of the document uses, if
+            // applicable
+            self.text.insert_char(self.selection.cursor.value(), '\n');
+        }
+
         self.insert_mode();
     }
 }
@@ -2491,6 +2522,50 @@ mod tests {
             expected_text: "Hello there!\n     yo!!",
             expected_cursor: 21,
             expected_visual_position: (11, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_line() {
+        TestCase {
+            initial_text: "Hello there!\nNext line!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('c'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey\nNext line!",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_line_no_newline() {
+        TestCase {
+            initial_text: "Hello there!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('c'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey\n",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
         }
         .run();
     }
