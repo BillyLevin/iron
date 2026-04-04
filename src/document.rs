@@ -312,6 +312,7 @@ impl Document {
             Action::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
             Action::AppendText => self.append_text(),
             Action::AppendTextLineEnd => self.append_text_line_end(),
+            Action::MoveWordEnd => self.move_cursor_word_end(),
         }
 
         if action.should_reset_desired_column() {
@@ -807,6 +808,38 @@ impl Document {
         }
 
         self.insert_mode();
+    }
+
+    fn move_cursor_word_end(&mut self) {
+        let next_grapheme_offset = self
+            .text
+            .slice(self.selection.cursor.value()..)
+            .graphemes()
+            .next()
+            .map_or(0, str::len);
+
+        // we start searching at the next grapheme so that the cursor doesn't stay where
+        // it is if it's already at the end of a word (in that case, we want to
+        // go to the end of the **next** word)
+        let search_start = self.selection.cursor + next_grapheme_offset;
+
+        let word_end = match self
+            .text
+            .slice(search_start.value()..)
+            .chars()
+            .tuple_windows()
+            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(search_start, |index, (left, right)| {
+                if left.is_word_end(right) {
+                    ControlFlow::Break(index)
+                } else {
+                    ControlFlow::Continue(index + left.ch().len_utf8())
+                }
+            }) {
+            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+        };
+
+        self.set_cursor(word_end);
     }
 }
 
@@ -2332,6 +2365,22 @@ mod tests {
             expected_text: "Hello!!\n",
             expected_cursor: 7,
             expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_word_end() {
+        TestCase {
+            initial_text: "Hello__123: there",
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: vec![key_event!('e')],
+
+            expected_text: "Hello__123: there",
+            expected_cursor: 9,
+            expected_visual_position: (12, 0),
         }
         .run();
     }

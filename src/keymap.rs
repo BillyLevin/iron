@@ -50,6 +50,7 @@ impl KeyMap {
         map.register(&[key!('G')], Action::GoToLastLine);
         map.register(&[key!('a')], Action::AppendText);
         map.register(&[key!('A')], Action::AppendTextLineEnd);
+        map.register(&[key!('e')], Action::MoveWordEnd);
 
         map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
@@ -207,6 +208,7 @@ pub(crate) enum Action {
     DeleteToPrevWordStart,
     AppendText,
     AppendTextLineEnd,
+    MoveWordEnd,
 }
 
 impl Action {
@@ -240,7 +242,8 @@ impl Action {
             | Self::DeleteWholeWord
             | Self::DeleteToPrevWordStart
             | Self::AppendText
-            | Self::AppendTextLineEnd => true,
+            | Self::AppendTextLineEnd
+            | Self::MoveWordEnd => true,
 
             Self::MoveDown | Self::MoveUp | Self::SwitchToInsertMode | Self::SwitchToNormalMode => {
                 false
@@ -279,6 +282,7 @@ impl Action {
             Self::DeleteToPrevWordStart => "Delete to previous word start",
             Self::AppendText => "Append text",
             Self::AppendTextLineEnd => "Append text at end of line",
+            Self::MoveWordEnd => "Move to end of word",
         }
     }
 }
