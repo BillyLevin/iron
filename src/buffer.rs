@@ -70,12 +70,12 @@ impl Cell {
         &self.content
     }
 
-    pub(crate) const fn foreground(&self) -> &Color {
-        &self.foreground
+    pub(crate) const fn foreground(&self) -> Color {
+        self.foreground
     }
 
-    pub(crate) const fn background(&self) -> &Color {
-        &self.background
+    pub(crate) const fn background(&self) -> Color {
+        self.background
     }
 
     pub(crate) fn set_content(&mut self, text: &str) -> &mut Self {

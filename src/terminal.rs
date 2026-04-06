@@ -122,8 +122,8 @@ impl Terminal {
 
             crossterm::queue!(
                 self.out,
-                style::SetForegroundColor(*cell.foreground()),
-                style::SetBackgroundColor(*cell.background()),
+                style::SetForegroundColor(cell.foreground()),
+                style::SetBackgroundColor(cell.background()),
                 style::Print(cell.content())
             )?;
 

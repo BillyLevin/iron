@@ -6,7 +6,10 @@ use std::{
         BufReader,
     },
     iter,
-    ops::ControlFlow,
+    ops::{
+        ControlFlow,
+        RangeBounds,
+    },
     path::PathBuf,
 };
 
@@ -144,6 +147,18 @@ impl Document {
             let grapheme = visual_grapheme.grapheme();
 
             buffer[translated_position].set_content(grapheme.as_str());
+
+            if matches!(self.mode, Mode::Visual)
+                && self
+                    .selection
+                    .range()
+                    .contains(&(start_byte + visual_grapheme.byte_index()))
+            {
+                // TODO: theme!
+                buffer[translated_position]
+                    .set_foreground(Color::Black)
+                    .set_background(Color::Grey);
+            }
 
             if matches!(grapheme, Grapheme::LineBreak) {
                 line_number += 1;
@@ -513,6 +528,7 @@ impl Document {
     }
 
     const fn visual_mode(&mut self) {
+        self.selection.anchor = self.selection.cursor;
         self.mode = Mode::Visual;
     }
 
@@ -1075,7 +1091,24 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
 
 #[derive(Debug, Default)]
 struct Selection {
+    /// The "start" of the selection. This is set to the current cursor position
+    /// when entering [`Mode::Visual`] and then does not change while in that
+    /// mode. If the document is not [`Mode::Visual`] then the value of this
+    /// field is meaningless.
+    anchor: ByteIndex,
+    /// The "end" of the selection, which changes during movement. It is **not**
+    /// restricted to appearing after [`Selection::anchor`]: it can overlap it,
+    /// or appear before it in the document.
     cursor: ByteIndex,
+}
+
+impl Selection {
+    fn range(&self) -> impl RangeBounds<ByteIndex> {
+        let start = cmp::min(self.cursor, self.anchor);
+        let end = cmp::max(self.cursor, self.anchor);
+
+        start..=end
+    }
 }
 
 fn number_of_digits(value: usize) -> usize {

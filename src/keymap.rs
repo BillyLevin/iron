@@ -92,6 +92,11 @@ impl KeyMap {
 
         map.register(&[key!(Esc)], Action::SwitchToNormalMode);
 
+        map.register(&[key!('j')], Action::MoveDown);
+        map.register(&[key!('k')], Action::MoveUp);
+        map.register(&[key!('l')], Action::MoveRight);
+        map.register(&[key!('h')], Action::MoveLeft);
+
         map
     }
 
