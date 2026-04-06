@@ -317,6 +317,7 @@ impl Document {
             Action::ChangeToLineStart => self.change_to_line_start(),
             Action::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
             Action::ChangeLine => self.change_line(),
+            Action::ChangeWholeWord => self.change_whole_word(),
         }
 
         if action.should_reset_desired_column() {
@@ -715,7 +716,7 @@ impl Document {
 
         let reversed_chars = self
             .text
-            .slice(..=self.selection.cursor.value())
+            .slice(..self.selection.cursor.value())
             .chars_at(self.selection.cursor.value())
             .reversed();
 
@@ -920,6 +921,11 @@ impl Document {
             self.text.insert_char(self.selection.cursor.value(), '\n');
         }
 
+        self.insert_mode();
+    }
+
+    fn change_whole_word(&mut self) {
+        self.delete_whole_word();
         self.insert_mode();
     }
 }
@@ -2564,6 +2570,75 @@ mod tests {
             ],
 
             expected_text: "Hey\n",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_whole_word() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('i'),
+                key_event!('w'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hello Hey!!!",
+            expected_cursor: 9,
+            expected_visual_position: (12, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_whole_word_from_start() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('i'),
+                key_event!('w'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey there!!!",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_whole_word_from_end() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('i'),
+                key_event!('w'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey there!!!",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
         }
