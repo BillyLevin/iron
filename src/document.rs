@@ -25,6 +25,7 @@ use itertools::Itertools as _;
 use ropey::{
     LineType,
     Rope,
+    RopeSlice,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr;
@@ -151,7 +152,7 @@ impl Document {
             if matches!(self.mode, Mode::Visual)
                 && self
                     .selection
-                    .range()
+                    .range(text)
                     .contains(&(start_byte + visual_grapheme.byte_index()))
             {
                 // TODO: theme!
@@ -340,6 +341,8 @@ impl Document {
             Action::ChangeWholeWord => self.change_whole_word(),
             Action::ChangeToPrevWordStart => self.change_to_prev_word_start(),
             Action::ChangeToWordEnd => self.change_to_word_end(),
+            Action::DeleteSelection => self.delete_selection(),
+            Action::ChangeSelection => self.change_selection(),
         }
 
         if action.should_reset_desired_column() {
@@ -381,14 +384,11 @@ impl Document {
     }
 
     fn move_cursor_right(&mut self) {
-        let next_grapheme_offset = self
-            .text
-            .slice(self.selection.cursor.value()..)
-            .graphemes()
-            .next()
-            .map_or(0, str::len);
-
-        self.set_cursor(self.selection.cursor + next_grapheme_offset);
+        self.set_cursor(
+            self.text
+                .slice(..)
+                .next_grapheme_position(self.selection.cursor),
+        );
     }
 
     fn move_cursor_left(&mut self) {
@@ -843,17 +843,13 @@ impl Document {
     }
 
     fn move_cursor_word_end(&mut self) {
-        let next_grapheme_offset = self
-            .text
-            .slice(self.selection.cursor.value()..)
-            .graphemes()
-            .next()
-            .map_or(0, str::len);
-
         // we start searching at the next grapheme so that the cursor doesn't stay where
         // it is if it's already at the end of a word (in that case, we want to
         // go to the end of the **next** word)
-        let search_start = self.selection.cursor + next_grapheme_offset;
+        let search_start = self
+            .text
+            .slice(..)
+            .next_grapheme_position(self.selection.cursor);
 
         let word_end = match self
             .text
@@ -875,17 +871,13 @@ impl Document {
     }
 
     fn delete_to_word_end(&mut self) {
-        let next_grapheme_offset = self
-            .text
-            .slice(self.selection.cursor.value()..)
-            .graphemes()
-            .next()
-            .map_or(0, str::len);
-
         // we start searching at the next grapheme so that the cursor doesn't stay where
         // it is if it's already at the end of a word (in that case, we want to
         // go to the end of the **next** word)
-        let search_start = self.selection.cursor + next_grapheme_offset;
+        let search_start = self
+            .text
+            .slice(..)
+            .next_grapheme_position(self.selection.cursor);
 
         let word_end = match self
             .text
@@ -963,6 +955,22 @@ impl Document {
 
     fn change_to_word_end(&mut self) {
         self.delete_to_word_end();
+        self.insert_mode();
+    }
+
+    fn delete_selection(&mut self) {
+        let delete_range = self.selection.range(self.text.slice(..));
+
+        self.text
+            .remove(delete_range.start.value()..delete_range.end.value());
+
+        self.set_cursor(delete_range.start);
+
+        self.normal_mode();
+    }
+
+    fn change_selection(&mut self) {
+        self.delete_selection();
         self.insert_mode();
     }
 }
@@ -1103,9 +1111,13 @@ struct Selection {
 }
 
 impl Selection {
-    fn range(&self) -> Range<ByteIndex> {
+    /// Gets the range of bytes that the selection represents.
+    fn range(&self, text: RopeSlice) -> Range<ByteIndex> {
         let start = cmp::min(self.cursor, self.anchor);
-        let end = cmp::max(self.cursor, self.anchor);
+        // since each byte index represents the **start** of a grapheme, in order to get
+        // all of the selected bytes, we extend the rightmost index to the start
+        // of the **next** grapheme and represent it as a half-open range.
+        let end = text.next_grapheme_position(cmp::max(self.cursor, self.anchor));
 
         start..end
     }
@@ -2751,6 +2763,54 @@ mod tests {
             expected_text: "Hey there",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn visual_mode_delete() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('v'),
+                key_event!('j'),
+                key_event!('l'),
+                key_event!('d'),
+            ],
+
+            expected_text: "Heher line!",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn visual_mode_change() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('v'),
+                key_event!('j'),
+                key_event!('l'),
+                key_event!('c'),
+                key_event!('y'),
+                key_event!(Enter),
+                key_event!('a'),
+                key_event!('n'),
+                key_event!('o'),
+                key_event!('t'),
+            ],
+
+            expected_text: "Hey\nanother line!",
+            expected_cursor: 8,
+            expected_visual_position: (7, 1),
         }
         .run();
     }

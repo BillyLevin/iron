@@ -32,6 +32,10 @@ pub(crate) trait RopeSliceExt<'rope> {
     /// given byte index.
     fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex;
 
+    /// Gets the byte index of the first byte of the next grapheme from the
+    /// given byte index.
+    fn next_grapheme_position(&self, from: ByteIndex) -> ByteIndex;
+
     fn graphemes(&self) -> impl Iterator<Item = &'rope str>;
 
     fn line_count(&self) -> usize;
@@ -99,6 +103,14 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
                 }
             }
         }
+    }
+
+    fn next_grapheme_position(&self, from: ByteIndex) -> ByteIndex {
+        from + self
+            .slice(from.value()..)
+            .graphemes()
+            .next()
+            .map_or(0, str::len)
     }
 
     fn graphemes(&self) -> impl Iterator<Item = &'rope str> {

@@ -109,6 +109,9 @@ impl KeyMap {
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
         map.register(&[key!('G')], Action::GoToLastLine);
 
+        map.register(&[key!('d')], Action::DeleteSelection);
+        map.register(&[key!('c')], Action::ChangeSelection);
+
         map
     }
 
@@ -250,6 +253,8 @@ pub(crate) enum Action {
     ChangeWholeWord,
     ChangeToPrevWordStart,
     ChangeToWordEnd,
+    DeleteSelection,
+    ChangeSelection,
 }
 
 impl Action {
@@ -291,7 +296,9 @@ impl Action {
             | Self::ChangeLine
             | Self::ChangeWholeWord
             | Self::ChangeToPrevWordStart
-            | Self::ChangeToWordEnd => true,
+            | Self::ChangeToWordEnd
+            | Self::DeleteSelection
+            | Self::ChangeSelection => true,
 
             Self::MoveDown
             | Self::MoveUp
@@ -341,6 +348,8 @@ impl Action {
             Self::ChangeWholeWord => "Change whole word",
             Self::ChangeToPrevWordStart => "Change to previous word start",
             Self::ChangeToWordEnd => "Change to end of word",
+            Self::DeleteSelection => "Delete selection",
+            Self::ChangeSelection => "Change selection",
         }
     }
 }
