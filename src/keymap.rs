@@ -48,13 +48,13 @@ impl KeyMap {
         map.register(&[key!('^')], Action::MoveLineFirstNonBlank);
         map.register(&[key!('}')], Action::MoveNextParagraph);
         map.register(&[key!('{')], Action::MovePrevParagraph);
-        map.register(&[key!('G')], Action::GoToLastLine);
         map.register(&[key!('a')], Action::AppendText);
         map.register(&[key!('A')], Action::AppendTextLineEnd);
         map.register(&[key!('e')], Action::MoveWordEnd);
 
         map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
+        map.register(&[key!('G')], Action::GoToLastLine);
 
         map.register(&[key!('d'), key!('w')], Action::DeleteWord);
         map.register(&[key!('d'), key!('$')], Action::DeleteToLineEnd);
@@ -96,6 +96,18 @@ impl KeyMap {
         map.register(&[key!('k')], Action::MoveUp);
         map.register(&[key!('l')], Action::MoveRight);
         map.register(&[key!('h')], Action::MoveLeft);
+        map.register(&[key!('w')], Action::MoveNextWordStart);
+        map.register(&[key!('b')], Action::MovePrevWordStart);
+        map.register(&[key!('$')], Action::MoveLineEnd);
+        map.register(&[key!('0')], Action::MoveLineStart);
+        map.register(&[key!('^')], Action::MoveLineFirstNonBlank);
+        map.register(&[key!('}')], Action::MoveNextParagraph);
+        map.register(&[key!('{')], Action::MovePrevParagraph);
+        map.register(&[key!('e')], Action::MoveWordEnd);
+
+        map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
+        map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
+        map.register(&[key!('G')], Action::GoToLastLine);
 
         map
     }

@@ -8,7 +8,7 @@ use std::{
     iter,
     ops::{
         ControlFlow,
-        RangeBounds,
+        Range,
     },
     path::PathBuf,
 };
@@ -1103,11 +1103,11 @@ struct Selection {
 }
 
 impl Selection {
-    fn range(&self) -> impl RangeBounds<ByteIndex> {
+    fn range(&self) -> Range<ByteIndex> {
         let start = cmp::min(self.cursor, self.anchor);
         let end = cmp::max(self.cursor, self.anchor);
 
-        start..=end
+        start..end
     }
 }
 
