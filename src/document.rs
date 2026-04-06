@@ -318,6 +318,7 @@ impl Document {
             Action::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
             Action::ChangeLine => self.change_line(),
             Action::ChangeWholeWord => self.change_whole_word(),
+            Action::ChangeToPrevWordStart => self.change_to_prev_word_start(),
         }
 
         if action.should_reset_desired_column() {
@@ -926,6 +927,11 @@ impl Document {
 
     fn change_whole_word(&mut self) {
         self.delete_whole_word();
+        self.insert_mode();
+    }
+
+    fn change_to_prev_word_start(&mut self) {
+        self.delete_to_prev_word_start();
         self.insert_mode();
     }
 }
@@ -2641,6 +2647,45 @@ mod tests {
             expected_text: "Hey there!!!",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_prev_word_start() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![key_event!('c'), key_event!('b'), key_event!('H')],
+
+            expected_text: "Hello Here!!!",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_prev_word_start_from_word_start() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 6,
+            expected_initial_visual_position: (9, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('b'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+                key_event!(' '),
+            ],
+
+            expected_text: "Hey there!!!",
+            expected_cursor: 4,
+            expected_visual_position: (7, 0),
         }
         .run();
     }
