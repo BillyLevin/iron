@@ -319,6 +319,7 @@ impl Document {
             Action::ChangeLine => self.change_line(),
             Action::ChangeWholeWord => self.change_whole_word(),
             Action::ChangeToPrevWordStart => self.change_to_prev_word_start(),
+            Action::ChangeToWordEnd => self.change_to_word_end(),
         }
 
         if action.should_reset_desired_column() {
@@ -932,6 +933,11 @@ impl Document {
 
     fn change_to_prev_word_start(&mut self) {
         self.delete_to_prev_word_start();
+        self.insert_mode();
+    }
+
+    fn change_to_word_end(&mut self) {
+        self.delete_to_word_end();
         self.insert_mode();
     }
 }
@@ -2686,6 +2692,22 @@ mod tests {
             expected_text: "Hey there!!!",
             expected_cursor: 4,
             expected_visual_position: (7, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_word_end() {
+        TestCase {
+            initial_text: "Hello there",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('c'), key_event!('e'), key_event!('y')],
+
+            expected_text: "Hey there",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
         }
         .run();
     }

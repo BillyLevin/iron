@@ -71,6 +71,7 @@ impl KeyMap {
         map.register(&[key!('c'), key!('c')], Action::ChangeLine);
         map.register(&[key!('c'), key!('i'), key!('w')], Action::ChangeWholeWord);
         map.register(&[key!('c'), key!('b')], Action::ChangeToPrevWordStart);
+        map.register(&[key!('c'), key!('e')], Action::ChangeToWordEnd);
 
         map
     }
@@ -221,6 +222,7 @@ pub(crate) enum Action {
     ChangeLine,
     ChangeWholeWord,
     ChangeToPrevWordStart,
+    ChangeToWordEnd,
 }
 
 impl Action {
@@ -261,7 +263,8 @@ impl Action {
             | Self::ChangeToLineFirstNonBlank
             | Self::ChangeLine
             | Self::ChangeWholeWord
-            | Self::ChangeToPrevWordStart => true,
+            | Self::ChangeToPrevWordStart
+            | Self::ChangeToWordEnd => true,
 
             Self::MoveDown | Self::MoveUp | Self::SwitchToInsertMode | Self::SwitchToNormalMode => {
                 false
@@ -307,6 +310,7 @@ impl Action {
             Self::ChangeLine => "Change line",
             Self::ChangeWholeWord => "Change whole word",
             Self::ChangeToPrevWordStart => "Change to previous word start",
+            Self::ChangeToWordEnd => "Change to end of word",
         }
     }
 }
