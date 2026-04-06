@@ -61,6 +61,7 @@ pub(crate) struct Document {
 
     normal_keymap: KeyMap,
     insert_keymap: KeyMap,
+    visual_keymap: KeyMap,
 
     dimensions: Dimensions,
 
@@ -91,6 +92,7 @@ impl Document {
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
             insert_keymap: KeyMap::insert(),
+            visual_keymap: KeyMap::visual(),
             dimensions,
             scroll_offset: LineIndex::default(),
             desired_cursor_column: None,
@@ -155,6 +157,7 @@ impl Document {
         let keymap = match self.mode {
             Mode::Normal => &self.normal_keymap,
             Mode::Insert => &self.insert_keymap,
+            Mode::Visual => &self.visual_keymap,
         };
 
         self.key_sequence.push(KeyBinding::from(key_event));
@@ -212,6 +215,7 @@ impl Document {
         let keymap = match self.mode {
             Mode::Normal => &self.normal_keymap,
             Mode::Insert => &self.insert_keymap,
+            Mode::Visual => &self.visual_keymap,
         };
 
         let Some(&KeyMap::BindingPart { ref map }) = keymap.get(&self.key_sequence) else {
@@ -291,6 +295,7 @@ impl Document {
             Action::MovePrevWordStart => self.move_cursor_prev_word_start(),
             Action::SwitchToInsertMode => self.insert_mode(),
             Action::SwitchToNormalMode => self.normal_mode(),
+            Action::SwitchToVisualMode => self.visual_mode(),
             Action::InsertChar(ch) => self.insert_char(ch),
             Action::DeleteGrapheme => self.delete_grapheme(),
             Action::InsertNewline => self.insert_newline(),
@@ -485,7 +490,7 @@ impl Document {
 
     const fn event_fallback(&self, key_event: KeyEvent) -> Option<Action> {
         match self.mode {
-            Mode::Normal => None,
+            Mode::Normal | Mode::Visual => None,
             Mode::Insert => {
                 if let KeyCode::Char(ch) = key_event.code
                     && !key_event.modifiers.contains(KeyModifiers::CONTROL)
@@ -505,6 +510,10 @@ impl Document {
 
     const fn normal_mode(&mut self) {
         self.mode = Mode::Normal;
+    }
+
+    const fn visual_mode(&mut self) {
+        self.mode = Mode::Visual;
     }
 
     fn insert_char(&mut self, ch: char) {
@@ -1077,6 +1086,7 @@ fn number_of_digits(value: usize) -> usize {
 enum Mode {
     Normal,
     Insert,
+    Visual,
 }
 
 #[cfg(test)]

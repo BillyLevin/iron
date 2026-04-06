@@ -42,6 +42,7 @@ impl KeyMap {
         map.register(&[key!('w')], Action::MoveNextWordStart);
         map.register(&[key!('b')], Action::MovePrevWordStart);
         map.register(&[key!('i')], Action::SwitchToInsertMode);
+        map.register(&[key!('v')], Action::SwitchToVisualMode);
         map.register(&[key!('$')], Action::MoveLineEnd);
         map.register(&[key!('0')], Action::MoveLineStart);
         map.register(&[key!('^')], Action::MoveLineFirstNonBlank);
@@ -82,6 +83,14 @@ impl KeyMap {
         map.register(&[key!(Backspace)], Action::DeleteGrapheme);
         map.register(&[key!(Esc)], Action::SwitchToNormalMode);
         map.register(&[key!(Enter)], Action::InsertNewline);
+
+        map
+    }
+
+    pub(crate) fn visual() -> Self {
+        let mut map = Self::new();
+
+        map.register(&[key!(Esc)], Action::SwitchToNormalMode);
 
         map
     }
@@ -197,6 +206,7 @@ pub(crate) enum Action {
     MoveLineFirstNonBlank,
     SwitchToInsertMode,
     SwitchToNormalMode,
+    SwitchToVisualMode,
     InsertChar(char),
     DeleteGrapheme,
     InsertNewline,
@@ -266,9 +276,11 @@ impl Action {
             | Self::ChangeToPrevWordStart
             | Self::ChangeToWordEnd => true,
 
-            Self::MoveDown | Self::MoveUp | Self::SwitchToInsertMode | Self::SwitchToNormalMode => {
-                false
-            }
+            Self::MoveDown
+            | Self::MoveUp
+            | Self::SwitchToInsertMode
+            | Self::SwitchToNormalMode
+            | Self::SwitchToVisualMode => false,
         }
     }
 
@@ -285,6 +297,7 @@ impl Action {
             Self::MoveLineFirstNonBlank => "Move to first non-blank character",
             Self::SwitchToInsertMode => "Switch to insert mode",
             Self::SwitchToNormalMode => "Switch to normal mode",
+            Self::SwitchToVisualMode => "Switch to visual mode",
             Self::InsertChar(_) => "Insert character",
             Self::DeleteGrapheme => "Delete character",
             Self::InsertNewline => "Insert newline",
