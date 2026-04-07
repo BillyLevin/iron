@@ -345,6 +345,7 @@ impl Document {
             Action::DeleteSelection => self.delete_selection(),
             Action::ChangeSelection => self.change_selection(),
             Action::ReverseSelection => self.reverse_selection(),
+            Action::OpenLine => self.open_new_line(),
         }
 
         if action.should_reset_desired_column() {
@@ -978,6 +979,22 @@ impl Document {
 
     const fn reverse_selection(&mut self) {
         self.selection.reverse();
+    }
+
+    fn open_new_line(&mut self) {
+        let text = self.text.slice(..);
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line = text.line_at(line_index);
+        let line_start = text.line_start_byte(line_index);
+
+        let (offset, to_insert) = match line.trailing_line_break_idx(LineType::LF_CR) {
+            Some(offset) => (ByteIndex::new(offset), "\n"),
+            None => (ByteIndex::new(line.len()), "\n\n"),
+        };
+
+        self.text.insert((line_start + offset).value(), to_insert);
+        self.set_cursor(self.text.slice(..).line_start_byte(line_index + 1));
+        self.insert_mode();
     }
 }
 
@@ -2864,6 +2881,48 @@ mod tests {
             expected_text: "Hello there\nAnother line!",
             expected_cursor: 15,
             expected_visual_position: (6, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn open_new_line() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!",
+            initial_cursor: 15,
+            expected_initial_visual_position: (6, 1),
+
+            keys: vec![
+                key_event!('o'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hello there\nAnother line!\nHey\n",
+            expected_cursor: 29,
+            expected_visual_position: (6, 2),
+        }
+        .run();
+    }
+
+    #[test]
+    fn open_new_line_middle() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!\nAgain a line :)",
+            initial_cursor: 15,
+            expected_initial_visual_position: (6, 1),
+
+            keys: vec![
+                key_event!('o'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hello there\nAnother line!\nHey\nAgain a line :)",
+            expected_cursor: 29,
+            expected_visual_position: (6, 2),
         }
         .run();
     }
