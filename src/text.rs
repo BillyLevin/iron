@@ -52,6 +52,9 @@ pub(crate) trait RopeSliceExt<'rope> {
     /// NOTE: the returned byte index is relative to the start of the text
     /// slice.
     fn byte_at_column(&self, target_column: Columns) -> ByteIndex;
+
+    /// Gets the line break information for the line at the given `line_index`.
+    fn line_break(&self, line_index: LineIndex) -> LineBreakOutcome;
 }
 
 impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
@@ -161,6 +164,21 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
         }
 
         byte_index
+    }
+
+    fn line_break(&self, line_index: LineIndex) -> LineBreakOutcome {
+        let line = self.line_at(line_index);
+        let line_start = self.line_start_byte(line_index);
+
+        let (offset, has_linebreak) = match line.trailing_line_break_idx(LineType::LF_CR) {
+            Some(offset) => (ByteIndex::new(offset), true),
+            None => (ByteIndex::new(line.len()), false),
+        };
+
+        LineBreakOutcome {
+            position: line_start + offset,
+            has_linebreak,
+        }
     }
 }
 
@@ -445,4 +463,14 @@ impl RightChar {
 
         left_kind != right_kind && right_kind != WordBoundaryKind::Whitespace
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct LineBreakOutcome {
+    /// The byte index of the slice that the line break appears (or should
+    /// appear, if it doesn't exist).
+    pub(crate) position: ByteIndex,
+    /// The last line of a file may not have a line break, and this often
+    /// requires special handling.
+    pub(crate) has_linebreak: bool,
 }

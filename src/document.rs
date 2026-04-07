@@ -560,14 +560,8 @@ impl Document {
         let text = self.text.slice(..);
 
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
-        let line = text.line_at(line_index);
 
-        let offset = ByteIndex::from(
-            line.trailing_line_break_idx(LineType::LF_CR)
-                .unwrap_or_else(|| line.len()),
-        );
-
-        self.set_cursor(text.line_start_byte(line_index) + offset);
+        self.set_cursor(text.line_break(line_index).position);
     }
 
     fn move_cursor_line_start(&mut self) {
@@ -682,16 +676,9 @@ impl Document {
         let text = self.text.slice(..);
 
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
-        let line = text.line_at(line_index);
 
-        let offset = ByteIndex::from(
-            line.trailing_line_break_idx(LineType::LF_CR)
-                .unwrap_or_else(|| line.len()),
-        );
-
-        let end = text.line_start_byte(line_index) + offset;
-
-        self.text.remove(self.selection.cursor.value()..end.value());
+        self.text
+            .remove(self.selection.cursor.value()..text.line_break(line_index).position.value());
     }
 
     fn change_to_line_end(&mut self) {
@@ -824,19 +811,15 @@ impl Document {
         let text = self.text.slice(..);
 
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
-        let line = text.line_at(line_index);
 
-        let (offset, has_linebreak) = match line.trailing_line_break_idx(LineType::LF_CR) {
-            Some(offset) => (offset, true),
-            None => (line.len(), false),
-        };
+        let line_break = text.line_break(line_index);
 
-        self.set_cursor(text.line_start_byte(line_index) + offset);
+        self.set_cursor(line_break.position);
 
         // there is no linebreak, and so we need to make room to append text by adding
         // one. we will not shift the cursor, so the user will overwrite the
         // empty space when they enter text
-        if !has_linebreak {
+        if !line_break.has_linebreak {
             // TODO: use the same linebreak style that the rest of the document uses, if
             // applicable
             self.text.insert_char(self.selection.cursor.value(), '\n');
@@ -920,24 +903,19 @@ impl Document {
         let text = self.text.slice(..);
 
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
-        let line = text.line_at(line_index);
-
-        let (offset, has_linebreak) = match line.trailing_line_break_idx(LineType::LF_CR) {
-            Some(offset) => (offset, true),
-            None => (line.len(), false),
-        };
 
         let line_start = text.line_start_byte(line_index);
-        let line_end = line_start + offset;
+        let line_break = text.line_break(line_index);
 
-        self.text.remove(line_start.value()..line_end.value());
+        self.text
+            .remove(line_start.value()..line_break.position.value());
 
         self.set_cursor(line_start);
 
         // there is no linebreak, and so we need to make room to append text by adding
         // one. we will not shift the cursor, so the user will overwrite the
         // empty space when they enter text
-        if !has_linebreak {
+        if !line_break.has_linebreak {
             // TODO: use the same linebreak style that the rest of the document uses, if
             // applicable
             self.text.insert_char(self.selection.cursor.value(), '\n');
@@ -983,16 +961,17 @@ impl Document {
 
     fn open_new_line(&mut self) {
         let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
-        let line = text.line_at(line_index);
-        let line_start = text.line_start_byte(line_index);
 
-        let (offset, to_insert) = match line.trailing_line_break_idx(LineType::LF_CR) {
-            Some(offset) => (ByteIndex::new(offset), "\n"),
-            None => (ByteIndex::new(line.len()), "\n\n"),
+        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line_break = text.line_break(line_index);
+
+        let to_insert = if line_break.has_linebreak {
+            "\n"
+        } else {
+            "\n\n"
         };
 
-        self.text.insert((line_start + offset).value(), to_insert);
+        self.text.insert(line_break.position.value(), to_insert);
         self.set_cursor(self.text.slice(..).line_start_byte(line_index + 1));
         self.insert_mode();
     }
