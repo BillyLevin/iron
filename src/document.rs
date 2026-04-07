@@ -6,6 +6,7 @@ use std::{
         BufReader,
     },
     iter,
+    mem,
     ops::{
         ControlFlow,
         Range,
@@ -343,6 +344,7 @@ impl Document {
             Action::ChangeToWordEnd => self.change_to_word_end(),
             Action::DeleteSelection => self.delete_selection(),
             Action::ChangeSelection => self.change_selection(),
+            Action::ReverseSelection => self.reverse_selection(),
         }
 
         if action.should_reset_desired_column() {
@@ -973,6 +975,10 @@ impl Document {
         self.delete_selection();
         self.insert_mode();
     }
+
+    const fn reverse_selection(&mut self) {
+        self.selection.reverse();
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1120,6 +1126,10 @@ impl Selection {
         let end = text.next_grapheme_position(cmp::max(self.cursor, self.anchor));
 
         start..end
+    }
+
+    const fn reverse(&mut self) {
+        mem::swap(&mut self.anchor, &mut self.cursor);
     }
 }
 
@@ -2811,6 +2821,49 @@ mod tests {
             expected_text: "Hey\nanother line!",
             expected_cursor: 8,
             expected_visual_position: (7, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn reverse_selection() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('v'),
+                key_event!('j'),
+                key_event!('l'),
+                key_event!('o'),
+            ],
+
+            expected_text: "Hello there\nAnother line!",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn reverse_selection_twice() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('v'),
+                key_event!('j'),
+                key_event!('l'),
+                key_event!('o'),
+                key_event!('o'),
+            ],
+
+            expected_text: "Hello there\nAnother line!",
+            expected_cursor: 15,
+            expected_visual_position: (6, 1),
         }
         .run();
     }

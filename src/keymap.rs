@@ -104,6 +104,7 @@ impl KeyMap {
         map.register(&[key!('}')], Action::MoveNextParagraph);
         map.register(&[key!('{')], Action::MovePrevParagraph);
         map.register(&[key!('e')], Action::MoveWordEnd);
+        map.register(&[key!('o')], Action::ReverseSelection);
 
         map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
@@ -255,6 +256,7 @@ pub(crate) enum Action {
     ChangeToWordEnd,
     DeleteSelection,
     ChangeSelection,
+    ReverseSelection,
 }
 
 impl Action {
@@ -298,7 +300,8 @@ impl Action {
             | Self::ChangeToPrevWordStart
             | Self::ChangeToWordEnd
             | Self::DeleteSelection
-            | Self::ChangeSelection => true,
+            | Self::ChangeSelection
+            | Self::ReverseSelection => true,
 
             Self::MoveDown
             | Self::MoveUp
@@ -350,6 +353,7 @@ impl Action {
             Self::ChangeToWordEnd => "Change to end of word",
             Self::DeleteSelection => "Delete selection",
             Self::ChangeSelection => "Change selection",
+            Self::ReverseSelection => "Reverse selection",
         }
     }
 }
