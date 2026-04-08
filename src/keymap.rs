@@ -51,7 +51,8 @@ impl KeyMap {
         map.register(&[key!('a')], Action::AppendText);
         map.register(&[key!('A')], Action::AppendTextLineEnd);
         map.register(&[key!('e')], Action::MoveWordEnd);
-        map.register(&[key!('o')], Action::OpenLine);
+        map.register(&[key!('o')], Action::OpenLineBelow);
+        map.register(&[key!('O')], Action::OpenLineAbove);
 
         map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
@@ -258,7 +259,8 @@ pub(crate) enum Action {
     DeleteSelection,
     ChangeSelection,
     ReverseSelection,
-    OpenLine,
+    OpenLineBelow,
+    OpenLineAbove,
 }
 
 impl Action {
@@ -304,7 +306,8 @@ impl Action {
             | Self::DeleteSelection
             | Self::ChangeSelection
             | Self::ReverseSelection
-            | Self::OpenLine => true,
+            | Self::OpenLineBelow
+            | Self::OpenLineAbove => true,
 
             Self::MoveDown
             | Self::MoveUp
@@ -357,7 +360,8 @@ impl Action {
             Self::DeleteSelection => "Delete selection",
             Self::ChangeSelection => "Change selection",
             Self::ReverseSelection => "Reverse selection",
-            Self::OpenLine => "Open new line",
+            Self::OpenLineBelow => "Open line below",
+            Self::OpenLineAbove => "Open line above",
         }
     }
 }

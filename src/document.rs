@@ -345,7 +345,8 @@ impl Document {
             Action::DeleteSelection => self.delete_selection(),
             Action::ChangeSelection => self.change_selection(),
             Action::ReverseSelection => self.reverse_selection(),
-            Action::OpenLine => self.open_new_line(),
+            Action::OpenLineBelow => self.open_new_line_below(),
+            Action::OpenLineAbove => self.open_new_line_above(),
         }
 
         if action.should_reset_desired_column() {
@@ -959,7 +960,7 @@ impl Document {
         self.selection.reverse();
     }
 
-    fn open_new_line(&mut self) {
+    fn open_new_line_below(&mut self) {
         let text = self.text.slice(..);
 
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
@@ -973,6 +974,16 @@ impl Document {
 
         self.text.insert(line_break.position.value(), to_insert);
         self.set_cursor(self.text.slice(..).line_start_byte(line_index + 1));
+        self.insert_mode();
+    }
+
+    fn open_new_line_above(&mut self) {
+        let text = self.text.slice(..);
+
+        let line_start = text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
+
+        self.text.insert_char(line_start.value(), '\n');
+        self.set_cursor(line_start);
         self.insert_mode();
     }
 }
@@ -2902,6 +2913,48 @@ mod tests {
             expected_text: "Hello there\nAnother line!\nHey\nAgain a line :)",
             expected_cursor: 29,
             expected_visual_position: (6, 2),
+        }
+        .run();
+    }
+
+    #[test]
+    fn open_new_line_above() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!\nAgain a line :)",
+            initial_cursor: 15,
+            expected_initial_visual_position: (6, 1),
+
+            keys: vec![
+                key_event!('O'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hello there\nHey\nAnother line!\nAgain a line :)",
+            expected_cursor: 15,
+            expected_visual_position: (6, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn open_new_line_above_top() {
+        TestCase {
+            initial_text: "Hello there\nAnother line!\nAgain a line :)",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('O'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey\nHello there\nAnother line!\nAgain a line :)",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
         }
         .run();
     }
