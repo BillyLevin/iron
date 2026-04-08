@@ -44,6 +44,7 @@ use crate::{
         KeyMap,
         KeySequence,
     },
+    language::Language,
     terminal::EventOutcome,
     text::{
         ByteIndex,
@@ -95,6 +96,10 @@ pub(crate) struct Document {
     file_path: PathBuf,
 
     layout_info: LayoutInfo,
+
+    /// The detected language of the document - this is based on the extension
+    /// rather than the contents of the file.
+    language: Language,
 }
 
 impl Document {
@@ -110,6 +115,7 @@ impl Document {
             desired_cursor_column: None,
             mode: Mode::Normal,
             key_sequence: KeySequence::default(),
+            language: Language::new(&file_path),
             file_path,
             layout_info: LayoutInfo::new(dimensions),
         })
@@ -328,8 +334,16 @@ impl Document {
             return;
         };
 
+        let file_name = format!(" {file_name} ");
+
         buffer[position]
-            .set_content(&format!(" {file_name} "))
+            .set_content(&file_name)
+            .set_foreground(Color::White);
+
+        position = position.advance(&Grapheme::Text(&file_name));
+
+        buffer[position]
+            .set_content(&format!(" {} ", self.language))
             .set_foreground(Color::White);
     }
 
