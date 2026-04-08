@@ -1,5 +1,6 @@
 use std::{
     cmp,
+    fmt,
     fs::File,
     io::{
         self,
@@ -120,7 +121,7 @@ impl Document {
         for visual_grapheme in
             GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
         {
-            if visual_grapheme.position().top() >= self.dimensions.height() {
+            if *visual_grapheme.position().top() >= *self.dimensions.height() - Rows::new(1) {
                 break;
             }
 
@@ -167,6 +168,7 @@ impl Document {
             }
         }
 
+        self.render_status_line(buffer);
         self.render_key_hint(buffer);
     }
 
@@ -296,6 +298,29 @@ impl Document {
             buffer[visual_grapheme.position().offset(offset)]
                 .set_content(visual_grapheme.grapheme().as_str());
         }
+    }
+
+    fn render_status_line(&self, buffer: &mut Buffer) {
+        let height = Rows::new(1);
+        let offset = Offset::new(Columns::new(0), *self.dimensions.height() - height);
+
+        let top_left = Position::default().offset(offset);
+
+        for position in top_left.area_iter(*self.dimensions.width(), height) {
+            buffer[position]
+                .reset()
+                .set_background(Color::Rgb {
+                    r: 235,
+                    g: 219,
+                    b: 178,
+                })
+                .set_foreground(Color::White);
+        }
+
+        buffer[top_left]
+            .set_content(&format!(" {} ", self.mode))
+            .set_background(Color::Cyan)
+            .set_foreground(Color::Black);
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -478,10 +503,11 @@ impl Document {
         } else {
             let cursor = self.visual_cursor_position();
 
+            let height = *self.dimensions.height() - Rows::new(1);
+
             // downwards scroll
-            if cursor.top() >= self.dimensions.height() {
-                self.scroll_offset +=
-                    LineIndex::from(cursor.top().value() - self.dimensions.height().value() + 1);
+            if *cursor.top() >= height {
+                self.scroll_offset += LineIndex::from(cursor.top().value() - height.value() + 1);
             }
         }
 
@@ -1201,6 +1227,16 @@ enum Mode {
     Visual,
 }
 
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match *self {
+            Self::Normal => "NORMAL",
+            Self::Insert => "INSERT",
+            Self::Visual => "VISUAL",
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
@@ -1489,16 +1525,16 @@ mod tests {
 
         TestCase {
             initial_text: &text,
-            initial_cursor: 23 * 5,
-            expected_initial_visual_position: (3, 23),
+            initial_cursor: 22 * 5,
+            expected_initial_visual_position: (3, 22),
 
             keys: vec![key_event!('j'); 1],
 
             expected_text: &text,
-            expected_cursor: 24 * 5,
+            expected_cursor: 23 * 5,
             // visual position stays the same because we scrolled down, keeping the
             // cursor on the final line
-            expected_visual_position: (3, 23),
+            expected_visual_position: (3, 22),
         }
         .run();
     }
