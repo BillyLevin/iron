@@ -115,6 +115,8 @@ impl KeyMap {
         map.register(&[key!('d')], Action::DeleteSelection);
         map.register(&[key!('c')], Action::ChangeSelection);
 
+        map.register(&[key!('i'), key!('w')], Action::SelectCurrentWord);
+
         map
     }
 
@@ -261,6 +263,7 @@ pub(crate) enum Action {
     ReverseSelection,
     OpenLineBelow,
     OpenLineAbove,
+    SelectCurrentWord,
 }
 
 impl Action {
@@ -307,7 +310,8 @@ impl Action {
             | Self::ChangeSelection
             | Self::ReverseSelection
             | Self::OpenLineBelow
-            | Self::OpenLineAbove => true,
+            | Self::OpenLineAbove
+            | Self::SelectCurrentWord => true,
 
             Self::MoveDown
             | Self::MoveUp
@@ -362,6 +366,7 @@ impl Action {
             Self::ReverseSelection => "Reverse selection",
             Self::OpenLineBelow => "Open line below",
             Self::OpenLineAbove => "Open line above",
+            Self::SelectCurrentWord => "Select current word",
         }
     }
 }
