@@ -35,7 +35,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub fn run(args: &Args) -> io::Result<()> {
+    pub fn run(args: Args) -> io::Result<()> {
         let (columns, rows) = crossterm::terminal::size()?;
 
         let mut terminal = Self {
@@ -75,8 +75,8 @@ impl Terminal {
         Ok(())
     }
 
-    fn run_event_loop(&mut self, args: &Args) -> io::Result<()> {
-        let mut document = Document::new(&args.file_path, self.dimensions)?;
+    fn run_event_loop(&mut self, args: Args) -> io::Result<()> {
+        let mut document = Document::new(args.file_path, self.dimensions)?;
         let mut buffer = Buffer::new(self.dimensions);
 
         document.render(&mut buffer);

@@ -91,12 +91,14 @@ pub(crate) struct Document {
     /// The keys that have been pressed which may add up to a registered
     /// keybinding. Used in the `KeyMap` lookups.
     key_sequence: KeySequence,
+
+    file_path: PathBuf,
 }
 
 impl Document {
-    pub(crate) fn new(file_path: &PathBuf, dimensions: Dimensions) -> io::Result<Self> {
+    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
         Ok(Self {
-            text: Rope::from_reader(BufReader::new(File::open(file_path)?))?,
+            text: Rope::from_reader(BufReader::new(File::open(&file_path)?))?,
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
             insert_keymap: KeyMap::insert(),
@@ -106,6 +108,7 @@ impl Document {
             desired_cursor_column: None,
             mode: Mode::Normal,
             key_sequence: KeySequence::default(),
+            file_path,
         })
     }
 
@@ -309,10 +312,27 @@ impl Document {
             b: 178,
         });
 
-        buffer[Position::default().offset(rectangle.offset())]
-            .set_content(&format!(" {} ", self.mode))
+        // TODO: none of this handles the case where the text won't fit in the status
+        // line!
+
+        let mut position = Position::default().offset(rectangle.offset());
+
+        let mode = format!(" {} ", self.mode);
+
+        buffer[position]
+            .set_content(&mode)
             .set_background(Color::Cyan)
             .set_foreground(Color::Black);
+
+        position = position.advance(&Grapheme::Text(&mode));
+
+        let Some(file_name) = self.file_path.file_name().and_then(|name| name.to_str()) else {
+            return;
+        };
+
+        buffer[position]
+            .set_content(&format!(" {file_name} "))
+            .set_foreground(Color::White);
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -1304,7 +1324,7 @@ mod tests {
         let mut temp_file = tempfile::NamedTempFile::new().unwrap();
         write!(temp_file, "{contents}").unwrap();
 
-        Document::new(&temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
+        Document::new(temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
     }
 
     #[test]

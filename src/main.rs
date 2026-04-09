@@ -7,7 +7,5 @@ use iron::{
 };
 
 fn main() -> io::Result<()> {
-    let args = Args::parse();
-
-    Terminal::run(&args)
+    Terminal::run(Args::parse())
 }
