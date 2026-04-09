@@ -44,12 +44,7 @@ use crate::{
         KeyMap,
         KeySequence,
     },
-    terminal::{
-        Columns,
-        Dimensions,
-        EventOutcome,
-        Rows,
-    },
+    terminal::EventOutcome,
     text::{
         ByteIndex,
         LeftChar,
@@ -57,6 +52,13 @@ use crate::{
         RightChar,
         RopeSliceExt as _,
         VisualLineInfo,
+    },
+    ui::{
+        Columns,
+        Dimensions,
+        Offset,
+        Rectangle,
+        Rows,
     },
 };
 
@@ -118,14 +120,19 @@ impl Document {
         let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
         let text = self.text.slice(start_byte.value()..);
 
+        let document_rect = Rectangle::from_buffer(buffer);
+
+        let (text_rect, status_line_rect) =
+            document_rect.split_at(document_rect.height().saturating_sub(Rows::new(1)));
+
         for visual_grapheme in
             GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
         {
-            if *visual_grapheme.position().top() >= *self.dimensions.height() - Rows::new(1) {
+            if visual_grapheme.position().top() >= text_rect.height() {
                 break;
             }
 
-            if visual_grapheme.position().left() == &Columns::new(0) {
+            if visual_grapheme.position().left() == Columns::new(0) {
                 // we only display the line number on the first visual row of a wrapped
                 // line; the rest are just empty
                 let gutter_contents = if visual_grapheme.is_wrapped() {
@@ -143,7 +150,7 @@ impl Document {
             let translated_position = visual_grapheme.position().col_offset(gutter_width);
 
             assert!(
-                *translated_position.left() >= gutter_width,
+                translated_position.left() >= gutter_width,
                 "filling in the gutter should've taken the position past the gutter"
             );
 
@@ -168,8 +175,8 @@ impl Document {
             }
         }
 
-        self.render_status_line(buffer);
-        self.render_key_hint(buffer);
+        self.render_status_line(buffer, &status_line_rect);
+        self.render_key_hint(buffer, &document_rect);
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> EventOutcome {
@@ -226,7 +233,7 @@ impl Document {
 
     /// Displays the keybindings (if any) that are currently possible for the
     /// user to invoke, based on the current sequence of key events.
-    fn render_key_hint(&self, buffer: &mut Buffer) {
+    fn render_key_hint(&self, buffer: &mut Buffer, container: &Rectangle) {
         if self.key_sequence.is_empty() {
             return;
         }
@@ -261,63 +268,46 @@ impl Document {
             },
         );
 
-        let width = cmp::min(*self.dimensions.width(), max_width);
-        let height = cmp::min(*self.dimensions.height(), max_height);
+        let hints_rectangle = container.bottom_right(Dimensions::new(
+            cmp::min(container.width(), max_width),
+            cmp::min(container.height(), max_height),
+        ));
 
-        let offset = Offset::new(
-            *self.dimensions.width() - width,
-            *self.dimensions.height() - height,
-        );
+        buffer.fill_background(&hints_rectangle, Color::Rgb {
+            r: 235,
+            g: 219,
+            b: 178,
+        });
 
-        let top_left = Position::default().offset(offset);
-
-        for position in top_left.area_iter(width, height) {
-            buffer[position]
-                .reset()
-                .set_background(Color::Rgb {
-                    r: 235,
-                    g: 219,
-                    b: 178,
-                })
-                .set_foreground(Color::White);
-        }
-
-        for visual_grapheme in
-            GraphemeLayoutIterator::new(hints.graphemes(true), width, WrapBehavior::NoWrap)
-        {
-            if *visual_grapheme.position().top() >= height {
+        for visual_grapheme in GraphemeLayoutIterator::new(
+            hints.graphemes(true),
+            hints_rectangle.width(),
+            WrapBehavior::NoWrap,
+        ) {
+            if visual_grapheme.position().top() >= hints_rectangle.height() {
                 break;
             }
 
             // wrapping has been turned off, and therefore we ignore all graphemes
             // that would overflow
-            if *visual_grapheme.position().left() >= width {
+            if visual_grapheme.position().left() >= hints_rectangle.width() {
                 continue;
             }
 
-            buffer[visual_grapheme.position().offset(offset)]
-                .set_content(visual_grapheme.grapheme().as_str());
+            buffer[visual_grapheme.position().offset(hints_rectangle.offset())]
+                .set_content(visual_grapheme.grapheme().as_str())
+                .set_foreground(Color::White);
         }
     }
 
-    fn render_status_line(&self, buffer: &mut Buffer) {
-        let height = Rows::new(1);
-        let offset = Offset::new(Columns::new(0), *self.dimensions.height() - height);
+    fn render_status_line(&self, buffer: &mut Buffer, rectangle: &Rectangle) {
+        buffer.fill_background(rectangle, Color::Rgb {
+            r: 235,
+            g: 219,
+            b: 178,
+        });
 
-        let top_left = Position::default().offset(offset);
-
-        for position in top_left.area_iter(*self.dimensions.width(), height) {
-            buffer[position]
-                .reset()
-                .set_background(Color::Rgb {
-                    r: 235,
-                    g: 219,
-                    b: 178,
-                })
-                .set_foreground(Color::White);
-        }
-
-        buffer[top_left]
+        buffer[Position::default().offset(rectangle.offset())]
             .set_content(&format!(" {} ", self.mode))
             .set_background(Color::Cyan)
             .set_foreground(Color::Black);
@@ -503,10 +493,10 @@ impl Document {
         } else {
             let cursor = self.visual_cursor_position();
 
-            let height = *self.dimensions.height() - Rows::new(1);
+            let height = self.dimensions.height() - Rows::new(1);
 
             // downwards scroll
-            if *cursor.top() >= height {
+            if cursor.top() >= height {
                 self.scroll_offset += LineIndex::from(cursor.top().value() - height.value() + 1);
             }
         }
@@ -672,7 +662,7 @@ impl Document {
     fn max_text_width(&self) -> Columns {
         // TODO: what about the unlikely case that width <= gutter_width? add an assert
         // and panic? allow weird behaviour? explicitly handle?
-        *self.dimensions.width() - self.gutter_width()
+        self.dimensions.width() - self.gutter_width()
     }
 
     /// Deletes from the current cursor position up to (but not including) the
@@ -1071,12 +1061,12 @@ pub(crate) struct Position {
 }
 
 impl Position {
-    pub(crate) const fn top(&self) -> &Rows {
-        &self.top
+    pub(crate) const fn top(&self) -> Rows {
+        self.top
     }
 
-    pub(crate) const fn left(&self) -> &Columns {
-        &self.left
+    pub(crate) const fn left(&self) -> Columns {
+        self.left
     }
 
     #[must_use]
@@ -1099,7 +1089,7 @@ impl Position {
 
     #[must_use]
     pub(crate) fn wrap(&self, max_width: Columns) -> (Self, WrapOutcome) {
-        if *self.left() < max_width {
+        if self.left() < max_width {
             (*self, WrapOutcome::NotWrapped)
         } else {
             (
@@ -1121,16 +1111,16 @@ impl Position {
     }
 
     #[must_use]
-    fn offset(self, offset: Offset) -> Self {
+    pub(crate) fn offset(self, offset: Offset) -> Self {
         Self {
-            left: offset.left + self.left,
-            top: offset.top + self.top,
+            left: offset.left() + self.left,
+            top: offset.top() + self.top,
         }
     }
 
     /// Creates an iterator over each [`Position`] in the given area, assuming
     /// that `self` is at the top-left of the area.
-    fn area_iter(&self, width: Columns, height: Rows) -> impl Iterator<Item = Self> {
+    pub(crate) fn area_iter(&self, width: Columns, height: Rows) -> impl Iterator<Item = Self> {
         // TODO: iter::Step for Columns/Rows would make this cleaner but currently
         // unstable: https://github.com/rust-lang/rust/issues/42168
         (0..height.value()).flat_map(move |row| {
@@ -1141,18 +1131,6 @@ impl Position {
                 }
             })
         })
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Offset {
-    left: Columns,
-    top: Rows,
-}
-
-impl Offset {
-    const fn new(left: Columns, top: Rows) -> Self {
-        Self { left, top }
     }
 }
 
@@ -1310,12 +1288,12 @@ mod tests {
     fn assert_position(label: &str, actual: Position, expected: (usize, usize)) {
         assert_eq!(
             actual.left(),
-            &Columns::from(expected.0),
+            Columns::from(expected.0),
             "{label} did not match"
         );
         assert_eq!(
             actual.top(),
-            &Rows::from(expected.1),
+            Rows::from(expected.1),
             "{label} did not match"
         );
     }

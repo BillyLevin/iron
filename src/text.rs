@@ -18,7 +18,7 @@ use crate::{
         GraphemeLayoutIterator,
         WrapBehavior,
     },
-    terminal::Columns,
+    ui::Columns,
 };
 
 pub(crate) trait RopeSliceExt<'rope> {
@@ -207,6 +207,7 @@ impl ByteIndex {
         self.0
     }
 
+    #[must_use = "`saturating_sub` does not mutate the current value, but returns a new value"]
     pub(crate) const fn saturating_sub(self, rhs: usize) -> Self {
         Self(self.0.saturating_sub(rhs))
     }
@@ -250,6 +251,7 @@ impl LineIndex {
         self.0
     }
 
+    #[must_use = "`saturating_sub` does not mutate the current value, but returns a new value"]
     pub(crate) const fn saturating_sub(self, rhs: usize) -> Self {
         Self(self.0.saturating_sub(rhs))
     }
@@ -293,7 +295,7 @@ impl<'text> VisualLineInfo<'text> {
             max_width,
             WrapBehavior::Wrap,
         ) {
-            if *grapheme.position().left() == Columns::new(0) {
+            if grapheme.position().left() == Columns::new(0) {
                 visual_line_starts.push(start + grapheme.byte_index());
             }
         }

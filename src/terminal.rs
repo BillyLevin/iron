@@ -3,7 +3,6 @@ use std::{
         self,
         Write as _,
     },
-    ops,
     panic,
 };
 
@@ -22,6 +21,11 @@ use crate::{
     document::{
         Document,
         Position,
+    },
+    ui::{
+        Columns,
+        Dimensions,
+        Rows,
     },
 };
 
@@ -147,106 +151,9 @@ impl Terminal {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Dimensions {
-    width: Columns,
-    height: Rows,
-}
-
-impl Dimensions {
-    pub(crate) const fn new(columns: Columns, rows: Rows) -> Self {
-        Self {
-            width: columns,
-            height: rows,
-        }
-    }
-
-    pub(crate) const fn width(&self) -> &Columns {
-        &self.width
-    }
-
-    pub(crate) const fn height(&self) -> &Rows {
-        &self.height
-    }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    derive_more::From,
-    derive_more::Add,
-    derive_more::AddAssign,
-    derive_more::Sum,
-    derive_more::Sub,
-)]
-#[from(forward)]
-pub(crate) struct Columns(usize);
-
-impl Columns {
-    pub(crate) const fn new(value: usize) -> Self {
-        Self(value)
-    }
-
-    pub(crate) const fn value(self) -> usize {
-        self.0
-    }
-
-    pub(crate) fn map(self, map_fn: impl FnOnce(usize) -> usize) -> Self {
-        Self(map_fn(self.0))
-    }
-}
-
-impl ops::Add<usize> for Columns {
-    type Output = Self;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs)
-    }
-}
-
-impl ops::AddAssign<usize> for Columns {
-    fn add_assign(&mut self, rhs: usize) {
-        self.0 += rhs;
-    }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    derive_more::From,
-    derive_more::Add,
-    derive_more::AddAssign,
-    derive_more::Div,
-    derive_more::Sub,
-)]
-#[from(forward)]
-pub(crate) struct Rows(usize);
-
-impl Rows {
-    pub(crate) const fn new(value: usize) -> Self {
-        Self(value)
-    }
-
-    pub(crate) const fn value(self) -> usize {
-        self.0
-    }
-}
-
 #[derive(Debug)]
 #[must_use]
-pub enum EventOutcome {
+pub(crate) enum EventOutcome {
     Handled,
     Unhandled,
 }

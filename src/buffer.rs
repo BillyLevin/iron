@@ -5,7 +5,10 @@ use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     document::Position,
-    terminal::Dimensions,
+    ui::{
+        Dimensions,
+        Rectangle,
+    },
 };
 
 #[derive(Debug)]
@@ -26,8 +29,22 @@ impl Buffer {
         &self.cells
     }
 
+    pub(crate) const fn dimensions(&self) -> Dimensions {
+        self.dimensions
+    }
+
     pub(crate) fn clear(&mut self) {
         self.cells.fill_with(Cell::default);
+    }
+
+    /// Sets the background color for each cell within the provided `rectangle`.
+    pub(crate) fn fill_background(&mut self, rectangle: &Rectangle, color: Color) {
+        for position in Position::default()
+            .offset(rectangle.offset())
+            .area_iter(rectangle.width(), rectangle.height())
+        {
+            self[position].reset().set_background(color);
+        }
     }
 
     const fn position_index(&self, position: Position) -> usize {

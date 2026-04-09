@@ -4,8 +4,8 @@ use crate::{
         Position,
         WrapOutcome,
     },
-    terminal::Columns,
     text::ByteIndex,
+    ui::Columns,
 };
 
 pub(crate) struct GraphemeLayoutIterator<'text, Graphemes>

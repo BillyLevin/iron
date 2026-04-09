@@ -5,3 +5,4 @@ pub mod grapheme_layout;
 pub mod keymap;
 pub mod terminal;
 pub mod text;
+pub mod ui;
