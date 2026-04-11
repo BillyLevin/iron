@@ -268,10 +268,12 @@ impl Document {
             },
         );
 
-        let hints_rectangle = container.bottom_right(Dimensions::new(
-            cmp::min(container.width(), max_width),
-            cmp::min(container.height(), max_height),
-        ));
+        let hints_rectangle = container
+            .bottom_right(Dimensions::new(
+                cmp::min(container.width(), max_width),
+                cmp::min(container.height(), max_height),
+            ))
+            .margin_bottom(Rows::new(1));
 
         buffer.fill_background(&hints_rectangle, Color::Rgb {
             r: 235,

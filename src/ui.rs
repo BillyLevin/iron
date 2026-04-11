@@ -83,6 +83,14 @@ impl Rectangle {
             dimensions,
         }
     }
+
+    #[must_use]
+    pub(crate) const fn margin_bottom(self, margin: Rows) -> Self {
+        Self {
+            dimensions: self.dimensions,
+            offset: Offset::new(self.offset.left, self.offset.top.saturating_sub(margin)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
