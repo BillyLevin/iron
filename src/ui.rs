@@ -1,7 +1,5 @@
 use std::ops;
 
-use crate::buffer::Buffer;
-
 /// A structure representing (unsurprisingly) a rectangular region of the
 /// interface.
 #[derive(Debug)]
@@ -14,10 +12,10 @@ pub(crate) struct Rectangle {
 }
 
 impl Rectangle {
-    pub(crate) fn from_buffer(buffer: &Buffer) -> Self {
+    pub(crate) fn from_dimensions(dimensions: Dimensions) -> Self {
         Self {
             offset: Offset::default(),
-            dimensions: buffer.dimensions(),
+            dimensions,
         }
     }
 
@@ -81,14 +79,6 @@ impl Rectangle {
                 self.height().saturating_sub(dimensions.height),
             ),
             dimensions,
-        }
-    }
-
-    #[must_use]
-    pub(crate) const fn margin_bottom(self, margin: Rows) -> Self {
-        Self {
-            dimensions: self.dimensions,
-            offset: Offset::new(self.offset.left, self.offset.top.saturating_sub(margin)),
         }
     }
 }
@@ -228,10 +218,8 @@ mod tests {
     fn split_at() {
         let _ = color_eyre::install();
 
-        let dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
-        let buffer = Buffer::new(dimensions);
-
-        let rectangle = Rectangle::from_buffer(&buffer);
+        let rectangle =
+            Rectangle::from_dimensions(Dimensions::new(Columns::new(80), Rows::new(24)));
 
         let (top_rect, bottom_rect) = rectangle.split_at(Rows::new(20));
 

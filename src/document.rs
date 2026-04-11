@@ -93,6 +93,8 @@ pub(crate) struct Document {
     key_sequence: KeySequence,
 
     file_path: PathBuf,
+
+    layout_info: LayoutInfo,
 }
 
 impl Document {
@@ -109,6 +111,7 @@ impl Document {
             mode: Mode::Normal,
             key_sequence: KeySequence::default(),
             file_path,
+            layout_info: LayoutInfo::new(dimensions),
         })
     }
 
@@ -123,15 +126,10 @@ impl Document {
         let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
         let text = self.text.slice(start_byte.value()..);
 
-        let document_rect = Rectangle::from_buffer(buffer);
-
-        let (text_rect, status_line_rect) =
-            document_rect.split_at(document_rect.height().saturating_sub(Rows::new(1)));
-
         for visual_grapheme in
             GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
         {
-            if visual_grapheme.position().top() >= text_rect.height() {
+            if visual_grapheme.position().top() >= self.layout_info.text_rect.height() {
                 break;
             }
 
@@ -178,8 +176,8 @@ impl Document {
             }
         }
 
-        self.render_status_line(buffer, &status_line_rect);
-        self.render_key_hint(buffer, &document_rect);
+        self.render_status_line(buffer);
+        self.render_key_hint(buffer);
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> EventOutcome {
@@ -236,7 +234,7 @@ impl Document {
 
     /// Displays the keybindings (if any) that are currently possible for the
     /// user to invoke, based on the current sequence of key events.
-    fn render_key_hint(&self, buffer: &mut Buffer, container: &Rectangle) {
+    fn render_key_hint(&self, buffer: &mut Buffer) {
         if self.key_sequence.is_empty() {
             return;
         }
@@ -271,12 +269,12 @@ impl Document {
             },
         );
 
-        let hints_rectangle = container
-            .bottom_right(Dimensions::new(
-                cmp::min(container.width(), max_width),
-                cmp::min(container.height(), max_height),
-            ))
-            .margin_bottom(Rows::new(1));
+        let container = &self.layout_info.text_rect;
+
+        let hints_rectangle = container.bottom_right(Dimensions::new(
+            cmp::min(container.width(), max_width),
+            cmp::min(container.height(), max_height),
+        ));
 
         buffer.fill_background(&hints_rectangle, Color::Rgb {
             r: 235,
@@ -305,8 +303,8 @@ impl Document {
         }
     }
 
-    fn render_status_line(&self, buffer: &mut Buffer, rectangle: &Rectangle) {
-        buffer.fill_background(rectangle, Color::Rgb {
+    fn render_status_line(&self, buffer: &mut Buffer) {
+        buffer.fill_background(&self.layout_info.status_line_rect, Color::Rgb {
             r: 235,
             g: 219,
             b: 178,
@@ -315,7 +313,7 @@ impl Document {
         // TODO: none of this handles the case where the text won't fit in the status
         // line!
 
-        let mut position = Position::default().offset(rectangle.offset());
+        let mut position = Position::default().offset(self.layout_info.status_line_rect.offset());
 
         let mode = format!(" {} ", self.mode);
 
@@ -515,7 +513,7 @@ impl Document {
         } else {
             let cursor = self.visual_cursor_position();
 
-            let height = self.dimensions.height() - Rows::new(1);
+            let height = self.layout_info.text_rect.height();
 
             // downwards scroll
             if cursor.top() >= height {
@@ -1073,6 +1071,28 @@ impl Document {
 
         self.set_anchor(start);
         self.set_cursor(end);
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct LayoutInfo {
+    /// Size and position of the area that the file contents (including
+    /// gutters) can be rendered into.
+    text_rect: Rectangle,
+    /// Size and position of the area that the status line can be rendered
+    /// into.
+    status_line_rect: Rectangle,
+}
+
+impl LayoutInfo {
+    fn new(dimensions: Dimensions) -> Self {
+        let (text_rect, status_line_rect) = Rectangle::from_dimensions(dimensions)
+            .split_at(dimensions.height().saturating_sub(Rows::new(1)));
+
+        Self {
+            text_rect,
+            status_line_rect,
+        }
     }
 }
 

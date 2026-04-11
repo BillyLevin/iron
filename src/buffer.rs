@@ -29,10 +29,6 @@ impl Buffer {
         &self.cells
     }
 
-    pub(crate) const fn dimensions(&self) -> Dimensions {
-        self.dimensions
-    }
-
     pub(crate) fn clear(&mut self) {
         self.cells.fill_with(Cell::default);
     }
