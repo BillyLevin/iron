@@ -1,12 +1,14 @@
 use std::ops;
 
+use crate::document::Position;
+
 /// A structure representing (unsurprisingly) a rectangular region of the
 /// interface.
 #[derive(Debug)]
 pub(crate) struct Rectangle {
     /// How far from the top-left of the interface that the top-left of the
     /// rectangle begins.
-    offset: Offset,
+    offset: Position,
     /// The size of the rectangle.
     dimensions: Dimensions,
 }
@@ -14,7 +16,7 @@ pub(crate) struct Rectangle {
 impl Rectangle {
     pub(crate) fn from_dimensions(dimensions: Dimensions) -> Self {
         Self {
-            offset: Offset::default(),
+            offset: Position::default(),
             dimensions,
         }
     }
@@ -46,13 +48,13 @@ impl Rectangle {
 
         let bottom = Self {
             dimensions: Dimensions::new(self.dimensions.width, bottom_height),
-            offset: Offset::new(self.offset.left, self.offset.top + top_height),
+            offset: Position::new(self.offset.left(), self.offset.top() + top_height),
         };
 
         (top, bottom)
     }
 
-    pub(crate) const fn offset(&self) -> Offset {
+    pub(crate) const fn offset(&self) -> Position {
         self.offset
     }
 
@@ -74,32 +76,12 @@ impl Rectangle {
             "it is illegal to construct a rectangle that's larger than its container"
         );
         Self {
-            offset: Offset::new(
+            offset: Position::new(
                 self.width().saturating_sub(dimensions.width),
                 self.height().saturating_sub(dimensions.height),
             ),
             dimensions,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Offset {
-    left: Columns,
-    top: Rows,
-}
-
-impl Offset {
-    pub(crate) const fn new(left: Columns, top: Rows) -> Self {
-        Self { left, top }
-    }
-
-    pub(crate) const fn left(&self) -> Columns {
-        self.left
-    }
-
-    pub(crate) const fn top(&self) -> Rows {
-        self.top
     }
 }
 
@@ -213,6 +195,7 @@ impl Rows {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::Position;
 
     #[test]
     fn split_at() {
@@ -228,7 +211,10 @@ mod tests {
             Dimensions::new(Columns::new(80), Rows::new(20))
         );
 
-        assert_eq!(top_rect.offset, Offset::new(Columns::new(0), Rows::new(0)));
+        assert_eq!(
+            top_rect.offset,
+            Position::new(Columns::new(0), Rows::new(0))
+        );
 
         assert_eq!(
             bottom_rect.dimensions,
@@ -237,7 +223,7 @@ mod tests {
 
         assert_eq!(
             bottom_rect.offset,
-            Offset::new(Columns::new(0), Rows::new(20))
+            Position::new(Columns::new(0), Rows::new(20))
         );
     }
 }

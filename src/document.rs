@@ -57,7 +57,6 @@ use crate::{
     ui::{
         Columns,
         Dimensions,
-        Offset,
         Rectangle,
         Rows,
     },
@@ -1117,6 +1116,10 @@ pub(crate) struct Position {
 }
 
 impl Position {
+    pub(crate) const fn new(left: Columns, top: Rows) -> Self {
+        Self { left, top }
+    }
+
     pub(crate) const fn top(&self) -> Rows {
         self.top
     }
@@ -1167,7 +1170,7 @@ impl Position {
     }
 
     #[must_use]
-    pub(crate) fn offset(self, offset: Offset) -> Self {
+    pub(crate) fn offset(self, offset: Self) -> Self {
         Self {
             left: offset.left() + self.left,
             top: offset.top() + self.top,
