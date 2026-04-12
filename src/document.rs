@@ -57,6 +57,7 @@ use crate::{
     ui::{
         Columns,
         Dimensions,
+        Position,
         Rectangle,
         Rows,
     },
@@ -1107,96 +1108,6 @@ impl LayoutInfo {
             status_line_rect,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Position {
-    left: Columns,
-    top: Rows,
-}
-
-impl Position {
-    pub(crate) const fn new(left: Columns, top: Rows) -> Self {
-        Self { left, top }
-    }
-
-    pub(crate) const fn top(&self) -> Rows {
-        self.top
-    }
-
-    pub(crate) const fn left(&self) -> Columns {
-        self.left
-    }
-
-    #[must_use]
-    pub(crate) fn advance(self, grapheme: &Grapheme) -> Self {
-        match *grapheme {
-            Grapheme::LineBreak => {
-                Self {
-                    left: Columns::new(0),
-                    top: self.top + Rows::new(1),
-                }
-            }
-            Grapheme::Text(text) => {
-                Self {
-                    left: self.left + Columns::new(text.width()),
-                    top: self.top,
-                }
-            }
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn wrap(&self, max_width: Columns) -> (Self, WrapOutcome) {
-        if self.left() < max_width {
-            (*self, WrapOutcome::NotWrapped)
-        } else {
-            (
-                Self {
-                    left: Columns::new(0),
-                    top: self.top + Rows::new(1),
-                },
-                WrapOutcome::Wrapped,
-            )
-        }
-    }
-
-    #[must_use]
-    fn col_offset(&self, gutter_width: Columns) -> Self {
-        Self {
-            left: self.left + gutter_width,
-            top: self.top,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn offset(self, offset: Self) -> Self {
-        Self {
-            left: offset.left() + self.left,
-            top: offset.top() + self.top,
-        }
-    }
-
-    /// Creates an iterator over each [`Position`] in the given area, assuming
-    /// that `self` is at the top-left of the area.
-    pub(crate) fn area_iter(&self, width: Columns, height: Rows) -> impl Iterator<Item = Self> {
-        // TODO: iter::Step for Columns/Rows would make this cleaner but currently
-        // unstable: https://github.com/rust-lang/rust/issues/42168
-        (0..height.value()).flat_map(move |row| {
-            (0..width.value()).map(move |col| {
-                Self {
-                    left: self.left + Columns::new(col),
-                    top: self.top + Rows::new(row),
-                }
-            })
-        })
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum WrapOutcome {
-    Wrapped,
-    NotWrapped,
 }
 
 #[derive(Debug)]

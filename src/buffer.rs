@@ -3,12 +3,10 @@ use std::ops;
 use crossterm::style::Color;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{
-    document::Position,
-    ui::{
-        Dimensions,
-        Rectangle,
-    },
+use crate::ui::{
+    Dimensions,
+    Position,
+    Rectangle,
 };
 
 #[derive(Debug)]

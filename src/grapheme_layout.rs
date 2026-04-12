@@ -1,11 +1,11 @@
 use crate::{
-    document::{
-        Grapheme,
+    document::Grapheme,
+    text::ByteIndex,
+    ui::{
+        Columns,
         Position,
         WrapOutcome,
     },
-    text::ByteIndex,
-    ui::Columns,
 };
 
 pub(crate) struct GraphemeLayoutIterator<'text, Graphemes>

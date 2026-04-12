@@ -18,13 +18,11 @@ use crossterm::{
 use crate::{
     args::Args,
     buffer::Buffer,
-    document::{
-        Document,
-        Position,
-    },
+    document::Document,
     ui::{
         Columns,
         Dimensions,
+        Position,
         Rows,
     },
 };
