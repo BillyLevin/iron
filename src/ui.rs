@@ -1,5 +1,6 @@
 use std::ops;
 
+use crossterm::style::Color;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::document::Grapheme;
@@ -84,6 +85,24 @@ impl Rectangle {
             ),
             dimensions,
         }
+    }
+
+    /// Gets the column of the right **edge** (i.e. it is NOT inside) of the
+    /// [`Rectangle`].
+    pub(crate) fn right(&self) -> Columns {
+        self.offset().left() + self.width()
+    }
+
+    /// Gets the row of the bottom **edge** (i.e. it is NOT inside) of the
+    /// [`Rectangle`].
+    pub(crate) fn bottom(&self) -> Rows {
+        self.offset().top() + self.height()
+    }
+
+    /// Determines whether the given [`Position`] is inside the [`Rectangle`].
+    /// NOTE: being on the edge does NOT count as being inside.
+    pub(crate) fn contains(&self, position: &Position) -> bool {
+        self.right() > position.left() && self.bottom() > position.top()
     }
 }
 
@@ -284,12 +303,56 @@ pub(crate) enum WrapOutcome {
     NotWrapped,
 }
 
+#[derive(Debug)]
+pub(crate) struct Span {
+    text: String,
+    foreground: Option<Color>,
+    background: Option<Color>,
+}
+
+impl Span {
+    #[must_use]
+    pub(crate) const fn new(text: String) -> Self {
+        Self {
+            text,
+            foreground: None,
+            background: None,
+        }
+    }
+
+    pub(crate) fn with_fg(self, foreground: Color) -> Self {
+        Self {
+            foreground: Some(foreground),
+            ..self
+        }
+    }
+
+    pub(crate) fn with_bg(self, background: Color) -> Self {
+        Self {
+            background: Some(background),
+            ..self
+        }
+    }
+
+    pub(crate) fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub(crate) const fn fg(&self) -> Option<Color> {
+        self.foreground
+    }
+
+    pub(crate) const fn bg(&self) -> Option<Color> {
+        self.background
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn split_at() {
+    fn rectangle_split_at() {
         let _ = color_eyre::install();
 
         let rectangle =
@@ -316,5 +379,24 @@ mod tests {
             bottom_rect.offset,
             Position::new(Columns::new(0), Rows::new(20))
         );
+    }
+
+    #[test]
+    fn rectangle_bottom_right() {
+        let _ = color_eyre::install();
+
+        let container =
+            Rectangle::from_dimensions(Dimensions::new(Columns::new(80), Rows::new(24)));
+
+        let rectangle = container.bottom_right(Dimensions::new(Columns::new(10), Rows::new(10)));
+
+        assert_eq!(rectangle.offset().left(), Columns::new(70));
+        assert_eq!(rectangle.offset().top(), Rows::new(14));
+        assert_eq!(
+            rectangle.dimensions,
+            Dimensions::new(Columns::new(10), Rows::new(10))
+        );
+        assert_eq!(rectangle.right(), Columns::new(80));
+        assert_eq!(rectangle.bottom(), Rows::new(24));
     }
 }

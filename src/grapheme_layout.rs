@@ -71,6 +71,7 @@ where
             grapheme,
             is_wrapped,
             position,
+            end_position: self.position,
             byte_index,
         })
     }
@@ -87,12 +88,17 @@ pub(crate) struct VisualGrapheme<'text> {
     grapheme: Grapheme<'text>,
     is_wrapped: bool,
     position: Position,
+    end_position: Position,
     byte_index: ByteIndex,
 }
 
 impl VisualGrapheme<'_> {
     pub(crate) const fn position(&self) -> Position {
         self.position
+    }
+
+    pub(crate) const fn end_position(&self) -> Position {
+        self.end_position
     }
 
     pub(crate) const fn is_wrapped(&self) -> bool {

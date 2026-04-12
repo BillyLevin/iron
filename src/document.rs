@@ -60,6 +60,7 @@ use crate::{
         Position,
         Rectangle,
         Rows,
+        Span,
     },
 };
 
@@ -316,35 +317,24 @@ impl Document {
             b: 178,
         });
 
-        // TODO: none of this handles the case where the text won't fit in the status
-        // line!
+        let mut spans = vec![
+            Span::new(format!(" {} ", self.mode))
+                .with_fg(Color::Black)
+                .with_bg(Color::Cyan),
+        ];
 
-        let mut position = Position::default().offset(self.layout_info.status_line_rect.offset());
+        if let Some(file_name) = self
+            .file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| format!(" {name} "))
+        {
+            spans.push(Span::new(file_name).with_fg(Color::White));
+        }
 
-        let mode = format!(" {} ", self.mode);
+        spans.push(Span::new(format!(" {} ", self.language)).with_fg(Color::White));
 
-        buffer[position]
-            .set_content(&mode)
-            .set_background(Color::Cyan)
-            .set_foreground(Color::Black);
-
-        position = position.advance(&Grapheme::Text(&mode));
-
-        let Some(file_name) = self.file_path.file_name().and_then(|name| name.to_str()) else {
-            return;
-        };
-
-        let file_name = format!(" {file_name} ");
-
-        buffer[position]
-            .set_content(&file_name)
-            .set_foreground(Color::White);
-
-        position = position.advance(&Grapheme::Text(&file_name));
-
-        buffer[position]
-            .set_content(&format!(" {} ", self.language))
-            .set_foreground(Color::White);
+        buffer.render_spans(&spans, &self.layout_info.status_line_rect);
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {

@@ -1,12 +1,20 @@
 use std::ops;
 
 use crossterm::style::Color;
+use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::ui::{
-    Dimensions,
-    Position,
-    Rectangle,
+use crate::{
+    grapheme_layout::{
+        GraphemeLayoutIterator,
+        WrapBehavior,
+    },
+    ui::{
+        Dimensions,
+        Position,
+        Rectangle,
+        Span,
+    },
 };
 
 #[derive(Debug)]
@@ -33,12 +41,61 @@ impl Buffer {
 
     /// Sets the background color for each cell within the provided `rectangle`.
     pub(crate) fn fill_background(&mut self, rectangle: &Rectangle, color: Color) {
-        for position in Position::default()
-            .offset(rectangle.offset())
+        for position in rectangle
+            .offset()
             .area_iter(rectangle.width(), rectangle.height())
         {
             self[position].reset().set_background(color);
         }
+    }
+
+    /// Renders each given [`Span`] **in order** inside the `rectangle`. See
+    /// [`Buffer::render_span`] for more details on how spans get rendered.
+    pub(crate) fn render_spans(&mut self, spans: &[Span], rectangle: &Rectangle) {
+        let mut position = rectangle.offset();
+
+        for span in spans {
+            position = self.render_span(span, &position, rectangle);
+        }
+    }
+
+    /// Renders a [`Span`] inside a [`Rectangle`], starting at the given
+    /// [`Position`]. The text does NOT wrap - if we run out of space,
+    /// we simply stop rendering any more text.
+    ///
+    /// # Returns
+    ///
+    /// The position at the end of the text that actually got rendered.
+    fn render_span(&mut self, span: &Span, position: &Position, rectangle: &Rectangle) -> Position {
+        let mut end_position = *position;
+
+        for grapheme in GraphemeLayoutIterator::new(
+            span.text().graphemes(true),
+            rectangle.width(),
+            WrapBehavior::NoWrap,
+        ) {
+            let current_position = position.offset(grapheme.position());
+
+            if !rectangle.contains(&current_position) {
+                break;
+            }
+
+            let cell = &mut self[current_position];
+
+            cell.set_content(grapheme.grapheme().as_str());
+
+            if let Some(fg) = span.fg() {
+                cell.set_foreground(fg);
+            }
+
+            if let Some(bg) = span.bg() {
+                cell.set_background(bg);
+            }
+
+            end_position = grapheme.end_position();
+        }
+
+        position.offset(end_position)
     }
 
     const fn position_index(&self, position: Position) -> usize {
