@@ -29,7 +29,7 @@ use crate::{
 
 pub struct Terminal {
     out: io::Stdout,
-    dimensions: Dimensions,
+    buffer: Buffer,
 }
 
 impl Terminal {
@@ -38,7 +38,7 @@ impl Terminal {
 
         let mut terminal = Self {
             out: io::stdout(),
-            dimensions: Dimensions::new(Columns::from(columns), Rows::from(rows)),
+            buffer: Buffer::new(Dimensions::new(Columns::from(columns), Rows::from(rows))),
         };
 
         terminal.enter()?;
@@ -74,14 +74,13 @@ impl Terminal {
     }
 
     fn run_event_loop(&mut self, args: Args) -> io::Result<()> {
-        let mut document = Document::new(args.file_path, self.dimensions)?;
-        let mut buffer = Buffer::new(self.dimensions);
+        let mut document = Document::new(args.file_path, self.buffer.dimensions())?;
 
-        document.render(&mut buffer);
-        self.draw(&buffer, document.visual_cursor_position())?;
+        document.render(&mut self.buffer);
+        self.draw(document.visual_cursor_position())?;
 
         loop {
-            buffer.clear();
+            self.buffer.clear();
 
             let event_outcome = match event::read()? {
                 Event::Key(key_event) => {
@@ -92,31 +91,37 @@ impl Terminal {
                     Some(document.handle_key_event(key_event))
                 }
                 Event::Mouse(_mouse_event) => todo!(),
-                Event::Resize(_columns, _rows) => todo!(),
+                Event::Resize(columns, rows) => {
+                    let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
+                    self.buffer = Buffer::new(dimensions);
+                    document.resize(dimensions);
+
+                    Some(EventOutcome::Handled)
+                }
 
                 Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
             };
 
             match event_outcome {
-                Some(EventOutcome::Handled) => document.render(&mut buffer),
+                Some(EventOutcome::Handled) => document.render(&mut self.buffer),
                 Some(EventOutcome::Unhandled) => todo!(),
                 None => todo!(),
             }
 
-            self.draw(&buffer, document.visual_cursor_position())?;
+            self.draw(document.visual_cursor_position())?;
         }
 
         Ok(())
     }
 
-    fn draw(&mut self, buffer: &Buffer, cursor_position: Position) -> io::Result<()> {
+    fn draw(&mut self, cursor_position: Position) -> io::Result<()> {
         crossterm::queue!(
             self.out,
             crossterm::cursor::Hide,
             crossterm::cursor::MoveTo(0, 0)
         )?;
 
-        let cells = buffer.cells();
+        let cells = self.buffer.cells();
         let mut buffer_index = 0;
 
         while buffer_index < cells.len() {

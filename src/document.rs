@@ -73,8 +73,6 @@ pub(crate) struct Document {
     insert_keymap: KeyMap,
     visual_keymap: KeyMap,
 
-    dimensions: Dimensions,
-
     /// Number of lines from the top of the file that the buffer text should
     /// start from.
     scroll_offset: LineIndex,
@@ -111,7 +109,6 @@ impl Document {
             normal_keymap: KeyMap::normal(),
             insert_keymap: KeyMap::insert(),
             visual_keymap: KeyMap::visual(),
-            dimensions,
             scroll_offset: LineIndex::default(),
             desired_cursor_column: None,
             mode: Mode::Normal,
@@ -223,6 +220,11 @@ impl Document {
 
             EventOutcome::Handled
         })
+    }
+
+    pub(crate) fn resize(&mut self, dimensions: Dimensions) {
+        self.layout_info = LayoutInfo::new(dimensions);
+        self.recalculate_scroll();
     }
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
@@ -686,7 +688,7 @@ impl Document {
     fn max_text_width(&self) -> Columns {
         // TODO: what about the unlikely case that width <= gutter_width? add an assert
         // and panic? allow weird behaviour? explicitly handle?
-        self.dimensions.width() - self.gutter_width()
+        self.layout_info.dimensions.width() - self.gutter_width()
     }
 
     /// Deletes from the current cursor position up to (but not including) the
@@ -1080,6 +1082,7 @@ impl Document {
 
 #[derive(Debug)]
 pub(crate) struct LayoutInfo {
+    dimensions: Dimensions,
     /// Size and position of the area that the file contents (including
     /// gutters) can be rendered into.
     text_rect: Rectangle,
@@ -1094,6 +1097,7 @@ impl LayoutInfo {
             .split_at(dimensions.height().saturating_sub(Rows::new(1)));
 
         Self {
+            dimensions,
             text_rect,
             status_line_rect,
         }
