@@ -1,8 +1,5 @@
 use std::{
-    io::{
-        self,
-        Write as _,
-    },
+    io,
     panic,
 };
 
@@ -13,6 +10,10 @@ use crossterm::{
         KeyCode,
     },
     style,
+    terminal::{
+        BeginSynchronizedUpdate,
+        EndSynchronizedUpdate,
+    },
 };
 
 use crate::{
@@ -115,6 +116,8 @@ impl Terminal {
     }
 
     fn draw(&mut self, cursor_position: Position) -> io::Result<()> {
+        crossterm::execute!(self.out, BeginSynchronizedUpdate)?;
+
         crossterm::queue!(
             self.out,
             crossterm::cursor::Hide,
@@ -148,7 +151,7 @@ impl Terminal {
             crossterm::cursor::Show
         )?;
 
-        self.out.flush()?;
+        crossterm::execute!(self.out, EndSynchronizedUpdate)?;
 
         Ok(())
     }
