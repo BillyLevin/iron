@@ -394,6 +394,7 @@ impl Document {
             Action::OpenLineAbove => self.open_new_line_above(),
             Action::SelectCurrentWord => self.select_current_word(),
             Action::DeleteDown => self.delete_down(),
+            Action::DeleteUp => self.delete_up(),
         }
 
         if action.should_reset_desired_column() {
@@ -1096,6 +1097,26 @@ impl Document {
 
         self.text.remove(start.value()..end.value());
         self.set_cursor(start);
+        self.move_cursor_first_non_blank();
+    }
+
+    fn delete_up(&mut self) {
+        let text = self.text.slice(..);
+
+        let current_line = text.line_idx_containing_byte(self.selection.cursor);
+        let Some(prev_line) = current_line.checked_sub(1) else {
+            return;
+        };
+
+        let start = text.line_start_byte(prev_line);
+        let end =
+            text.line_start_byte(current_line) + ByteIndex::new(text.line_at(current_line).len());
+
+        self.text.remove(start.value()..end.value());
+        self.set_cursor(match prev_line.checked_sub(1) {
+            Some(line) => self.text.slice(..).line_start_byte(line),
+            None => start,
+        });
         self.move_cursor_first_non_blank();
     }
 }
@@ -3056,6 +3077,22 @@ mod tests {
             expected_text: "     And another",
             expected_cursor: 5,
             expected_visual_position: (8, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_up() {
+        TestCase {
+            initial_text: "Hello there\nAnother line\nAnd another",
+            initial_cursor: 27,
+            expected_initial_visual_position: (5, 2),
+
+            keys: vec![key_event!('d'), key_event!('k')],
+
+            expected_text: "Hello there\n",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }

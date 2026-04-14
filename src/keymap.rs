@@ -67,6 +67,7 @@ impl KeyMap {
         map.register(&[key!('d'), key!('b')], Action::DeleteToPrevWordStart);
         map.register(&[key!('d'), key!('e')], Action::DeleteToWordEnd);
         map.register(&[key!('d'), key!('j')], Action::DeleteDown);
+        map.register(&[key!('d'), key!('k')], Action::DeleteUp);
 
         map.register(&[key!('c'), key!('w')], Action::ChangeWord);
         map.register(&[key!('c'), key!('$')], Action::ChangeToLineEnd);
@@ -266,6 +267,7 @@ pub(crate) enum Action {
     OpenLineAbove,
     SelectCurrentWord,
     DeleteDown,
+    DeleteUp,
 }
 
 impl Action {
@@ -314,7 +316,8 @@ impl Action {
             | Self::OpenLineBelow
             | Self::OpenLineAbove
             | Self::SelectCurrentWord
-            | Self::DeleteDown => true,
+            | Self::DeleteDown
+            | Self::DeleteUp => true,
 
             Self::MoveDown
             | Self::MoveUp
@@ -371,6 +374,7 @@ impl Action {
             Self::OpenLineAbove => "Open line above",
             Self::SelectCurrentWord => "Select current word",
             Self::DeleteDown => "Delete down",
+            Self::DeleteUp => "Delete up",
         }
     }
 }

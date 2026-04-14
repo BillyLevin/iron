@@ -276,6 +276,7 @@ impl LineIndex {
         Self(self.0.saturating_sub(rhs))
     }
 
+    #[must_use = "`checked_sub` does not mutate the current value, but returns an `Option`"]
     pub(crate) fn checked_sub(self, rhs: usize) -> Option<Self> {
         Some(Self(self.0.checked_sub(rhs)?))
     }
