@@ -393,6 +393,7 @@ impl Document {
             Action::OpenLineBelow => self.open_new_line_below(),
             Action::OpenLineAbove => self.open_new_line_above(),
             Action::SelectCurrentWord => self.select_current_word(),
+            Action::DeleteDown => self.delete_down(),
         }
 
         if action.should_reset_desired_column() {
@@ -1076,6 +1077,26 @@ impl Document {
 
         self.set_anchor(start);
         self.set_cursor(end);
+    }
+
+    /// Deletes the current and next line.
+    fn delete_down(&mut self) {
+        let text = self.text.slice(..);
+
+        let current_line = text.line_idx_containing_byte(self.selection.cursor);
+        let next_line = current_line + 1;
+
+        let start = text.line_start_byte(current_line);
+
+        let Some(next_line_start) = text.get_line_start_byte(next_line) else {
+            return;
+        };
+
+        let end = next_line_start + ByteIndex::new(text.line_at(next_line).len());
+
+        self.text.remove(start.value()..end.value());
+        self.set_cursor(start);
+        self.move_cursor_first_non_blank();
     }
 }
 
@@ -3019,6 +3040,22 @@ mod tests {
             expected_text: " there",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_down() {
+        TestCase {
+            initial_text: "Hello there\nAnother line\n     And another",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('d'), key_event!('j')],
+
+            expected_text: "     And another",
+            expected_cursor: 5,
+            expected_visual_position: (8, 0),
         }
         .run();
     }

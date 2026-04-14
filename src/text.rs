@@ -21,10 +21,22 @@ use crate::{
     ui::Columns,
 };
 
+const LINE_TYPE: LineType = LineType::LF_CR;
+
 pub(crate) trait RopeSliceExt<'rope> {
     fn line_idx_containing_byte(&self, byte: ByteIndex) -> LineIndex;
 
+    /// Gets the [`ByteIndex`] of the start of the line at the given
+    /// [`LineIndex`]. NOTE: this does NOT allow a one-past-the-end line
+    /// index like [`RopeSlice::line_to_byte_idx`] does.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `line >= self.len_lines()`.
     fn line_start_byte(&self, line: LineIndex) -> ByteIndex;
+
+    /// Non-panicking version of [`RopeSliceExt::line_start_byte`].
+    fn get_line_start_byte(&self, line: LineIndex) -> Option<ByteIndex>;
 
     fn line_at(&self, line_index: LineIndex) -> RopeSlice<'rope>;
 
@@ -59,15 +71,23 @@ pub(crate) trait RopeSliceExt<'rope> {
 
 impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     fn line_idx_containing_byte(&self, byte: ByteIndex) -> LineIndex {
-        LineIndex::from(self.byte_to_line_idx(byte.value(), ropey::LineType::LF_CR))
+        LineIndex::from(self.byte_to_line_idx(byte.value(), LINE_TYPE))
     }
 
     fn line_start_byte(&self, line: LineIndex) -> ByteIndex {
-        ByteIndex::from(self.line_to_byte_idx(line.value(), LineType::LF_CR))
+        assert!(
+            line.value() < self.len_lines(LINE_TYPE),
+            "line index must be in bounds. use `get_line_start_byte` if this lookup is fallible."
+        );
+        ByteIndex::from(self.line_to_byte_idx(line.value(), LINE_TYPE))
+    }
+
+    fn get_line_start_byte(&self, line: LineIndex) -> Option<ByteIndex> {
+        (line.value() < self.len_lines(LINE_TYPE)).then(|| self.line_start_byte(line))
     }
 
     fn line_at(&self, line_index: LineIndex) -> Self {
-        self.line(line_index.value(), LineType::LF_CR)
+        self.line(line_index.value(), LINE_TYPE)
     }
 
     fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex {
@@ -126,9 +146,9 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
         // has a trailing line break, ropey counts that in the line count, but we want
         // to act as if it doesn't exist. so, if the last line is empty, we'll
         // lower the line count
-        let lines = self.len_lines(LineType::LF_CR);
+        let lines = self.len_lines(LINE_TYPE);
 
-        let last_line = self.line(lines.saturating_sub(1), LineType::LF_CR);
+        let last_line = self.line(lines.saturating_sub(1), LINE_TYPE);
 
         if last_line.len() == 0 {
             lines.saturating_sub(1)
@@ -170,7 +190,7 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
         let line = self.line_at(line_index);
         let line_start = self.line_start_byte(line_index);
 
-        let (offset, has_linebreak) = match line.trailing_line_break_idx(LineType::LF_CR) {
+        let (offset, has_linebreak) = match line.trailing_line_break_idx(LINE_TYPE) {
             Some(offset) => (ByteIndex::new(offset), true),
             None => (ByteIndex::new(line.len()), false),
         };
