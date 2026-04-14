@@ -625,11 +625,10 @@ impl Document {
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
         let line = text.line_at(line_index);
 
-        let offset: ByteIndex = line
-            .chars()
-            .take_while(|ch| ch.is_whitespace())
-            .map(|ch| ByteIndex::new(ch.len_utf8()))
-            .sum();
+        let offset = line
+            .char_indices()
+            .find_map(|(byte, ch)| (!ch.is_whitespace()).then(|| ByteIndex::new(byte)))
+            .unwrap_or(ByteIndex::new(0));
 
         self.set_cursor(text.line_start_byte(line_index) + offset);
     }
@@ -2107,6 +2106,22 @@ mod tests {
             expected_text: "   Hello!!",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_first_non_blank_empty() {
+        TestCase {
+            initial_text: "\nHello",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('^')],
+
+            expected_text: "\nHello",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
         }
         .run();
     }
