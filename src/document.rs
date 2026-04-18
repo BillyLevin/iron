@@ -166,7 +166,7 @@ impl Document {
             if matches!(self.mode, Mode::Visual)
                 && self
                     .selection
-                    .range(text)
+                    .range(self.text.slice(..))
                     .contains(&(start_byte + visual_grapheme.byte_index()))
             {
                 // TODO: theme!
