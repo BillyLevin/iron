@@ -13,6 +13,7 @@ use std::{
         Range,
     },
     path::PathBuf,
+    process::Command,
 };
 
 use crossterm::{
@@ -332,6 +333,20 @@ impl Document {
             .map(|name| format!(" {name} "))
         {
             spans.push(Span::new(file_name).with_fg(Color::White));
+        }
+
+        if let Ok(jj_log_output) = Command::new("jj")
+            .arg("log")
+            .arg("--no-pager")
+            .arg("--no-graph")
+            .arg("--color=never")
+            .arg("--revision=@")
+            .arg(r#"--template=surround('"', '"', self.description().first_line())"#)
+            .output()
+            && jj_log_output.status.success()
+            && let Ok(jj_description) = String::from_utf8(jj_log_output.stdout)
+        {
+            spans.push(Span::new(format!(" {jj_description} ")).with_fg(Color::White));
         }
 
         spans.push(Span::new(format!(" {} ", self.language)).with_fg(Color::White));
