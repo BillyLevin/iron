@@ -1,6 +1,8 @@
 use std::{
     io,
     panic,
+    sync,
+    time::Duration,
 };
 
 use crossterm::{
@@ -77,39 +79,52 @@ impl Terminal {
     fn run_event_loop(&mut self, args: Args) -> io::Result<()> {
         let mut document = Document::new(args.file_path, self.buffer.dimensions())?;
 
+        let (jj_desc_tx, jj_desc_rx) = sync::mpsc::channel();
+        document.poll_jj(jj_desc_tx);
+
         document.render(&mut self.buffer);
         self.draw(document.visual_cursor_position())?;
 
         loop {
             self.buffer.clear();
 
-            let event_outcome = match event::read()? {
-                Event::Key(key_event) => {
-                    if key_event.code == KeyCode::Char('q') {
-                        break;
+            if event::poll(Duration::from_millis(16))? {
+                let event_outcome = match event::read()? {
+                    Event::Key(key_event) => {
+                        if key_event.code == KeyCode::Char('q') {
+                            break;
+                        }
+
+                        Some(document.handle_key_event(key_event))
+                    }
+                    Event::Mouse(_mouse_event) => todo!(),
+                    Event::Resize(columns, rows) => {
+                        let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
+                        self.buffer = Buffer::new(dimensions);
+                        document.resize(dimensions);
+
+                        Some(EventOutcome::Handled)
                     }
 
-                    Some(document.handle_key_event(key_event))
-                }
-                Event::Mouse(_mouse_event) => todo!(),
-                Event::Resize(columns, rows) => {
-                    let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
-                    self.buffer = Buffer::new(dimensions);
-                    document.resize(dimensions);
+                    Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
+                };
 
-                    Some(EventOutcome::Handled)
+                match event_outcome {
+                    Some(EventOutcome::Handled) => document.render(&mut self.buffer),
+                    Some(EventOutcome::Unhandled) => todo!(),
+                    None => todo!(),
                 }
 
-                Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
-            };
-
-            match event_outcome {
-                Some(EventOutcome::Handled) => document.render(&mut self.buffer),
-                Some(EventOutcome::Unhandled) => todo!(),
-                None => todo!(),
+                self.draw(document.visual_cursor_position())?;
             }
 
-            self.draw(document.visual_cursor_position())?;
+            if let Ok(desc_result) = jj_desc_rx.try_recv()
+                && let Ok(desc) = desc_result
+            {
+                document.set_jj_change_description(desc);
+                document.render(&mut self.buffer);
+                self.draw(document.visual_cursor_position())?;
+            }
         }
 
         Ok(())

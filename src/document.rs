@@ -13,6 +13,9 @@ use std::{
         Range,
     },
     path::PathBuf,
+    sync::mpsc::Sender,
+    thread,
+    time::Duration,
 };
 
 use crossterm::{
@@ -100,6 +103,9 @@ pub(crate) struct Document {
     /// The detected language of the document - this is based on the extension
     /// rather than the contents of the file.
     language: Language,
+
+    /// The description of the current jj change (if it exists).
+    jj_change_description: Option<String>,
 }
 
 impl Document {
@@ -117,6 +123,7 @@ impl Document {
             language: Language::new(&file_path),
             file_path,
             layout_info: LayoutInfo::new(dimensions),
+            jj_change_description: None,
         })
     }
 
@@ -242,6 +249,25 @@ impl Document {
         .col_offset(self.gutter_width())
     }
 
+    pub(crate) fn poll_jj(&self, tx: Sender<anyhow::Result<Option<String>>>) {
+        // TODO: this is a bad implementation. it won't work once we implement the
+        // ability to change the file path of the document. this should all be
+        // event-based so that it plays nicer with the main event loop.
+        let path = self.file_path.clone();
+
+        thread::spawn(move || -> ! {
+            loop {
+                tx.send(jujutsu::current_change_description(&path))
+                    .expect("jj description receiver should be alive");
+                thread::sleep(Duration::from_secs(1));
+            }
+        });
+    }
+
+    pub(crate) fn set_jj_change_description(&mut self, desc: Option<String>) {
+        self.jj_change_description = desc;
+    }
+
     /// Displays the keybindings (if any) that are currently possible for the
     /// user to invoke, based on the current sequence of key events.
     fn render_key_hint(&self, buffer: &mut Buffer) {
@@ -335,8 +361,8 @@ impl Document {
             spans.push(Span::new(file_name).with_fg(Color::White));
         }
 
-        if let Ok(jj_description) = jujutsu::current_change_description(&self.file_path) {
-            spans.push(Span::new(format!(r#" "{jj_description}" "#)).with_fg(Color::White));
+        if let Some(ref desc) = self.jj_change_description {
+            spans.push(Span::new(format!(r#" "{desc}" "#)).with_fg(Color::White));
         }
 
         spans.push(Span::new(format!(" {} ", self.language)).with_fg(Color::White));

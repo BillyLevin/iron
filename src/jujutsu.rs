@@ -34,7 +34,7 @@ pub(crate) fn workspace_root(file: &Path) -> anyhow::Result<PathBuf> {
 
 /// Attempts to get the description of the current jj change in the workspace
 /// that the given `file` belongs to.
-pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<String> {
+pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<Option<String>> {
     let root = workspace_root(file)?;
     let output = Command::new("jj")
         .current_dir(root)
@@ -53,5 +53,8 @@ pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<String> 
         );
     }
 
-    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+    match String::from_utf8(output.stdout)?.trim() {
+        "" => Ok(None),
+        desc => Ok(Some(desc.to_owned())),
+    }
 }
