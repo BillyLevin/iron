@@ -1,4 +1,7 @@
-use std::ops;
+use std::{
+    cmp,
+    ops,
+};
 
 use crossterm::style::Color;
 use unicode_segmentation::UnicodeSegmentation as _;
@@ -10,10 +13,12 @@ use crate::{
         WrapBehavior,
     },
     ui::{
+        Alignment,
         Dimensions,
         Position,
         Rectangle,
         Span,
+        Spans,
     },
 };
 
@@ -55,10 +60,26 @@ impl Buffer {
 
     /// Renders each given [`Span`] **in order** inside the `rectangle`. See
     /// [`Buffer::render_span`] for more details on how spans get rendered.
-    pub(crate) fn render_spans(&mut self, spans: &[Span], rectangle: &Rectangle) {
-        let mut position = rectangle.offset();
+    pub(crate) fn render_spans(
+        &mut self,
+        spans: &Spans,
+        rectangle: &Rectangle,
+        alignment: Alignment,
+    ) {
+        let mut position = match alignment {
+            Alignment::Left => rectangle.offset(),
+            Alignment::Right => {
+                let offset = rectangle.offset();
 
-        for span in spans {
+                let start_column = cmp::max(
+                    rectangle.right().saturating_sub(spans.width()),
+                    offset.left(),
+                );
+                Position::new(start_column, offset.top())
+            }
+        };
+
+        for span in spans.as_ref() {
             position = self.render_span(span, &position, rectangle);
         }
     }

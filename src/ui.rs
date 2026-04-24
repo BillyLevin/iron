@@ -35,7 +35,7 @@ impl Rectangle {
     /// Splits the current [`Rectangle`] into two vertically stacked
     /// [`Rectangle`]s at the given `row`. This is **inclusive**, so for row
     /// `n`, `top` keeps the first `n` rows, and the bottom gets the rest.
-    pub(crate) fn split_at(&self, row: Rows) -> (Self, Self) {
+    pub(crate) fn split_at_row(&self, row: Rows) -> (Self, Self) {
         let bottom_height = self.dimensions.height.saturating_sub(row);
 
         assert!(
@@ -55,6 +55,32 @@ impl Rectangle {
         };
 
         (top, bottom)
+    }
+
+    /// Splits the current [`Rectangle`] into two vertically stacked
+    /// [`Rectangle`]s at the given `column`. This is **inclusive**, so for
+    /// column `n`, `left` keeps the first `n` rows, and the right gets the
+    /// rest.
+    pub(crate) fn split_at_column(&self, column: Columns) -> (Self, Self) {
+        let right_width = self.dimensions.width.saturating_sub(column);
+
+        assert!(
+            right_width <= self.dimensions.width,
+            "we have subtracted from `self.dimensions.height` above"
+        );
+        let left_width = self.dimensions.width - right_width;
+
+        let left = Self {
+            dimensions: Dimensions::new(left_width, self.dimensions.height),
+            offset: self.offset,
+        };
+
+        let right = Self {
+            dimensions: Dimensions::new(right_width, self.dimensions.height),
+            offset: Position::new(self.offset.left() + left_width, self.offset.top()),
+        };
+
+        (left, right)
     }
 
     pub(crate) const fn offset(&self) -> Position {
@@ -347,18 +373,48 @@ impl Span {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct Spans {
+    spans: Vec<Span>,
+}
+
+impl Spans {
+    pub(crate) const fn new(spans: Vec<Span>) -> Self {
+        Self { spans }
+    }
+
+    pub(crate) fn width(&self) -> Columns {
+        self.spans
+            .iter()
+            .map(|span| Columns::new(span.text().width()))
+            .sum()
+    }
+}
+
+impl AsRef<[Span]> for Spans {
+    fn as_ref(&self) -> &[Span] {
+        &self.spans
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Alignment {
+    Left,
+    Right,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn rectangle_split_at() {
+    fn rectangle_split_at_row() {
         let _ = color_eyre::install();
 
         let rectangle =
             Rectangle::from_dimensions(Dimensions::new(Columns::new(80), Rows::new(24)));
 
-        let (top_rect, bottom_rect) = rectangle.split_at(Rows::new(20));
+        let (top_rect, bottom_rect) = rectangle.split_at_row(Rows::new(20));
 
         assert_eq!(
             top_rect.dimensions,
@@ -378,6 +434,36 @@ mod tests {
         assert_eq!(
             bottom_rect.offset,
             Position::new(Columns::new(0), Rows::new(20))
+        );
+    }
+
+    #[test]
+    fn rectangle_split_at_column() {
+        let _ = color_eyre::install();
+
+        let rectangle =
+            Rectangle::from_dimensions(Dimensions::new(Columns::new(80), Rows::new(24)));
+
+        let (left_rect, right_rect) = rectangle.split_at_column(Columns::new(60));
+
+        assert_eq!(
+            left_rect.dimensions,
+            Dimensions::new(Columns::new(60), Rows::new(24))
+        );
+
+        assert_eq!(
+            left_rect.offset,
+            Position::new(Columns::new(0), Rows::new(0))
+        );
+
+        assert_eq!(
+            right_rect.dimensions,
+            Dimensions::new(Columns::new(20), Rows::new(24))
+        );
+
+        assert_eq!(
+            right_rect.offset,
+            Position::new(Columns::new(60), Rows::new(0))
         );
     }
 

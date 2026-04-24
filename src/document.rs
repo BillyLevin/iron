@@ -59,12 +59,14 @@ use crate::{
         VisualLineInfo,
     },
     ui::{
+        Alignment,
         Columns,
         Dimensions,
         Position,
         Rectangle,
         Rows,
         Span,
+        Spans,
     },
 };
 
@@ -346,28 +348,39 @@ impl Document {
             b: 178,
         });
 
-        let mut spans = vec![
-            Span::new(format!(" {} ", self.mode))
-                .with_fg(Color::Black)
-                .with_bg(Color::Cyan),
-        ];
+        let mode_span = Span::new(format!(" {} ", self.mode))
+            .with_fg(Color::Black)
+            .with_bg(Color::Cyan);
 
-        if let Some(file_name) = self
+        let file_name_span = self
             .file_path
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| format!(" {name} "))
-        {
-            spans.push(Span::new(file_name).with_fg(Color::White));
-        }
+            .map(|name| Span::new(format!(" {name} ")).with_fg(Color::White));
 
-        if let Some(ref desc) = self.jj_change_description {
-            spans.push(Span::new(format!(r#" "{desc}" "#)).with_fg(Color::White));
-        }
+        let jj_desc_span = self
+            .jj_change_description
+            .as_ref()
+            .map(|desc| Span::new(format!(r#" "{desc}" "#)).with_fg(Color::White));
 
-        spans.push(Span::new(format!(" {} ", self.language)).with_fg(Color::White));
+        let left_spans = Spans::new(match (file_name_span, jj_desc_span) {
+            (None, None) => vec![mode_span],
+            (None, Some(desc_span)) => vec![mode_span, desc_span],
+            (Some(name_span), None) => vec![mode_span, name_span],
+            (Some(name_span), Some(desc_span)) => vec![mode_span, name_span, desc_span],
+        });
 
-        buffer.render_spans(&spans, &self.layout_info.status_line_rect);
+        let right_spans = Spans::new(vec![
+            Span::new(format!(" {} ", self.language)).with_fg(Color::White),
+        ]);
+
+        let (left_rect, right_rect) = self
+            .layout_info
+            .status_line_rect
+            .split_at_column(left_spans.width());
+
+        buffer.render_spans(&left_spans, &left_rect, Alignment::Left);
+        buffer.render_spans(&right_spans, &right_rect, Alignment::Right);
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -1166,7 +1179,7 @@ pub(crate) struct LayoutInfo {
 impl LayoutInfo {
     fn new(dimensions: Dimensions) -> Self {
         let (text_rect, status_line_rect) = Rectangle::from_dimensions(dimensions)
-            .split_at(dimensions.height().saturating_sub(Rows::new(1)));
+            .split_at_row(dimensions.height().saturating_sub(Rows::new(1)));
 
         Self {
             dimensions,
