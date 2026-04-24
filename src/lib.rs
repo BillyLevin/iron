@@ -2,6 +2,7 @@ pub mod args;
 pub mod buffer;
 pub mod document;
 pub mod grapheme_layout;
+pub mod jujutsu;
 pub mod keymap;
 pub mod language;
 pub mod terminal;
