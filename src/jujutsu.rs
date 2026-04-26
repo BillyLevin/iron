@@ -20,6 +20,7 @@ pub(crate) fn workspace_root(file: &Path) -> anyhow::Result<PathBuf> {
     let output = Command::new("jj")
         .current_dir(current_dir)
         .arg("root")
+        .arg("--ignore-working-copy")
         .output()?;
 
     if !output.status.success() {
@@ -39,6 +40,7 @@ pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<Option<S
     let output = Command::new("jj")
         .current_dir(root)
         .arg("log")
+        .arg("--ignore-working-copy")
         .arg("--no-pager")
         .arg("--no-graph")
         .arg("--color=never")
