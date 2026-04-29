@@ -1,7 +1,6 @@
 use std::{
     io,
     panic,
-    sync,
     time::Duration,
 };
 
@@ -9,7 +8,6 @@ use crossterm::{
     event::{
         self,
         Event,
-        KeyCode,
     },
     style,
     terminal::{
@@ -22,6 +20,10 @@ use crate::{
     args::Args,
     buffer::Buffer,
     document::Document,
+    editor::{
+        Editor,
+        EventOutcome,
+    },
     ui::{
         Columns,
         Dimensions,
@@ -77,53 +79,47 @@ impl Terminal {
     }
 
     fn run_event_loop(&mut self, args: Args) -> io::Result<()> {
-        let mut document = Document::new(args.file_path, self.buffer.dimensions())?;
-
-        let (jj_desc_tx, jj_desc_rx) = sync::mpsc::channel();
-        document.poll_jj(jj_desc_tx);
-
-        document.render(&mut self.buffer);
-        self.draw(document.visual_cursor_position())?;
+        let mut editor = Editor::new(Document::new(args.file_path, self.buffer.dimensions())?);
+        editor.render(&mut self.buffer);
+        self.draw(editor.visual_cursor_position())?;
 
         loop {
             self.buffer.clear();
 
+            let mut rerender = false;
+
             if event::poll(Duration::from_millis(16))? {
-                let event_outcome = match event::read()? {
-                    Event::Key(key_event) => {
-                        if key_event.code == KeyCode::Char('q') {
-                            break;
-                        }
+                let terminal_event = event::read()?;
 
-                        Some(document.handle_key_event(key_event))
-                    }
-                    Event::Mouse(_mouse_event) => todo!(),
+                match terminal_event {
                     Event::Resize(columns, rows) => {
-                        let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
-                        self.buffer = Buffer::new(dimensions);
-                        document.resize(dimensions);
-
-                        Some(EventOutcome::Handled)
+                        self.buffer =
+                            Buffer::new(Dimensions::new(Columns::from(columns), Rows::from(rows)));
+                        rerender = true;
                     }
-
-                    Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
-                };
-
-                match event_outcome {
-                    Some(EventOutcome::Handled) => document.render(&mut self.buffer),
-                    Some(EventOutcome::Unhandled) => todo!(),
-                    None => todo!(),
+                    Event::FocusGained
+                    | Event::FocusLost
+                    | Event::Key(_)
+                    | Event::Mouse(_)
+                    | Event::Paste(_) => {}
                 }
 
-                self.draw(document.visual_cursor_position())?;
+                match editor.handle_event(&terminal_event) {
+                    EventOutcome::Handled => rerender = true,
+                    EventOutcome::Unhandled => {}
+                    EventOutcome::CloseApp => break,
+                }
             }
 
-            if let Ok(desc_result) = jj_desc_rx.try_recv()
-                && let Ok(desc) = desc_result
-            {
-                document.set_jj_change_description(desc);
-                document.render(&mut self.buffer);
-                self.draw(document.visual_cursor_position())?;
+            match editor.handle_layer_events() {
+                EventOutcome::Handled => rerender = true,
+                EventOutcome::Unhandled => {}
+                EventOutcome::CloseApp => break,
+            }
+
+            if rerender {
+                editor.render(&mut self.buffer);
+                self.draw(editor.visual_cursor_position())?;
             }
         }
 
@@ -170,11 +166,4 @@ impl Terminal {
 
         Ok(())
     }
-}
-
-#[derive(Debug)]
-#[must_use]
-pub(crate) enum EventOutcome {
-    Handled,
-    Unhandled,
 }

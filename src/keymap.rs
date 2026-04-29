@@ -78,6 +78,9 @@ impl KeyMap {
         map.register(&[key!('c'), key!('b')], Action::ChangeToPrevWordStart);
         map.register(&[key!('c'), key!('e')], Action::ChangeToWordEnd);
 
+        // TODO: remove once commands are implemented;
+        map.register(&[key!('q')], Action::CloseApp);
+
         map
     }
 
@@ -268,6 +271,7 @@ pub(crate) enum Action {
     SelectCurrentWord,
     DeleteDown,
     DeleteUp,
+    CloseApp,
 }
 
 impl Action {
@@ -323,7 +327,8 @@ impl Action {
             | Self::MoveUp
             | Self::SwitchToInsertMode
             | Self::SwitchToNormalMode
-            | Self::SwitchToVisualMode => false,
+            | Self::SwitchToVisualMode
+            | Self::CloseApp => false,
         }
     }
 
@@ -375,6 +380,7 @@ impl Action {
             Self::SelectCurrentWord => "Select current word",
             Self::DeleteDown => "Delete down",
             Self::DeleteUp => "Delete up",
+            Self::CloseApp => "Close the application",
         }
     }
 }

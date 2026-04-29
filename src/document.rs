@@ -13,13 +13,20 @@ use std::{
         Range,
     },
     path::PathBuf,
-    sync::mpsc::Sender,
+    sync::{
+        self,
+        mpsc::{
+            Receiver,
+            Sender,
+        },
+    },
     thread,
     time::Duration,
 };
 
 use crossterm::{
     event::{
+        Event,
         KeyCode,
         KeyEvent,
         KeyModifiers,
@@ -37,6 +44,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
+    editor::EventOutcome,
     grapheme_layout::{
         GraphemeLayoutIterator,
         WrapBehavior,
@@ -49,7 +57,6 @@ use crate::{
         KeySequence,
     },
     language::Language,
-    terminal::EventOutcome,
     text::{
         ByteIndex,
         LeftChar,
@@ -62,6 +69,7 @@ use crate::{
         Alignment,
         Columns,
         Dimensions,
+        Layer,
         Position,
         Rectangle,
         Rows,
@@ -108,11 +116,15 @@ pub(crate) struct Document {
 
     /// The description of the current jj change (if it exists).
     jj_change_description: Option<String>,
+
+    jj_change_description_rx: Receiver<anyhow::Result<Option<String>>>,
 }
 
 impl Document {
     pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
-        Ok(Self {
+        let (jj_desc_tx, jj_desc_rx) = sync::mpsc::channel();
+
+        let doc = Self {
             text: Rope::from_reader(BufReader::new(File::open(&file_path)?))?,
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
@@ -126,72 +138,12 @@ impl Document {
             file_path,
             layout_info: LayoutInfo::new(dimensions),
             jj_change_description: None,
-        })
-    }
+            jj_change_description_rx: jj_desc_rx,
+        };
 
-    /// Fills the editor's [`Buffer`].
-    ///
-    /// This buffer will later be used to draw the content to the terminal.
-    pub(crate) fn render(&self, buffer: &mut Buffer) {
-        let mut line_number = 1 + self.scroll_offset.value();
+        doc.poll_jj(jj_desc_tx);
 
-        let gutter_width = self.gutter_width();
-
-        let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
-        let text = self.text.slice(start_byte.value()..);
-
-        for visual_grapheme in
-            GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
-        {
-            if visual_grapheme.position().top() >= self.layout_info.text_rect.height() {
-                break;
-            }
-
-            if visual_grapheme.position().left() == Columns::new(0) {
-                // we only display the line number on the first visual row of a wrapped
-                // line; the rest are just empty
-                let gutter_contents = if visual_grapheme.is_wrapped() {
-                    " ".repeat(gutter_width.value())
-                } else {
-                    format!("{line_number:>width$}", width = gutter_width.value())
-                };
-
-                buffer[visual_grapheme.position()]
-                    .set_content(&gutter_contents)
-                    .set_foreground(Color::Black)
-                    .set_background(Color::White);
-            }
-
-            let translated_position = visual_grapheme.position().col_offset(gutter_width);
-
-            assert!(
-                translated_position.left() >= gutter_width,
-                "filling in the gutter should've taken the position past the gutter"
-            );
-
-            let grapheme = visual_grapheme.grapheme();
-
-            buffer[translated_position].set_content(grapheme.as_str());
-
-            if matches!(self.mode, Mode::Visual)
-                && self
-                    .selection
-                    .range(self.text.slice(..))
-                    .contains(&(start_byte + visual_grapheme.byte_index()))
-            {
-                // TODO: theme!
-                buffer[translated_position]
-                    .set_foreground(Color::Black)
-                    .set_background(Color::Grey);
-            }
-
-            if matches!(grapheme, Grapheme::LineBreak) {
-                line_number += 1;
-            }
-        }
-
-        self.render_status_line(buffer);
-        self.render_key_hint(buffer);
+        Ok(doc)
     }
 
     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> EventOutcome {
@@ -221,6 +173,10 @@ impl Document {
         };
 
         maybe_action.map_or(EventOutcome::Unhandled, |action| {
+            if matches!(action, Action::CloseApp) {
+                return EventOutcome::CloseApp;
+            }
+
             self.apply_action(action);
 
             self.key_sequence.clear();
@@ -235,20 +191,6 @@ impl Document {
     pub(crate) fn resize(&mut self, dimensions: Dimensions) {
         self.layout_info = LayoutInfo::new(dimensions);
         self.recalculate_scroll();
-    }
-
-    pub(crate) fn visual_cursor_position(&self) -> Position {
-        let start = self.text.slice(..).line_start_byte(self.scroll_offset);
-
-        GraphemeLayoutIterator::new(
-            self.text.slice(start.value()..).graphemes(),
-            self.max_text_width(),
-            WrapBehavior::Wrap,
-        )
-        .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
-        .map(|grapheme| grapheme.position())
-        .unwrap_or_default()
-        .col_offset(self.gutter_width())
     }
 
     pub(crate) fn poll_jj(&self, tx: Sender<anyhow::Result<Option<String>>>) {
@@ -439,6 +381,7 @@ impl Document {
             Action::SelectCurrentWord => self.select_current_word(),
             Action::DeleteDown => self.delete_down(),
             Action::DeleteUp => self.delete_up(),
+            Action::CloseApp => {}
         }
 
         if action.should_reset_desired_column() {
@@ -1162,6 +1105,108 @@ impl Document {
             None => start,
         });
         self.move_cursor_first_non_blank();
+    }
+}
+
+impl Layer for Document {
+    fn render(&self, buffer: &mut Buffer) {
+        let mut line_number = 1 + self.scroll_offset.value();
+
+        let gutter_width = self.gutter_width();
+
+        let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
+        let text = self.text.slice(start_byte.value()..);
+
+        for visual_grapheme in
+            GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
+        {
+            if visual_grapheme.position().top() >= self.layout_info.text_rect.height() {
+                break;
+            }
+
+            if visual_grapheme.position().left() == Columns::new(0) {
+                // we only display the line number on the first visual row of a wrapped
+                // line; the rest are just empty
+                let gutter_contents = if visual_grapheme.is_wrapped() {
+                    " ".repeat(gutter_width.value())
+                } else {
+                    format!("{line_number:>width$}", width = gutter_width.value())
+                };
+
+                buffer[visual_grapheme.position()]
+                    .set_content(&gutter_contents)
+                    .set_foreground(Color::Black)
+                    .set_background(Color::White);
+            }
+
+            let translated_position = visual_grapheme.position().col_offset(gutter_width);
+
+            assert!(
+                translated_position.left() >= gutter_width,
+                "filling in the gutter should've taken the position past the gutter"
+            );
+
+            let grapheme = visual_grapheme.grapheme();
+
+            buffer[translated_position].set_content(grapheme.as_str());
+
+            if matches!(self.mode, Mode::Visual)
+                && self
+                    .selection
+                    .range(self.text.slice(..))
+                    .contains(&(start_byte + visual_grapheme.byte_index()))
+            {
+                // TODO: theme!
+                buffer[translated_position]
+                    .set_foreground(Color::Black)
+                    .set_background(Color::Grey);
+            }
+
+            if matches!(grapheme, Grapheme::LineBreak) {
+                line_number += 1;
+            }
+        }
+
+        self.render_status_line(buffer);
+        self.render_key_hint(buffer);
+    }
+
+    fn handle_event(&mut self, event: &Event) -> EventOutcome {
+        match *event {
+            Event::Key(key_event) => self.handle_key_event(key_event),
+            Event::Mouse(_mouse_event) => todo!(),
+            Event::Resize(columns, rows) => {
+                self.resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
+                EventOutcome::Handled
+            }
+
+            Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
+        }
+    }
+
+    fn visual_cursor_position(&self) -> Position {
+        let start = self.text.slice(..).line_start_byte(self.scroll_offset);
+
+        GraphemeLayoutIterator::new(
+            self.text.slice(start.value()..).graphemes(),
+            self.max_text_width(),
+            WrapBehavior::Wrap,
+        )
+        .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
+        .map(|grapheme| grapheme.position())
+        .unwrap_or_default()
+        .col_offset(self.gutter_width())
+    }
+
+    fn handle_internal_events(&mut self) -> EventOutcome {
+        if let Ok(desc_result) = self.jj_change_description_rx.try_recv()
+            && let Ok(desc) = desc_result
+        {
+            self.set_jj_change_description(desc);
+            EventOutcome::Handled
+        } else {
+            EventOutcome::Unhandled
+        }
     }
 }
 

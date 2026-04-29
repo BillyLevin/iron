@@ -1,9 +1,35 @@
 use std::ops;
 
-use crossterm::style::Color;
+use crossterm::{
+    event::Event,
+    style::Color,
+};
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::document::Grapheme;
+use crate::{
+    buffer::Buffer,
+    document::Grapheme,
+    editor::EventOutcome,
+};
+
+/// A visual layer in the UI. The app can have multiple layers that are
+/// displayed on top of each other.
+pub(crate) trait Layer {
+    /// Fill the editor's [`Buffer`] with cells. The buffer will later draw
+    /// these cells to the terminal.
+    fn render(&self, buffer: &mut Buffer);
+
+    /// Optionally handle an event if it applies to this layer.
+    fn handle_event(&mut self, event: &Event) -> EventOutcome;
+
+    /// Calculate the visual cursor position. This is relative to the whole
+    /// screen, not the viewport of this layer.
+    fn visual_cursor_position(&self) -> Position;
+
+    /// Check for and handle any events that occur within the
+    /// layer.
+    fn handle_internal_events(&mut self) -> EventOutcome;
+}
 
 /// A structure representing (unsurprisingly) a rectangular region of the
 /// interface.
