@@ -1149,18 +1149,23 @@ impl Document {
 
 impl Layer for Document {
     fn render(&mut self, buffer: &mut Buffer) {
-        let mut line_number = 1 + self.scroll_offset.value();
+        let text = self.text.slice(..);
 
         let gutter_width = self.gutter_width();
 
-        let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
-        let text = self.text.slice(start_byte.value()..);
+        let start_byte = text.line_start_byte(self.scroll_offset);
 
         buffer.clear_and_style_rectangle(&self.layout_info.text_rect, Style::BACKGROUND);
 
-        for visual_grapheme in
-            GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
-        {
+        let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
+
+        let mut line_index = self.scroll_offset;
+
+        for visual_grapheme in GraphemeLayoutIterator::new(
+            self.text.slice(start_byte.value()..).graphemes(),
+            self.max_text_width(),
+            WrapBehavior::Wrap,
+        ) {
             if visual_grapheme.position().top() >= self.layout_info.text_rect.height() {
                 break;
             }
@@ -1171,16 +1176,15 @@ impl Layer for Document {
                 let gutter_contents = if visual_grapheme.is_wrapped() {
                     " ".repeat(gutter_width.value())
                 } else {
-                    let line_number_str = format!("{line_number} ");
+                    let line_number_str = if cursor_line == line_index {
+                        format!("{} ", line_index + 1)
+                    } else {
+                        format!("{} ", line_index.abs_diff(cursor_line))
+                    };
                     format!("{line_number_str:>width$}", width = gutter_width.value())
                 };
 
-                let gutter_style = if self
-                    .text
-                    .slice(..)
-                    .line_idx_containing_byte(self.selection.cursor)
-                    == LineIndex::new(line_number - 1)
-                {
+                let gutter_style = if cursor_line == line_index {
                     Style::GUTTER_SELECTED
                 } else {
                     Style::GUTTER
@@ -1207,14 +1211,14 @@ impl Layer for Document {
             if matches!(self.mode, Mode::Visual)
                 && self
                     .selection
-                    .range(self.text.slice(..))
+                    .range(text)
                     .contains(&(start_byte + visual_grapheme.byte_index()))
             {
                 buffer[translated_position].set_style(Style::TEXT_SELECTED);
             }
 
             if matches!(grapheme, Grapheme::LineBreak) {
-                line_number += 1;
+                line_index += LineIndex::new(1);
             }
         }
 

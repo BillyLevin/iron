@@ -259,6 +259,7 @@ impl ops::AddAssign<usize> for ByteIndex {
     derive_more::From,
     derive_more::Add,
     derive_more::AddAssign,
+    derive_more::Display,
 )]
 pub(crate) struct LineIndex(usize);
 
@@ -279,6 +280,10 @@ impl LineIndex {
     #[must_use = "`checked_sub` does not mutate the current value, but returns an `Option`"]
     pub(crate) fn checked_sub(self, rhs: usize) -> Option<Self> {
         Some(Self(self.0.checked_sub(rhs)?))
+    }
+
+    pub(crate) const fn abs_diff(self, other: Self) -> Self {
+        Self(self.0.abs_diff(other.0))
     }
 }
 
