@@ -12,6 +12,7 @@ use crate::{
         Layer,
         Position,
         Rectangle,
+        Rows,
     },
 };
 
@@ -26,6 +27,10 @@ impl CommandList {
 
 impl Layer for CommandList {
     fn render(&self, buffer: &mut Buffer) {
+        // TODO: figure out what to do when there's not enough room. i don't care about
+        // it not working since the screen should never be that tiny, but i'd
+        // rather the program didn't crash in that case.
+
         let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
 
         let rectangle = app_rectangle.at_center(Dimensions::new(
@@ -34,6 +39,10 @@ impl Layer for CommandList {
         ));
 
         buffer.fill_background(&rectangle, Color::Magenta);
+
+        let (input_rectangle, _rest) = rectangle.split_at_row(Rows::new(3));
+
+        let _input_text_rectangle = buffer.draw_border(&input_rectangle, Color::Black);
     }
 
     fn handle_event(&mut self, _event: &Event, _event_context: &mut EventContext) -> EventOutcome {

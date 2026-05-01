@@ -202,6 +202,34 @@ impl Rectangle {
     pub(crate) fn contains(&self, position: &Position) -> bool {
         self.right() > position.left() && self.bottom() > position.top()
     }
+
+    /// Gets the inner [`Rectangle`] of the `self`, assuming that it's bordered.
+    /// This should only be called if `self` has been validated to be large
+    /// enough to have a border.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self.width() < 3` or `self.height() < 3`.
+    pub(crate) fn clip_border(&self) -> Self {
+        assert!(
+            self.width() >= Columns::new(3),
+            "rectangle must be at least 3 cells wide in order to have a border"
+        );
+        assert!(
+            self.height() >= Rows::new(3),
+            "rectangle must be at least 3 cells high in order to have a border"
+        );
+
+        Self {
+            offset: self
+                .offset
+                .offset(Position::new(Columns::new(1), Rows::new(1))),
+            dimensions: Dimensions::new(
+                self.width() - Columns::new(2),
+                self.height() - Rows::new(2),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

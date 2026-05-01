@@ -14,9 +14,11 @@ use crate::{
     },
     ui::{
         Alignment,
+        Columns,
         Dimensions,
         Position,
         Rectangle,
+        Rows,
         Span,
         Spans,
     },
@@ -56,6 +58,55 @@ impl Buffer {
         {
             self[position].reset().set_background(color);
         }
+    }
+
+    /// Draws a border on the edges of the given `rectangle` if there's room to
+    /// do so.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///   * `rectangle.width() >= Columns::new(3)`, or:
+    ///   * `rectangle.height() >= Rows::new(3)`
+    ///
+    /// because there wouldn't be room to draw a border.
+    ///
+    /// # Returns
+    ///
+    /// For convenience, returns the inner rectangle that doesn't include the
+    /// border.
+    pub(crate) fn draw_border(&mut self, rectangle: &Rectangle, color: Color) -> Rectangle {
+        assert!(
+            rectangle.width() >= Columns::new(3),
+            "rectangle must be at least 3 cells wide in order to have a border"
+        );
+        assert!(
+            rectangle.height() >= Rows::new(3),
+            "rectangle must be at least 3 cells high in order to have a border"
+        );
+
+        let top_left = rectangle.offset();
+        self[top_left]
+            .set_content(&format!("┌{}┐", "─".repeat(rectangle.width().value() - 2)))
+            .set_foreground(color);
+
+        for row in (1..rectangle.height().value() - 1).map(Rows::new) {
+            let left = top_left.offset(Position::new(Columns::new(0), row));
+            let right = top_left.offset(Position::new(rectangle.width() - Columns::new(1), row));
+
+            self[left].set_content("│").set_foreground(color);
+            self[right].set_content("│").set_foreground(color);
+        }
+
+        let bottom_left = top_left.offset(Position::new(
+            Columns::new(0),
+            rectangle.height() - Rows::new(1),
+        ));
+        self[bottom_left]
+            .set_content(&format!("└{}┘", "─".repeat(rectangle.width().value() - 2)))
+            .set_foreground(color);
+
+        rectangle.clip_border()
     }
 
     /// Renders each given [`Span`] **in order** inside the `rectangle`. See
