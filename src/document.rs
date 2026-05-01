@@ -251,7 +251,7 @@ impl Document {
 
         let container = &self.layout_info.text_rect;
 
-        let hints_rectangle = container.bottom_right(Dimensions::new(
+        let hints_rectangle = container.at_bottom_right(Dimensions::new(
             cmp::min(container.width(), max_width),
             cmp::min(container.height(), max_height),
         ));

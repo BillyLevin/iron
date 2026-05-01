@@ -120,7 +120,7 @@ impl Rectangle {
     ///
     ///  Panics if the given `dimensions` are larger than the dimensions of
     /// `self`. This precondition should be guaranteed by the caller.
-    pub(crate) fn bottom_right(&self, dimensions: Dimensions) -> Self {
+    pub(crate) fn at_bottom_right(&self, dimensions: Dimensions) -> Self {
         // TODO: should these be errors rather an assertions?
         assert!(
             dimensions.width() <= self.width(),
@@ -500,7 +500,7 @@ mod tests {
         let container =
             Rectangle::from_dimensions(Dimensions::new(Columns::new(80), Rows::new(24)));
 
-        let rectangle = container.bottom_right(Dimensions::new(Columns::new(10), Rows::new(10)));
+        let rectangle = container.at_bottom_right(Dimensions::new(Columns::new(10), Rows::new(10)));
 
         assert_eq!(rectangle.offset().left(), Columns::new(70));
         assert_eq!(rectangle.offset().top(), Rows::new(14));
