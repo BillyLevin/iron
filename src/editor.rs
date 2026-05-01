@@ -3,7 +3,10 @@ use crossterm::event::Event;
 use crate::{
     buffer::Buffer,
     document::Document,
-    ui::Layer,
+    ui::{
+        EventContext,
+        Layer,
+    },
 };
 
 pub(crate) struct Editor {
@@ -25,9 +28,17 @@ impl Editor {
     }
 
     pub(crate) fn handle_event(&mut self, event: &Event) -> EventOutcome {
+        let mut event_context = EventContext::new();
+
         for layer in self.layers.iter_mut().rev() {
-            match layer.handle_event(event) {
-                outcome @ (EventOutcome::Handled | EventOutcome::CloseApp) => return outcome,
+            match layer.handle_event(event, &mut event_context) {
+                outcome @ (EventOutcome::Handled | EventOutcome::CloseApp) => {
+                    if let Some(new_layer) = event_context.layer_to_add() {
+                        self.layers.push(new_layer);
+                    }
+
+                    return outcome;
+                }
                 EventOutcome::Unhandled => {}
             }
         }

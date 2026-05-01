@@ -44,6 +44,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
+    commands::CommandList,
     editor::EventOutcome,
     grapheme_layout::{
         GraphemeLayoutIterator,
@@ -69,6 +70,7 @@ use crate::{
         Alignment,
         Columns,
         Dimensions,
+        EventContext,
         Layer,
         Position,
         Rectangle,
@@ -146,7 +148,11 @@ impl Document {
         Ok(doc)
     }
 
-    pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> EventOutcome {
+    pub(crate) fn handle_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        event_context: &mut EventContext,
+    ) -> EventOutcome {
         let keymap = match self.mode {
             Mode::Normal => &self.normal_keymap,
             Mode::Insert => &self.insert_keymap,
@@ -177,7 +183,7 @@ impl Document {
                 return EventOutcome::CloseApp;
             }
 
-            self.apply_action(action);
+            self.apply_action(action, event_context);
 
             self.key_sequence.clear();
 
@@ -333,7 +339,7 @@ impl Document {
         self.selection.anchor = index;
     }
 
-    fn apply_action(&mut self, action: Action) {
+    fn apply_action(&mut self, action: Action, event_context: &mut EventContext) {
         match action {
             Action::MoveDown => self.move_cursor_down(),
             Action::MoveUp => self.move_cursor_up(),
@@ -382,6 +388,7 @@ impl Document {
             Action::DeleteDown => self.delete_down(),
             Action::DeleteUp => self.delete_up(),
             Action::CloseApp => {}
+            Action::OpenCommandList => Self::open_command_list(event_context),
         }
 
         if action.should_reset_desired_column() {
@@ -1106,6 +1113,11 @@ impl Document {
         });
         self.move_cursor_first_non_blank();
     }
+
+    fn open_command_list(event_context: &mut EventContext) {
+        let list = CommandList::new();
+        event_context.register_new_layer(Box::new(list));
+    }
 }
 
 impl Layer for Document {
@@ -1171,9 +1183,9 @@ impl Layer for Document {
         self.render_key_hint(buffer);
     }
 
-    fn handle_event(&mut self, event: &Event) -> EventOutcome {
+    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
         match *event {
-            Event::Key(key_event) => self.handle_key_event(key_event),
+            Event::Key(key_event) => self.handle_key_event(key_event, event_context),
             Event::Mouse(_mouse_event) => todo!(),
             Event::Resize(columns, rows) => {
                 self.resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
@@ -1358,7 +1370,7 @@ mod tests {
             );
 
             for event in self.keys {
-                let _ = document.handle_key_event(event);
+                let _ = document.handle_key_event(event, &mut EventContext::new());
             }
 
             assert_eq!(

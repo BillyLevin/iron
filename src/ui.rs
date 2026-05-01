@@ -20,7 +20,7 @@ pub(crate) trait Layer {
     fn render(&self, buffer: &mut Buffer);
 
     /// Optionally handle an event if it applies to this layer.
-    fn handle_event(&mut self, event: &Event) -> EventOutcome;
+    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome;
 
     /// Calculate the visual cursor position. This is relative to the whole
     /// screen, not the viewport of this layer.
@@ -29,6 +29,25 @@ pub(crate) trait Layer {
     /// Check for and handle any events that occur within the
     /// layer.
     fn handle_internal_events(&mut self) -> EventOutcome;
+}
+
+pub(crate) struct EventContext {
+    layer_to_add: Option<Box<dyn Layer>>,
+}
+
+impl EventContext {
+    pub(crate) fn new() -> Self {
+        Self { layer_to_add: None }
+    }
+
+    /// Queue a new layer to be added to the [`Editor`](crate::editor::Editor).
+    pub(crate) fn register_new_layer(&mut self, layer: Box<dyn Layer>) {
+        self.layer_to_add = Some(layer);
+    }
+
+    pub(crate) fn layer_to_add(self) -> Option<Box<dyn Layer>> {
+        self.layer_to_add
+    }
 }
 
 /// A structure representing (unsurprisingly) a rectangular region of the
@@ -139,6 +158,33 @@ impl Rectangle {
         }
     }
 
+    /// Constructs a new [`Rectangle`] of dimensions `dimensions` within `self`,
+    /// placed in the center of `self`.
+    ///
+    /// # Panics
+    ///
+    ///  Panics if the given `dimensions` are larger than the dimensions of
+    /// `self`. This precondition should be guaranteed by the caller.
+    pub(crate) fn at_center(&self, dimensions: Dimensions) -> Self {
+        // TODO: should these be errors rather than assertions?
+        assert!(
+            dimensions.width() <= self.width(),
+            "it is illegal to construct a rectangle that's larger than its container"
+        );
+        assert!(
+            dimensions.height() <= self.height(),
+            "it is illegal to construct a rectangle that's larger than its container"
+        );
+
+        let available_height = self.height() - dimensions.height();
+        let available_width = self.width() - dimensions.width();
+
+        Self {
+            offset: Position::new(available_width / 2, available_height / 2),
+            dimensions,
+        }
+    }
+
     /// Gets the column of the right **edge** (i.e. it is NOT inside) of the
     /// [`Rectangle`].
     pub(crate) fn right(&self) -> Columns {
@@ -195,6 +241,7 @@ impl Dimensions {
     derive_more::AddAssign,
     derive_more::Sum,
     derive_more::Sub,
+    derive_more::Div,
 )]
 #[from(forward)]
 pub(crate) struct Columns(usize);

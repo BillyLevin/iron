@@ -1,5 +1,6 @@
 pub mod args;
 pub mod buffer;
+pub mod commands;
 pub mod document;
 pub mod editor;
 pub mod grapheme_layout;

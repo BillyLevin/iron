@@ -53,6 +53,7 @@ impl KeyMap {
         map.register(&[key!('e')], Action::MoveWordEnd);
         map.register(&[key!('o')], Action::OpenLineBelow);
         map.register(&[key!('O')], Action::OpenLineAbove);
+        map.register(&[key!(':')], Action::OpenCommandList);
 
         map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
         map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
@@ -272,6 +273,7 @@ pub(crate) enum Action {
     DeleteDown,
     DeleteUp,
     CloseApp,
+    OpenCommandList,
 }
 
 impl Action {
@@ -328,7 +330,8 @@ impl Action {
             | Self::SwitchToInsertMode
             | Self::SwitchToNormalMode
             | Self::SwitchToVisualMode
-            | Self::CloseApp => false,
+            | Self::CloseApp
+            | Self::OpenCommandList => false,
         }
     }
 
@@ -381,6 +384,7 @@ impl Action {
             Self::DeleteDown => "Delete down",
             Self::DeleteUp => "Delete up",
             Self::CloseApp => "Close the application",
+            Self::OpenCommandList => "Open command list",
         }
     }
 }
