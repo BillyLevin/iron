@@ -22,7 +22,7 @@ macro_rules! key {
 #[derive(Debug)]
 pub(crate) enum KeyMap {
     BindingPart { map: HashMap<KeyBinding, Self> },
-    Action(Action),
+    Action(DocumentAction),
 }
 
 impl KeyMap {
@@ -35,52 +35,70 @@ impl KeyMap {
     pub(crate) fn normal() -> Self {
         let mut map = Self::new();
 
-        map.register(&[key!('j')], Action::MoveDown);
-        map.register(&[key!('k')], Action::MoveUp);
-        map.register(&[key!('l')], Action::MoveRight);
-        map.register(&[key!('h')], Action::MoveLeft);
-        map.register(&[key!('w')], Action::MoveNextWordStart);
-        map.register(&[key!('b')], Action::MovePrevWordStart);
-        map.register(&[key!('i')], Action::SwitchToInsertMode);
-        map.register(&[key!('v')], Action::SwitchToVisualMode);
-        map.register(&[key!('$')], Action::MoveLineEnd);
-        map.register(&[key!('0')], Action::MoveLineStart);
-        map.register(&[key!('^')], Action::MoveLineFirstNonBlank);
-        map.register(&[key!('}')], Action::MoveNextParagraph);
-        map.register(&[key!('{')], Action::MovePrevParagraph);
-        map.register(&[key!('a')], Action::AppendText);
-        map.register(&[key!('A')], Action::AppendTextLineEnd);
-        map.register(&[key!('e')], Action::MoveWordEnd);
-        map.register(&[key!('o')], Action::OpenLineBelow);
-        map.register(&[key!('O')], Action::OpenLineAbove);
-        map.register(&[key!(':')], Action::OpenCommandList);
+        map.register(&[key!('j')], DocumentAction::MoveDown);
+        map.register(&[key!('k')], DocumentAction::MoveUp);
+        map.register(&[key!('l')], DocumentAction::MoveRight);
+        map.register(&[key!('h')], DocumentAction::MoveLeft);
+        map.register(&[key!('w')], DocumentAction::MoveNextWordStart);
+        map.register(&[key!('b')], DocumentAction::MovePrevWordStart);
+        map.register(&[key!('i')], DocumentAction::SwitchToInsertMode);
+        map.register(&[key!('v')], DocumentAction::SwitchToVisualMode);
+        map.register(&[key!('$')], DocumentAction::MoveLineEnd);
+        map.register(&[key!('0')], DocumentAction::MoveLineStart);
+        map.register(&[key!('^')], DocumentAction::MoveLineFirstNonBlank);
+        map.register(&[key!('}')], DocumentAction::MoveNextParagraph);
+        map.register(&[key!('{')], DocumentAction::MovePrevParagraph);
+        map.register(&[key!('a')], DocumentAction::AppendText);
+        map.register(&[key!('A')], DocumentAction::AppendTextLineEnd);
+        map.register(&[key!('e')], DocumentAction::MoveWordEnd);
+        map.register(&[key!('o')], DocumentAction::OpenLineBelow);
+        map.register(&[key!('O')], DocumentAction::OpenLineAbove);
+        map.register(&[key!(':')], DocumentAction::OpenCommandList);
 
-        map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
-        map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
-        map.register(&[key!('G')], Action::GoToLastLine);
+        map.register(&[key!('g'), key!('e')], DocumentAction::GoToLastLine);
+        map.register(&[key!('g'), key!('g')], DocumentAction::GoToFirstLine);
+        map.register(&[key!('G')], DocumentAction::GoToLastLine);
 
-        map.register(&[key!('d'), key!('w')], Action::DeleteWord);
-        map.register(&[key!('d'), key!('$')], Action::DeleteToLineEnd);
-        map.register(&[key!('d'), key!('0')], Action::DeleteToLineStart);
-        map.register(&[key!('d'), key!('^')], Action::DeleteToLineFirstNonBlank);
-        map.register(&[key!('d'), key!('d')], Action::DeleteLine);
-        map.register(&[key!('d'), key!('i'), key!('w')], Action::DeleteWholeWord);
-        map.register(&[key!('d'), key!('b')], Action::DeleteToPrevWordStart);
-        map.register(&[key!('d'), key!('e')], Action::DeleteToWordEnd);
-        map.register(&[key!('d'), key!('j')], Action::DeleteDown);
-        map.register(&[key!('d'), key!('k')], Action::DeleteUp);
+        map.register(&[key!('d'), key!('w')], DocumentAction::DeleteWord);
+        map.register(&[key!('d'), key!('$')], DocumentAction::DeleteToLineEnd);
+        map.register(&[key!('d'), key!('0')], DocumentAction::DeleteToLineStart);
+        map.register(
+            &[key!('d'), key!('^')],
+            DocumentAction::DeleteToLineFirstNonBlank,
+        );
+        map.register(&[key!('d'), key!('d')], DocumentAction::DeleteLine);
+        map.register(
+            &[key!('d'), key!('i'), key!('w')],
+            DocumentAction::DeleteWholeWord,
+        );
+        map.register(
+            &[key!('d'), key!('b')],
+            DocumentAction::DeleteToPrevWordStart,
+        );
+        map.register(&[key!('d'), key!('e')], DocumentAction::DeleteToWordEnd);
+        map.register(&[key!('d'), key!('j')], DocumentAction::DeleteDown);
+        map.register(&[key!('d'), key!('k')], DocumentAction::DeleteUp);
 
-        map.register(&[key!('c'), key!('w')], Action::ChangeWord);
-        map.register(&[key!('c'), key!('$')], Action::ChangeToLineEnd);
-        map.register(&[key!('c'), key!('0')], Action::ChangeToLineStart);
-        map.register(&[key!('c'), key!('^')], Action::ChangeToLineFirstNonBlank);
-        map.register(&[key!('c'), key!('c')], Action::ChangeLine);
-        map.register(&[key!('c'), key!('i'), key!('w')], Action::ChangeWholeWord);
-        map.register(&[key!('c'), key!('b')], Action::ChangeToPrevWordStart);
-        map.register(&[key!('c'), key!('e')], Action::ChangeToWordEnd);
+        map.register(&[key!('c'), key!('w')], DocumentAction::ChangeWord);
+        map.register(&[key!('c'), key!('$')], DocumentAction::ChangeToLineEnd);
+        map.register(&[key!('c'), key!('0')], DocumentAction::ChangeToLineStart);
+        map.register(
+            &[key!('c'), key!('^')],
+            DocumentAction::ChangeToLineFirstNonBlank,
+        );
+        map.register(&[key!('c'), key!('c')], DocumentAction::ChangeLine);
+        map.register(
+            &[key!('c'), key!('i'), key!('w')],
+            DocumentAction::ChangeWholeWord,
+        );
+        map.register(
+            &[key!('c'), key!('b')],
+            DocumentAction::ChangeToPrevWordStart,
+        );
+        map.register(&[key!('c'), key!('e')], DocumentAction::ChangeToWordEnd);
 
         // TODO: remove once commands are implemented;
-        map.register(&[key!('q')], Action::CloseApp);
+        map.register(&[key!('q')], DocumentAction::CloseApp);
 
         map
     }
@@ -88,9 +106,9 @@ impl KeyMap {
     pub(crate) fn insert() -> Self {
         let mut map = Self::new();
 
-        map.register(&[key!(Backspace)], Action::DeleteGrapheme);
-        map.register(&[key!(Esc)], Action::SwitchToNormalMode);
-        map.register(&[key!(Enter)], Action::InsertNewline);
+        map.register(&[key!(Backspace)], DocumentAction::DeleteGrapheme);
+        map.register(&[key!(Esc)], DocumentAction::SwitchToNormalMode);
+        map.register(&[key!(Enter)], DocumentAction::InsertNewline);
 
         map
     }
@@ -98,30 +116,30 @@ impl KeyMap {
     pub(crate) fn visual() -> Self {
         let mut map = Self::new();
 
-        map.register(&[key!(Esc)], Action::SwitchToNormalMode);
+        map.register(&[key!(Esc)], DocumentAction::SwitchToNormalMode);
 
-        map.register(&[key!('j')], Action::MoveDown);
-        map.register(&[key!('k')], Action::MoveUp);
-        map.register(&[key!('l')], Action::MoveRight);
-        map.register(&[key!('h')], Action::MoveLeft);
-        map.register(&[key!('w')], Action::MoveNextWordStart);
-        map.register(&[key!('b')], Action::MovePrevWordStart);
-        map.register(&[key!('$')], Action::MoveLineEnd);
-        map.register(&[key!('0')], Action::MoveLineStart);
-        map.register(&[key!('^')], Action::MoveLineFirstNonBlank);
-        map.register(&[key!('}')], Action::MoveNextParagraph);
-        map.register(&[key!('{')], Action::MovePrevParagraph);
-        map.register(&[key!('e')], Action::MoveWordEnd);
-        map.register(&[key!('o')], Action::ReverseSelection);
+        map.register(&[key!('j')], DocumentAction::MoveDown);
+        map.register(&[key!('k')], DocumentAction::MoveUp);
+        map.register(&[key!('l')], DocumentAction::MoveRight);
+        map.register(&[key!('h')], DocumentAction::MoveLeft);
+        map.register(&[key!('w')], DocumentAction::MoveNextWordStart);
+        map.register(&[key!('b')], DocumentAction::MovePrevWordStart);
+        map.register(&[key!('$')], DocumentAction::MoveLineEnd);
+        map.register(&[key!('0')], DocumentAction::MoveLineStart);
+        map.register(&[key!('^')], DocumentAction::MoveLineFirstNonBlank);
+        map.register(&[key!('}')], DocumentAction::MoveNextParagraph);
+        map.register(&[key!('{')], DocumentAction::MovePrevParagraph);
+        map.register(&[key!('e')], DocumentAction::MoveWordEnd);
+        map.register(&[key!('o')], DocumentAction::ReverseSelection);
 
-        map.register(&[key!('g'), key!('e')], Action::GoToLastLine);
-        map.register(&[key!('g'), key!('g')], Action::GoToFirstLine);
-        map.register(&[key!('G')], Action::GoToLastLine);
+        map.register(&[key!('g'), key!('e')], DocumentAction::GoToLastLine);
+        map.register(&[key!('g'), key!('g')], DocumentAction::GoToFirstLine);
+        map.register(&[key!('G')], DocumentAction::GoToLastLine);
 
-        map.register(&[key!('d')], Action::DeleteSelection);
-        map.register(&[key!('c')], Action::ChangeSelection);
+        map.register(&[key!('d')], DocumentAction::DeleteSelection);
+        map.register(&[key!('c')], DocumentAction::ChangeSelection);
 
-        map.register(&[key!('i'), key!('w')], Action::SelectCurrentWord);
+        map.register(&[key!('i'), key!('w')], DocumentAction::SelectCurrentWord);
 
         map
     }
@@ -139,7 +157,7 @@ impl KeyMap {
         Some(current)
     }
 
-    fn register(&mut self, keys: &[KeyBinding], action: Action) {
+    fn register(&mut self, keys: &[KeyBinding], action: DocumentAction) {
         match *keys {
             [] => {}
             [key] => {
@@ -225,7 +243,7 @@ impl fmt::Display for KeyBinding {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Action {
+pub(crate) enum DocumentAction {
     MoveDown,
     MoveUp,
     MoveRight,
@@ -276,7 +294,7 @@ pub(crate) enum Action {
     OpenCommandList,
 }
 
-impl Action {
+impl DocumentAction {
     /// The desired cursor column should be reset on all potential cursor
     /// movements that aren't vertical (i.e. `j`/`k` commands) in order to
     /// prevent the cursor from jumping to unexpected columns when

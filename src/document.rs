@@ -52,7 +52,7 @@ use crate::{
     },
     jujutsu,
     keymap::{
-        Action,
+        DocumentAction,
         KeyBinding,
         KeyMap,
         KeySequence,
@@ -179,7 +179,7 @@ impl Document {
         };
 
         maybe_action.map_or(EventOutcome::Unhandled, |action| {
-            if matches!(action, Action::CloseApp) {
+            if matches!(action, DocumentAction::CloseApp) {
                 return EventOutcome::CloseApp;
             }
 
@@ -339,56 +339,56 @@ impl Document {
         self.selection.anchor = index;
     }
 
-    fn apply_action(&mut self, action: Action, event_context: &mut EventContext) {
+    fn apply_action(&mut self, action: DocumentAction, event_context: &mut EventContext) {
         match action {
-            Action::MoveDown => self.move_cursor_down(),
-            Action::MoveUp => self.move_cursor_up(),
-            Action::MoveRight => self.move_cursor_right(),
-            Action::MoveLeft => self.move_cursor_left(),
-            Action::MoveNextWordStart => self.move_cursor_next_word_start(),
-            Action::MovePrevWordStart => self.move_cursor_prev_word_start(),
-            Action::SwitchToInsertMode => self.insert_mode(),
-            Action::SwitchToNormalMode => self.normal_mode(),
-            Action::SwitchToVisualMode => self.visual_mode(),
-            Action::InsertChar(ch) => self.insert_char(ch),
-            Action::DeleteGrapheme => self.delete_grapheme(),
-            Action::InsertNewline => self.insert_newline(),
-            Action::MoveLineEnd => self.move_cursor_line_end(),
-            Action::MoveLineStart => self.move_cursor_line_start(),
-            Action::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
-            Action::MoveNextParagraph => self.move_cursor_next_paragraph(),
-            Action::MovePrevParagraph => self.move_cursor_prev_paragraph(),
-            Action::GoToLastLine => self.go_to_last_line(),
-            Action::GoToFirstLine => self.go_to_first_line(),
-            Action::DeleteWord => self.delete_word(),
-            Action::ChangeWord => self.change_word(),
-            Action::DeleteToLineEnd => self.delete_to_line_end(),
-            Action::ChangeToLineEnd => self.change_to_line_end(),
-            Action::DeleteToLineStart => self.delete_to_line_start(),
-            Action::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
-            Action::DeleteLine => self.delete_line(),
-            Action::DeleteWholeWord => self.delete_whole_word(),
-            Action::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
-            Action::AppendText => self.append_text(),
-            Action::AppendTextLineEnd => self.append_text_line_end(),
-            Action::MoveWordEnd => self.move_cursor_word_end(),
-            Action::DeleteToWordEnd => self.delete_to_word_end(),
-            Action::ChangeToLineStart => self.change_to_line_start(),
-            Action::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
-            Action::ChangeLine => self.change_line(),
-            Action::ChangeWholeWord => self.change_whole_word(),
-            Action::ChangeToPrevWordStart => self.change_to_prev_word_start(),
-            Action::ChangeToWordEnd => self.change_to_word_end(),
-            Action::DeleteSelection => self.delete_selection(),
-            Action::ChangeSelection => self.change_selection(),
-            Action::ReverseSelection => self.reverse_selection(),
-            Action::OpenLineBelow => self.open_new_line_below(),
-            Action::OpenLineAbove => self.open_new_line_above(),
-            Action::SelectCurrentWord => self.select_current_word(),
-            Action::DeleteDown => self.delete_down(),
-            Action::DeleteUp => self.delete_up(),
-            Action::CloseApp => {}
-            Action::OpenCommandList => Self::open_command_list(event_context),
+            DocumentAction::MoveDown => self.move_cursor_down(),
+            DocumentAction::MoveUp => self.move_cursor_up(),
+            DocumentAction::MoveRight => self.move_cursor_right(),
+            DocumentAction::MoveLeft => self.move_cursor_left(),
+            DocumentAction::MoveNextWordStart => self.move_cursor_next_word_start(),
+            DocumentAction::MovePrevWordStart => self.move_cursor_prev_word_start(),
+            DocumentAction::SwitchToInsertMode => self.insert_mode(),
+            DocumentAction::SwitchToNormalMode => self.normal_mode(),
+            DocumentAction::SwitchToVisualMode => self.visual_mode(),
+            DocumentAction::InsertChar(ch) => self.insert_char(ch),
+            DocumentAction::DeleteGrapheme => self.delete_grapheme(),
+            DocumentAction::InsertNewline => self.insert_newline(),
+            DocumentAction::MoveLineEnd => self.move_cursor_line_end(),
+            DocumentAction::MoveLineStart => self.move_cursor_line_start(),
+            DocumentAction::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
+            DocumentAction::MoveNextParagraph => self.move_cursor_next_paragraph(),
+            DocumentAction::MovePrevParagraph => self.move_cursor_prev_paragraph(),
+            DocumentAction::GoToLastLine => self.go_to_last_line(),
+            DocumentAction::GoToFirstLine => self.go_to_first_line(),
+            DocumentAction::DeleteWord => self.delete_word(),
+            DocumentAction::ChangeWord => self.change_word(),
+            DocumentAction::DeleteToLineEnd => self.delete_to_line_end(),
+            DocumentAction::ChangeToLineEnd => self.change_to_line_end(),
+            DocumentAction::DeleteToLineStart => self.delete_to_line_start(),
+            DocumentAction::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
+            DocumentAction::DeleteLine => self.delete_line(),
+            DocumentAction::DeleteWholeWord => self.delete_whole_word(),
+            DocumentAction::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
+            DocumentAction::AppendText => self.append_text(),
+            DocumentAction::AppendTextLineEnd => self.append_text_line_end(),
+            DocumentAction::MoveWordEnd => self.move_cursor_word_end(),
+            DocumentAction::DeleteToWordEnd => self.delete_to_word_end(),
+            DocumentAction::ChangeToLineStart => self.change_to_line_start(),
+            DocumentAction::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
+            DocumentAction::ChangeLine => self.change_line(),
+            DocumentAction::ChangeWholeWord => self.change_whole_word(),
+            DocumentAction::ChangeToPrevWordStart => self.change_to_prev_word_start(),
+            DocumentAction::ChangeToWordEnd => self.change_to_word_end(),
+            DocumentAction::DeleteSelection => self.delete_selection(),
+            DocumentAction::ChangeSelection => self.change_selection(),
+            DocumentAction::ReverseSelection => self.reverse_selection(),
+            DocumentAction::OpenLineBelow => self.open_new_line_below(),
+            DocumentAction::OpenLineAbove => self.open_new_line_above(),
+            DocumentAction::SelectCurrentWord => self.select_current_word(),
+            DocumentAction::DeleteDown => self.delete_down(),
+            DocumentAction::DeleteUp => self.delete_up(),
+            DocumentAction::CloseApp => {}
+            DocumentAction::OpenCommandList => Self::open_command_list(event_context),
         }
 
         if action.should_reset_desired_column() {
@@ -550,7 +550,7 @@ impl Document {
         self.desired_cursor_column = None;
     }
 
-    const fn event_fallback(&self, key_event: KeyEvent) -> Option<Action> {
+    const fn event_fallback(&self, key_event: KeyEvent) -> Option<DocumentAction> {
         match self.mode {
             Mode::Normal | Mode::Visual => None,
             Mode::Insert => {
@@ -558,7 +558,7 @@ impl Document {
                     && !key_event.modifiers.contains(KeyModifiers::CONTROL)
                     && !key_event.modifiers.contains(KeyModifiers::ALT)
                 {
-                    Some(Action::InsertChar(ch))
+                    Some(DocumentAction::InsertChar(ch))
                 } else {
                     None
                 }
