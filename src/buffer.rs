@@ -142,7 +142,12 @@ impl Buffer {
     /// # Returns
     ///
     /// The position at the end of the text that actually got rendered.
-    fn render_span(&mut self, span: &Span, position: &Position, rectangle: &Rectangle) -> Position {
+    pub(crate) fn render_span(
+        &mut self,
+        span: &Span,
+        position: &Position,
+        rectangle: &Rectangle,
+    ) -> Position {
         let mut end_position = *position;
 
         for grapheme in GraphemeLayoutIterator::new(
