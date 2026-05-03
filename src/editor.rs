@@ -2,10 +2,13 @@ use crossterm::event::Event;
 
 use crate::{
     buffer::Buffer,
+    commands::CommandList,
     document::Document,
     ui::{
+        EditorAction,
         EventContext,
         Layer,
+        LayerKind,
     },
 };
 
@@ -33,10 +36,7 @@ impl Editor {
         for layer in self.layers.iter_mut().rev() {
             match layer.handle_event(event, &mut event_context) {
                 outcome @ (EventOutcome::Handled | EventOutcome::CloseApp) => {
-                    if let Some(new_layer) = event_context.layer_to_add() {
-                        self.layers.push(new_layer);
-                    }
-
+                    self.apply_actions(event_context.actions());
                     return outcome;
                 }
                 EventOutcome::Unhandled => {}
@@ -64,6 +64,20 @@ impl Editor {
         }
 
         result
+    }
+
+    fn apply_actions(&mut self, actions: Vec<EditorAction>) {
+        for action in actions {
+            match action {
+                EditorAction::AddLayer(layer) => {
+                    match layer {
+                        LayerKind::CommandList => {
+                            self.layers.push(Box::new(CommandList::new()));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -44,7 +44,6 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
-    commands::CommandList,
     editor::EventOutcome,
     grapheme_layout::{
         GraphemeLayoutIterator,
@@ -70,8 +69,10 @@ use crate::{
         Alignment,
         Columns,
         Dimensions,
+        EditorAction,
         EventContext,
         Layer,
+        LayerKind,
         Position,
         Rectangle,
         Rows,
@@ -1115,8 +1116,7 @@ impl Document {
     }
 
     fn open_command_list(event_context: &mut EventContext) {
-        let list = CommandList::new();
-        event_context.register_new_layer(Box::new(list));
+        event_context.push_action(EditorAction::AddLayer(LayerKind::CommandList));
     }
 }
 

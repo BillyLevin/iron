@@ -32,22 +32,35 @@ pub(crate) trait Layer {
 }
 
 pub(crate) struct EventContext {
-    layer_to_add: Option<Box<dyn Layer>>,
+    actions: Vec<EditorAction>,
 }
 
 impl EventContext {
-    pub(crate) fn new() -> Self {
-        Self { layer_to_add: None }
+    pub(crate) const fn new() -> Self {
+        Self {
+            actions: Vec::new(),
+        }
     }
 
-    /// Queue a new layer to be added to the [`Editor`](crate::editor::Editor).
-    pub(crate) fn register_new_layer(&mut self, layer: Box<dyn Layer>) {
-        self.layer_to_add = Some(layer);
+    /// Queue a new action to be applied to the
+    /// [`Editor`](crate::editor::Editor).
+    pub(crate) fn push_action(&mut self, action: EditorAction) {
+        self.actions.push(action);
     }
 
-    pub(crate) fn layer_to_add(self) -> Option<Box<dyn Layer>> {
-        self.layer_to_add
+    pub(crate) fn actions(self) -> Vec<EditorAction> {
+        self.actions
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum EditorAction {
+    AddLayer(LayerKind),
+}
+
+#[derive(Debug)]
+pub(crate) enum LayerKind {
+    CommandList,
 }
 
 /// A structure representing (unsurprisingly) a rectangular region of the
