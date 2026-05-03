@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt,
     num::{
         NonZero,
@@ -30,15 +29,13 @@ macro_rules! key {
 
 #[derive(Debug)]
 pub(crate) enum KeyMap {
-    BindingPart { map: HashMap<KeyBinding, Self> },
+    BindingPart { map: Vec<(KeyBinding, Self)> },
     Action(DocumentAction),
 }
 
 impl KeyMap {
-    fn new() -> Self {
-        Self::BindingPart {
-            map: HashMap::new(),
-        }
+    const fn new() -> Self {
+        Self::BindingPart { map: Vec::new() }
     }
 
     pub(crate) fn normal() -> Self {
@@ -365,7 +362,10 @@ impl KeyMap {
 
         for key in keys {
             current = match *current {
-                Self::BindingPart { ref map } => map.get(key),
+                Self::BindingPart { ref map } => {
+                    map.iter()
+                        .find_map(|&(ref binding, ref keymap)| (binding == key).then_some(keymap))
+                }
                 Self::Action(_) => None,
             }?;
         }
@@ -379,7 +379,11 @@ impl KeyMap {
             [key] => {
                 match *self {
                     Self::BindingPart { ref mut map } => {
-                        map.insert(key, Self::Action(action));
+                        debug_assert!(
+                            !map.iter().any(|&(binding, _)| binding == key),
+                            "no duplicates allowed: {key}"
+                        );
+                        map.push((key, Self::Action(action)));
                     }
                     // TODO: should we error rather than silently ignore? can the types be
                     // reworked so that this is impossible in the first place?
@@ -389,9 +393,14 @@ impl KeyMap {
             [key, ref rest @ ..] => {
                 match *self {
                     Self::BindingPart { ref mut map } => {
-                        map.entry(key)
-                            .or_insert_with(Self::new)
-                            .register(rest, action);
+                        let entry_index = map.iter().position(|&(ref binding, _)| *binding == key);
+
+                        let entry = match entry_index {
+                            Some(i) => &mut map[i].1,
+                            None => &mut map.push_mut((key, Self::new())).1,
+                        };
+
+                        entry.register(rest, action);
                     }
                     // TODO: should we error rather than silently ignore? can the types be
                     // reworked so that this is impossible in the first place?
@@ -402,7 +411,7 @@ impl KeyMap {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct KeyBinding {
     code: KeyCode,
     modifiers: KeyModifiers,

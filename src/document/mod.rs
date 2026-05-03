@@ -266,7 +266,7 @@ impl Document {
 
         let (hints, max_width, max_height) = map.iter().fold(
             (String::new(), Columns::new(0), Rows::new(0)),
-            |(hints, max_width, max_height), (event, map_node)| {
+            |(hints, max_width, max_height), &(ref event, ref map_node)| {
                 let key = event.to_string();
                 let label = match *map_node {
                     KeyMap::BindingPart { map: _ } => "...",
