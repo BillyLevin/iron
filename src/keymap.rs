@@ -192,6 +192,16 @@ pub(crate) struct KeyBinding {
     modifiers: KeyModifiers,
 }
 
+impl KeyBinding {
+    pub(crate) const fn code(&self) -> KeyCode {
+        self.code
+    }
+
+    pub(crate) const fn modifiers(&self) -> KeyModifiers {
+        self.modifiers
+    }
+}
+
 impl From<KeyCode> for KeyBinding {
     fn from(code: KeyCode) -> Self {
         Self {

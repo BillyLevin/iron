@@ -32,9 +32,16 @@ pub(crate) trait Layer {
     /// Check for and handle any events that occur within the
     /// layer.
     fn handle_internal_events(&mut self) -> EventOutcome;
+
+    /// Get the type of this layer. This is an [`Option`] because it only
+    /// applies to layers that can be added/removed.
+    fn kind(&self) -> Option<LayerKind>;
 }
 
-#[derive(Debug)]
+/// The types of layers that can be added/removed. In other words, this doesn't
+/// include [`Document`](crate::document::Document`) despite it being [`Layer`]
+/// because it's a permanent layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayerKind {
     CommandList,
 }

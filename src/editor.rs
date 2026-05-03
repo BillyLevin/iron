@@ -74,6 +74,19 @@ impl Editor {
                         }
                     }
                 }
+                EditorAction::RemoveLayer(layer_kind) => {
+                    // TODO: will we ever have multiple layers of the same type?
+                    // if so, the layers will need ids so that we can ensure we
+                    // remove the correct one
+                    let remove_index = self
+                        .layers
+                        .iter()
+                        .position(|layer| layer.kind() == Some(layer_kind));
+
+                    if let Some(idx) = remove_index {
+                        self.layers.remove(idx);
+                    }
+                }
             }
         }
     }
@@ -112,4 +125,5 @@ impl EventContext {
 #[derive(Debug)]
 pub(crate) enum EditorAction {
     AddLayer(LayerKind),
+    RemoveLayer(LayerKind),
 }

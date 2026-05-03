@@ -1222,6 +1222,10 @@ impl Layer for Document {
             EventOutcome::Unhandled
         }
     }
+
+    fn kind(&self) -> Option<LayerKind> {
+        None
+    }
 }
 
 #[derive(Debug)]

@@ -10,12 +10,15 @@ use crossterm::{
 use crate::{
     buffer::Buffer,
     editor::{
+        EditorAction,
         EventContext,
         EventOutcome,
     },
+    keymap::KeyBinding,
     ui::{
         Dimensions,
         Layer,
+        LayerKind,
         Position,
         Rectangle,
         Rows,
@@ -32,6 +35,17 @@ impl CommandList {
     pub(crate) const fn new() -> Self {
         Self {
             search_term: String::new(),
+        }
+    }
+
+    fn apply_action(&mut self, action: CommandListAction, context: &mut EventContext) {
+        match action {
+            CommandListAction::InsertChar(ch) => {
+                self.search_term.push(ch);
+            }
+            CommandListAction::Close => {
+                context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
+            }
         }
     }
 }
@@ -62,18 +76,23 @@ impl Layer for CommandList {
         );
     }
 
-    fn handle_event(&mut self, event: &Event, _event_context: &mut EventContext) -> EventOutcome {
+    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
         match *event {
             Event::Key(key_event) => {
-                if let KeyCode::Char(ch) = key_event.code
-                    && !key_event.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key_event.modifiers.contains(KeyModifiers::ALT)
-                {
-                    self.search_term.push(ch);
+                let key_binding = KeyBinding::from(key_event);
+
+                let action = match (key_binding.code(), key_binding.modifiers()) {
+                    (KeyCode::Esc, KeyModifiers::NONE) => Some(CommandListAction::Close),
+                    (KeyCode::Char(ch), KeyModifiers::NONE) => {
+                        Some(CommandListAction::InsertChar(ch))
+                    }
+                    _ => None,
+                };
+
+                action.map_or(EventOutcome::Unhandled, |a| {
+                    self.apply_action(a, event_context);
                     EventOutcome::Handled
-                } else {
-                    EventOutcome::Unhandled
-                }
+                })
             }
 
             Event::FocusGained
@@ -92,4 +111,14 @@ impl Layer for CommandList {
     fn handle_internal_events(&mut self) -> EventOutcome {
         EventOutcome::Unhandled
     }
+
+    fn kind(&self) -> Option<LayerKind> {
+        Some(LayerKind::CommandList)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CommandListAction {
+    InsertChar(char),
+    Close,
 }
