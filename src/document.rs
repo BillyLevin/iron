@@ -516,7 +516,7 @@ impl Document {
             // upwards scroll
             self.scroll_offset = cursor_line;
         } else {
-            let cursor = self.visual_cursor_position();
+            let cursor = self.visual_cursor_position_impl();
 
             let height = self.layout_info.text_rect.height();
 
@@ -1120,10 +1120,24 @@ impl Document {
     fn open_command_list(event_context: &mut EventContext) {
         event_context.push_action(EditorAction::AddLayer(LayerKind::CommandList));
     }
+
+    fn visual_cursor_position_impl(&self) -> Position {
+        let start = self.text.slice(..).line_start_byte(self.scroll_offset);
+
+        GraphemeLayoutIterator::new(
+            self.text.slice(start.value()..).graphemes(),
+            self.max_text_width(),
+            WrapBehavior::Wrap,
+        )
+        .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
+        .map(|grapheme| grapheme.position())
+        .unwrap_or_default()
+        .col_offset(self.gutter_width())
+    }
 }
 
 impl Layer for Document {
-    fn render(&self, buffer: &mut Buffer) {
+    fn render(&mut self, buffer: &mut Buffer) {
         let mut line_number = 1 + self.scroll_offset.value();
 
         let gutter_width = self.gutter_width();
@@ -1198,18 +1212,8 @@ impl Layer for Document {
         }
     }
 
-    fn visual_cursor_position(&self) -> Position {
-        let start = self.text.slice(..).line_start_byte(self.scroll_offset);
-
-        GraphemeLayoutIterator::new(
-            self.text.slice(start.value()..).graphemes(),
-            self.max_text_width(),
-            WrapBehavior::Wrap,
-        )
-        .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
-        .map(|grapheme| grapheme.position())
-        .unwrap_or_default()
-        .col_offset(self.gutter_width())
+    fn visual_cursor_position(&self) -> Option<Position> {
+        Some(self.visual_cursor_position_impl())
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
@@ -1371,7 +1375,9 @@ mod tests {
             document.set_cursor(self.initial_cursor.into());
             assert_position(
                 "initial position",
-                document.visual_cursor_position(),
+                document
+                    .visual_cursor_position()
+                    .expect("document cursor is always `Some`"),
                 self.expected_initial_visual_position,
             );
 
@@ -1391,7 +1397,9 @@ mod tests {
             );
             assert_position(
                 "final position",
-                document.visual_cursor_position(),
+                document
+                    .visual_cursor_position()
+                    .expect("document cursor is always `Some`"),
                 self.expected_visual_position,
             );
         }

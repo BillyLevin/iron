@@ -20,14 +20,14 @@ use crate::{
 pub(crate) trait Layer {
     /// Fill the editor's [`Buffer`] with cells. The buffer will later draw
     /// these cells to the terminal.
-    fn render(&self, buffer: &mut Buffer);
+    fn render(&mut self, buffer: &mut Buffer);
 
     /// Optionally handle an event if it applies to this layer.
     fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome;
 
     /// Calculate the visual cursor position. This is relative to the whole
     /// screen, not the viewport of this layer.
-    fn visual_cursor_position(&self) -> Position;
+    fn visual_cursor_position(&self) -> Option<Position>;
 
     /// Check for and handle any events that occur within the
     /// layer.

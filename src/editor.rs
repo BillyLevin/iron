@@ -7,6 +7,7 @@ use crate::{
     ui::{
         Layer,
         LayerKind,
+        Position,
     },
 };
 
@@ -21,11 +22,15 @@ impl Editor {
         }
     }
 
-    pub(crate) fn visual_cursor_position(&self) -> crate::ui::Position {
+    pub(crate) fn visual_cursor_position(&self) -> Position {
         self.layers
-            .last()
-            .expect("should be non-empty (TODO: guarantee this at the type level)")
-            .visual_cursor_position()
+            .iter()
+            .rev()
+            .find_map(|layer| layer.visual_cursor_position())
+            .expect(
+                "at least one visual layer must have a cursor position (i.e. `Document` cursor \
+                 position is always `Some`)",
+            )
     }
 
     pub(crate) fn handle_event(&mut self, event: &Event) -> EventOutcome {
@@ -44,8 +49,8 @@ impl Editor {
         EventOutcome::Unhandled
     }
 
-    pub(crate) fn render(&self, buffer: &mut Buffer) {
-        for layer in &self.layers {
+    pub(crate) fn render(&mut self, buffer: &mut Buffer) {
+        for layer in &mut self.layers {
             layer.render(buffer);
         }
     }

@@ -1,3 +1,5 @@
+use std::cmp;
+
 use crossterm::{
     event::{
         Event,
@@ -6,6 +8,7 @@ use crossterm::{
     },
     style::Color,
 };
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     buffer::Buffer,
@@ -16,6 +19,7 @@ use crate::{
     },
     keymap::KeyBinding,
     ui::{
+        Columns,
         Dimensions,
         Layer,
         LayerKind,
@@ -29,12 +33,14 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct CommandList {
     search_term: String,
+    search_term_rectangle: Option<Rectangle>,
 }
 
 impl CommandList {
     pub(crate) const fn new() -> Self {
         Self {
             search_term: String::new(),
+            search_term_rectangle: None,
         }
     }
 
@@ -54,7 +60,7 @@ impl CommandList {
 }
 
 impl Layer for CommandList {
-    fn render(&self, buffer: &mut Buffer) {
+    fn render(&mut self, buffer: &mut Buffer) {
         // TODO: figure out what to do when there's not enough room. i don't care about
         // it not working since the screen should never be that tiny, but i'd
         // rather the program didn't crash in that case.
@@ -77,6 +83,8 @@ impl Layer for CommandList {
             &input_text_rectangle.offset(),
             &input_text_rectangle,
         );
+
+        self.search_term_rectangle = Some(input_text_rectangle);
     }
 
     fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
@@ -107,9 +115,13 @@ impl Layer for CommandList {
         }
     }
 
-    fn visual_cursor_position(&self) -> Position {
-        // TODO: implement properly
-        Position::default()
+    fn visual_cursor_position(&self) -> Option<Position> {
+        self.search_term_rectangle.as_ref().map(|rect| {
+            rect.offset().col_offset(cmp::min(
+                Columns::new(self.search_term.width()),
+                rect.width() - Columns::new(1),
+            ))
+        })
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
