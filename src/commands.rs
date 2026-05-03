@@ -46,6 +46,9 @@ impl CommandList {
             CommandListAction::Close => {
                 context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
             }
+            CommandListAction::RemoveChar => {
+                self.search_term.pop();
+            }
         }
     }
 }
@@ -86,6 +89,7 @@ impl Layer for CommandList {
                     (KeyCode::Char(ch), KeyModifiers::NONE) => {
                         Some(CommandListAction::InsertChar(ch))
                     }
+                    (KeyCode::Backspace, KeyModifiers::NONE) => Some(CommandListAction::RemoveChar),
                     _ => None,
                 };
 
@@ -120,5 +124,6 @@ impl Layer for CommandList {
 #[derive(Debug, Clone, Copy)]
 enum CommandListAction {
     InsertChar(char),
+    RemoveChar,
     Close,
 }
