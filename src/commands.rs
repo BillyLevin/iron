@@ -8,6 +8,7 @@ use crossterm::{
     },
     style::Color,
 };
+use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
@@ -18,6 +19,7 @@ use crate::{
         EventOutcome,
     },
     keymap::KeyBinding,
+    text::ByteIndex,
     ui::{
         Columns,
         Dimensions,
@@ -33,14 +35,14 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct CommandList {
     search_term: String,
-    search_term_rectangle: Option<Rectangle>,
+    cursor_position: Option<Position>,
 }
 
 impl CommandList {
     pub(crate) const fn new() -> Self {
         Self {
             search_term: String::new(),
-            search_term_rectangle: None,
+            cursor_position: None,
         }
     }
 
@@ -56,6 +58,20 @@ impl CommandList {
                 self.search_term.pop();
             }
         }
+    }
+
+    fn horizontal_scroll(&self, text_rectangle: &Rectangle) -> ByteIndex {
+        let mut scroll = ByteIndex::new(0);
+        let mut width = Columns::new(0);
+
+        for grapheme in self.search_term.graphemes(true).rev() {
+            width += Columns::new(grapheme.width());
+            if width >= text_rectangle.width() {
+                scroll += ByteIndex::new(grapheme.len());
+            }
+        }
+
+        scroll
     }
 }
 
@@ -78,13 +94,21 @@ impl Layer for CommandList {
 
         let input_text_rectangle = buffer.draw_border(&input_rectangle, Color::Black);
 
+        let text = self
+            .search_term
+            .get(self.horizontal_scroll(&input_text_rectangle).value()..)
+            .expect("horizontal scroll should give a byte index on a char boundary");
+
         buffer.render_span(
-            &Span::new(self.search_term.clone()).with_fg(Color::Black),
+            &Span::new(text.to_owned()).with_fg(Color::Black),
             &input_text_rectangle.offset(),
             &input_text_rectangle,
         );
 
-        self.search_term_rectangle = Some(input_text_rectangle);
+        self.cursor_position = Some(input_text_rectangle.offset().col_offset(cmp::min(
+            Columns::new(text.width()),
+            input_text_rectangle.width() - Columns::new(1),
+        )));
     }
 
     fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
@@ -116,12 +140,7 @@ impl Layer for CommandList {
     }
 
     fn visual_cursor_position(&self) -> Option<Position> {
-        self.search_term_rectangle.as_ref().map(|rect| {
-            rect.offset().col_offset(cmp::min(
-                Columns::new(self.search_term.width()),
-                rect.width() - Columns::new(1),
-            ))
-        })
+        self.cursor_position
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
