@@ -9,10 +9,12 @@ use crossterm::{
 
 use crate::{
     buffer::Buffer,
-    editor::EventOutcome,
+    editor::{
+        EventContext,
+        EventOutcome,
+    },
     ui::{
         Dimensions,
-        EventContext,
         Layer,
         Position,
         Rectangle,

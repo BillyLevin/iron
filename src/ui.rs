@@ -9,7 +9,10 @@ use unicode_width::UnicodeWidthStr as _;
 use crate::{
     buffer::Buffer,
     document::Grapheme,
-    editor::EventOutcome,
+    editor::{
+        EventContext,
+        EventOutcome,
+    },
 };
 
 /// A visual layer in the UI. The app can have multiple layers that are
@@ -29,33 +32,6 @@ pub(crate) trait Layer {
     /// Check for and handle any events that occur within the
     /// layer.
     fn handle_internal_events(&mut self) -> EventOutcome;
-}
-
-pub(crate) struct EventContext {
-    actions: Vec<EditorAction>,
-}
-
-impl EventContext {
-    pub(crate) const fn new() -> Self {
-        Self {
-            actions: Vec::new(),
-        }
-    }
-
-    /// Queue a new action to be applied to the
-    /// [`Editor`](crate::editor::Editor).
-    pub(crate) fn push_action(&mut self, action: EditorAction) {
-        self.actions.push(action);
-    }
-
-    pub(crate) fn actions(self) -> Vec<EditorAction> {
-        self.actions
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum EditorAction {
-    AddLayer(LayerKind),
 }
 
 #[derive(Debug)]

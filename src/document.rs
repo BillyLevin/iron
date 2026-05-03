@@ -44,7 +44,11 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
-    editor::EventOutcome,
+    editor::{
+        EditorAction,
+        EventContext,
+        EventOutcome,
+    },
     grapheme_layout::{
         GraphemeLayoutIterator,
         WrapBehavior,
@@ -69,8 +73,6 @@ use crate::{
         Alignment,
         Columns,
         Dimensions,
-        EditorAction,
-        EventContext,
         Layer,
         LayerKind,
         Position,

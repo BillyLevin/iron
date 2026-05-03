@@ -5,8 +5,6 @@ use crate::{
     commands::CommandList,
     document::Document,
     ui::{
-        EditorAction,
-        EventContext,
         Layer,
         LayerKind,
     },
@@ -87,4 +85,31 @@ pub(crate) enum EventOutcome {
     Handled,
     Unhandled,
     CloseApp,
+}
+
+pub(crate) struct EventContext {
+    actions: Vec<EditorAction>,
+}
+
+impl EventContext {
+    pub(crate) const fn new() -> Self {
+        Self {
+            actions: Vec::new(),
+        }
+    }
+
+    /// Queue a new action to be applied to the
+    /// [`Editor`](crate::editor::Editor).
+    pub(crate) fn push_action(&mut self, action: EditorAction) {
+        self.actions.push(action);
+    }
+
+    pub(crate) fn actions(self) -> Vec<EditorAction> {
+        self.actions
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum EditorAction {
+    AddLayer(LayerKind),
 }
