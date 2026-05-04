@@ -449,7 +449,7 @@ impl Line {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Span {
     text: String,
     foreground: Option<Color>,
@@ -493,28 +493,11 @@ impl Span {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Spans {
-    spans: Vec<Span>,
-}
-
-impl Spans {
-    pub(crate) const fn new(spans: Vec<Span>) -> Self {
-        Self { spans }
-    }
-
-    pub(crate) fn width(&self) -> Columns {
-        self.spans
-            .iter()
-            .map(|span| Columns::new(span.text().width()))
-            .sum()
-    }
-}
-
-impl AsRef<[Span]> for Spans {
-    fn as_ref(&self) -> &[Span] {
-        &self.spans
-    }
+pub(crate) fn spans_width(spans: &[Span]) -> Columns {
+    spans
+        .iter()
+        .map(|span| Columns::new(span.text().width()))
+        .sum()
 }
 
 #[derive(Debug, Clone, Copy)]

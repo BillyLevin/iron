@@ -79,7 +79,7 @@ use crate::{
         Rectangle,
         Rows,
         Span,
-        Spans,
+        spans_width,
     },
 };
 
@@ -314,21 +314,19 @@ impl Document {
             .as_ref()
             .map(|desc| Span::new(format!(r#" "{desc}" "#)).with_fg(Color::White));
 
-        let left_spans = Spans::new(match (file_name_span, jj_desc_span) {
+        let left_spans = match (file_name_span, jj_desc_span) {
             (None, None) => vec![mode_span],
             (None, Some(desc_span)) => vec![mode_span, desc_span],
             (Some(name_span), None) => vec![mode_span, name_span],
             (Some(name_span), Some(desc_span)) => vec![mode_span, name_span, desc_span],
-        });
+        };
 
-        let right_spans = Spans::new(vec![
-            Span::new(format!(" {} ", self.language)).with_fg(Color::White),
-        ]);
+        let right_spans = vec![Span::new(format!(" {} ", self.language)).with_fg(Color::White)];
 
         let (left_rect, right_rect) = self
             .layout_info
             .status_line_rect
-            .split_at_column(left_spans.width());
+            .split_at_column(spans_width(&left_spans));
 
         buffer.render_spans(&left_spans, &left_rect, Alignment::Left);
         buffer.render_spans(&right_spans, &right_rect, Alignment::Right);

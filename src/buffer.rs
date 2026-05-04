@@ -21,7 +21,7 @@ use crate::{
         Rectangle,
         Rows,
         Span,
-        Spans,
+        spans_width,
     },
 };
 
@@ -111,7 +111,7 @@ impl Buffer {
     /// [`Buffer::render_span`] for more details on how spans get rendered.
     pub(crate) fn render_spans(
         &mut self,
-        spans: &Spans,
+        spans: &[Span],
         rectangle: &Rectangle,
         alignment: Alignment,
     ) {
@@ -121,14 +121,14 @@ impl Buffer {
                 let offset = rectangle.offset();
 
                 let start_column = cmp::max(
-                    rectangle.right().saturating_sub(spans.width()),
+                    rectangle.right().saturating_sub(spans_width(spans)),
                     offset.left(),
                 );
                 Position::new(start_column, offset.top())
             }
         };
 
-        for span in spans.as_ref() {
+        for span in spans {
             position = self.render_span(span, &position, rectangle);
         }
     }
@@ -185,11 +185,7 @@ impl Buffer {
         let (mut current_rectangle, mut rest_rectangle) = rectangle.split_at_row(Rows::new(1));
 
         for line in lines {
-            self.render_spans(
-                &Spans::new(line.spans().clone()),
-                &current_rectangle,
-                Alignment::Left,
-            );
+            self.render_spans(line.spans(), &current_rectangle, Alignment::Left);
 
             (current_rectangle, rest_rectangle) = rest_rectangle.split_at_row(Rows::new(1));
         }
