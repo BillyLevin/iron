@@ -427,6 +427,21 @@ pub(crate) enum WrapOutcome {
 }
 
 #[derive(Debug)]
+pub(crate) struct Line {
+    spans: Vec<Span>,
+}
+
+impl Line {
+    pub(crate) const fn new(spans: Vec<Span>) -> Self {
+        Self { spans }
+    }
+
+    pub(crate) const fn spans(&self) -> &Vec<Span> {
+        &self.spans
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct Span {
     text: String,
     foreground: Option<Color>,

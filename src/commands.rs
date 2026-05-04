@@ -25,12 +25,20 @@ use crate::{
         Dimensions,
         Layer,
         LayerKind,
+        Line,
         Position,
         Rectangle,
         Rows,
         Span,
     },
 };
+
+const COMMANDS: &[Command] = &[Command { name: "quit" }, Command { name: "write" }];
+
+#[derive(Debug)]
+struct Command {
+    name: &'static str,
+}
 
 #[derive(Debug)]
 pub(crate) struct CommandList {
@@ -90,7 +98,7 @@ impl Layer for CommandList {
 
         buffer.fill_background(&rectangle, Color::Magenta);
 
-        let (input_rectangle, _rest) = rectangle.split_at_row(Rows::new(3));
+        let (input_rectangle, commands_rectangle) = rectangle.split_at_row(Rows::new(3));
 
         let input_text_rectangle = buffer.draw_border(&input_rectangle, Color::Black);
 
@@ -109,6 +117,16 @@ impl Layer for CommandList {
             Columns::new(text.width()),
             input_text_rectangle.width() - Columns::new(1),
         )));
+
+        let commands_rectangle = buffer.draw_border(&commands_rectangle, Color::Black);
+
+        buffer.render_lines(
+            COMMANDS
+                .iter()
+                .map(|cmd| Line::new(vec![Span::new(cmd.name.to_owned()).with_fg(Color::Black)]))
+                .collect(),
+            &commands_rectangle,
+        );
     }
 
     fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {

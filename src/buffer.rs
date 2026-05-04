@@ -16,6 +16,7 @@ use crate::{
         Alignment,
         Columns,
         Dimensions,
+        Line,
         Position,
         Rectangle,
         Rows,
@@ -181,6 +182,20 @@ impl Buffer {
 
     const fn position_index(&self, position: Position) -> usize {
         position.top().value() * self.dimensions.width().value() + position.left().value()
+    }
+
+    pub(crate) fn render_lines(&mut self, lines: Vec<Line>, rectangle: &Rectangle) {
+        let (mut current_rectangle, mut rest_rectangle) = rectangle.split_at_row(Rows::new(1));
+
+        for line in lines {
+            self.render_spans(
+                &Spans::new(line.spans().clone()),
+                &current_rectangle,
+                Alignment::Left,
+            );
+
+            (current_rectangle, rest_rectangle) = rest_rectangle.split_at_row(Rows::new(1));
+        }
     }
 }
 
