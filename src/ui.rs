@@ -397,6 +397,14 @@ impl Position {
     }
 
     #[must_use]
+    pub(crate) fn row_offset(&self, offset: Rows) -> Self {
+        Self {
+            left: self.left,
+            top: self.top + offset,
+        }
+    }
+
+    #[must_use]
     pub(crate) fn offset(self, offset: Self) -> Self {
         Self {
             left: offset.left() + self.left,

@@ -92,17 +92,14 @@ impl Buffer {
             .set_foreground(color);
 
         for row in (1..rectangle.height().value() - 1).map(Rows::new) {
-            let left = top_left.offset(Position::new(Columns::new(0), row));
+            let left = top_left.row_offset(row);
             let right = top_left.offset(Position::new(rectangle.width() - Columns::new(1), row));
 
             self[left].set_content("│").set_foreground(color);
             self[right].set_content("│").set_foreground(color);
         }
 
-        let bottom_left = top_left.offset(Position::new(
-            Columns::new(0),
-            rectangle.height() - Rows::new(1),
-        ));
+        let bottom_left = top_left.row_offset(rectangle.height() - Rows::new(1));
         self[bottom_left]
             .set_content(&format!("└{}┘", "─".repeat(rectangle.width().value() - 2)))
             .set_foreground(color);
