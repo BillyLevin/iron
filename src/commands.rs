@@ -45,6 +45,8 @@ pub(crate) struct CommandList {
     search_term: String,
     cursor_position: Option<Position>,
     selected_index: usize,
+    // List of indices of the filtered commands.
+    visible_commands: Vec<usize>,
 }
 
 impl CommandList {
@@ -53,6 +55,7 @@ impl CommandList {
             search_term: String::new(),
             cursor_position: None,
             selected_index: 0,
+            visible_commands: Vec::new(),
         }
     }
 
@@ -60,12 +63,25 @@ impl CommandList {
         match action {
             CommandListAction::InsertChar(ch) => {
                 self.search_term.push(ch);
+                self.selected_index = 0;
             }
             CommandListAction::Close => {
                 context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
             }
             CommandListAction::RemoveChar => {
                 self.search_term.pop();
+                self.selected_index = 0;
+            }
+            CommandListAction::GoToNextCommand => {
+                self.selected_index = (self.selected_index + 1)
+                    .checked_rem_euclid(self.visible_commands.len())
+                    .unwrap_or(0);
+            }
+            CommandListAction::GoToPrevCommand => {
+                self.selected_index = self
+                    .selected_index
+                    .checked_sub(1)
+                    .unwrap_or_else(|| self.visible_commands.len().saturating_sub(1));
             }
         }
     }
@@ -122,10 +138,17 @@ impl Layer for CommandList {
 
         let commands_rectangle = buffer.draw_border(&commands_rectangle, Color::Black);
 
+        self.visible_commands = COMMANDS
+            .iter()
+            .enumerate()
+            .filter(|&(_i, cmd)| cmd.name.contains(&self.search_term))
+            .map(|(i, _cmd)| i)
+            .collect();
+
         buffer.render_lines(
-            COMMANDS
+            self.visible_commands
                 .iter()
-                .filter(|cmd| cmd.name.contains(&self.search_term))
+                .map(|i| &COMMANDS[*i])
                 .enumerate()
                 .map(|(i, cmd)| {
                     let span = if i == self.selected_index {
@@ -154,6 +177,8 @@ impl Layer for CommandList {
                         Some(CommandListAction::InsertChar(ch))
                     }
                     (KeyCode::Backspace, KeyModifiers::NONE) => Some(CommandListAction::RemoveChar),
+                    (KeyCode::Down, KeyModifiers::NONE) => Some(CommandListAction::GoToNextCommand),
+                    (KeyCode::Up, KeyModifiers::NONE) => Some(CommandListAction::GoToPrevCommand),
                     _ => None,
                 };
 
@@ -189,4 +214,6 @@ enum CommandListAction {
     InsertChar(char),
     RemoveChar,
     Close,
+    GoToNextCommand,
+    GoToPrevCommand,
 }
