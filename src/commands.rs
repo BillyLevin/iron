@@ -108,7 +108,7 @@ impl Layer for CommandList {
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
-            &Span::new(text.to_owned()).with_fg(Color::Black),
+            &Span::new(text).with_fg(Color::Black),
             &input_text_rectangle.offset(),
             &input_text_rectangle,
         );
@@ -124,7 +124,7 @@ impl Layer for CommandList {
             COMMANDS
                 .iter()
                 .filter(|cmd| cmd.name.contains(&self.search_term))
-                .map(|cmd| Line::new(vec![Span::new(cmd.name.to_owned()).with_fg(Color::Black)]))
+                .map(|cmd| Line::new(vec![Span::new(cmd.name).with_fg(Color::Black)]))
                 .collect(),
             &commands_rectangle,
         );

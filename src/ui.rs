@@ -1,4 +1,7 @@
-use std::ops;
+use std::{
+    borrow::Cow,
+    ops,
+};
 
 use crossterm::{
     event::Event,
@@ -435,32 +438,32 @@ pub(crate) enum WrapOutcome {
 }
 
 #[derive(Debug)]
-pub(crate) struct Line {
-    spans: Vec<Span>,
+pub(crate) struct Line<'text> {
+    spans: Vec<Span<'text>>,
 }
 
-impl Line {
-    pub(crate) const fn new(spans: Vec<Span>) -> Self {
+impl<'text> Line<'text> {
+    pub(crate) const fn new(spans: Vec<Span<'text>>) -> Self {
         Self { spans }
     }
 
-    pub(crate) const fn spans(&self) -> &Vec<Span> {
+    pub(crate) fn spans(&'text self) -> &'text [Span<'text>] {
         &self.spans
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct Span {
-    text: String,
+pub(crate) struct Span<'text> {
+    text: Cow<'text, str>,
     foreground: Option<Color>,
     background: Option<Color>,
 }
 
-impl Span {
+impl<'text> Span<'text> {
     #[must_use]
-    pub(crate) const fn new(text: String) -> Self {
+    pub(crate) fn new(text: impl Into<Cow<'text, str>>) -> Self {
         Self {
-            text,
+            text: text.into(),
             foreground: None,
             background: None,
         }

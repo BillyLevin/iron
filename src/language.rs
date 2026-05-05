@@ -3,7 +3,7 @@ use std::{
     path::Path,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Language {
     Rust,
     Toml,
