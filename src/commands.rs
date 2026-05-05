@@ -44,6 +44,7 @@ struct Command {
 pub(crate) struct CommandList {
     search_term: String,
     cursor_position: Option<Position>,
+    selected_index: usize,
 }
 
 impl CommandList {
@@ -51,6 +52,7 @@ impl CommandList {
         Self {
             search_term: String::new(),
             cursor_position: None,
+            selected_index: 0,
         }
     }
 
@@ -124,7 +126,18 @@ impl Layer for CommandList {
             COMMANDS
                 .iter()
                 .filter(|cmd| cmd.name.contains(&self.search_term))
-                .map(|cmd| Line::new(vec![Span::new(cmd.name).with_fg(Color::Black)]))
+                .enumerate()
+                .map(|(i, cmd)| {
+                    let span = if i == self.selected_index {
+                        Span::new(cmd.name)
+                            .with_fg(Color::White)
+                            .with_bg(Color::Black)
+                    } else {
+                        Span::new(cmd.name).with_fg(Color::Black)
+                    };
+
+                    Line::new(vec![span])
+                })
                 .collect(),
             &commands_rectangle,
         );
