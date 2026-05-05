@@ -123,6 +123,7 @@ impl Layer for CommandList {
         buffer.render_lines(
             COMMANDS
                 .iter()
+                .filter(|cmd| cmd.name.contains(&self.search_term))
                 .map(|cmd| Line::new(vec![Span::new(cmd.name.to_owned()).with_fg(Color::Black)]))
                 .collect(),
             &commands_rectangle,
