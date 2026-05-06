@@ -33,19 +33,31 @@ use crate::{
     },
 };
 
-const COMMANDS: &[Command] = &[Command { name: "quit" }, Command { name: "write" }];
+const COMMANDS: &[Command] = &[
+    Command {
+        name: "quit",
+        action: EditorAction::Quit,
+    },
+    Command {
+        name: "write",
+        action: EditorAction::Write,
+    },
+];
 
 #[derive(Debug)]
 struct Command {
     name: &'static str,
+    action: EditorAction,
 }
 
 #[derive(Debug)]
 pub(crate) struct CommandList {
     search_term: String,
     cursor_position: Option<Position>,
+    /// The index of [`visible_commands`](Self::visible_commands) that is
+    /// currently selected.
     selected_index: usize,
-    // List of indices of the filtered commands.
+    // List of indices into `COMMANDS` of the filtered commands.
     visible_commands: Vec<usize>,
 }
 
@@ -82,6 +94,13 @@ impl CommandList {
                     .selected_index
                     .checked_sub(1)
                     .unwrap_or_else(|| self.visible_commands.len().saturating_sub(1));
+            }
+            CommandListAction::ExecuteCommand => {
+                if let Some(i) = self.visible_commands.get(self.selected_index) {
+                    let cmd = &COMMANDS[*i];
+                    context.push_action(cmd.action);
+                    context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
+                }
             }
         }
     }
@@ -179,6 +198,7 @@ impl Layer for CommandList {
                     (KeyCode::Backspace, KeyModifiers::NONE) => Some(CommandListAction::RemoveChar),
                     (KeyCode::Down, KeyModifiers::NONE) => Some(CommandListAction::GoToNextCommand),
                     (KeyCode::Up, KeyModifiers::NONE) => Some(CommandListAction::GoToPrevCommand),
+                    (KeyCode::Enter, KeyModifiers::NONE) => Some(CommandListAction::ExecuteCommand),
                     _ => None,
                 };
 
@@ -216,4 +236,5 @@ enum CommandListAction {
     Close,
     GoToNextCommand,
     GoToPrevCommand,
+    ExecuteCommand,
 }

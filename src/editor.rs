@@ -38,10 +38,10 @@ impl Editor {
 
         for layer in self.layers.iter_mut().rev() {
             match layer.handle_event(event, &mut event_context) {
-                outcome @ (EventOutcome::Handled | EventOutcome::CloseApp) => {
-                    self.apply_actions(event_context.actions());
-                    return outcome;
+                EventOutcome::Handled => {
+                    return self.apply_actions(event_context.actions());
                 }
+                EventOutcome::CloseApp => return EventOutcome::CloseApp,
                 EventOutcome::Unhandled => {}
             }
         }
@@ -69,7 +69,7 @@ impl Editor {
         result
     }
 
-    fn apply_actions(&mut self, actions: Vec<EditorAction>) {
+    fn apply_actions(&mut self, actions: Vec<EditorAction>) -> EventOutcome {
         for action in actions {
             match action {
                 EditorAction::AddLayer(layer) => {
@@ -92,8 +92,12 @@ impl Editor {
                         self.layers.remove(idx);
                     }
                 }
+                EditorAction::Quit => return EventOutcome::CloseApp,
+                EditorAction::Write => todo!(),
             }
         }
+
+        EventOutcome::Handled
     }
 }
 
@@ -127,8 +131,10 @@ impl EventContext {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum EditorAction {
     AddLayer(LayerKind),
     RemoveLayer(LayerKind),
+    Quit,
+    Write,
 }
