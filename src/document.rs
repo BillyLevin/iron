@@ -5,6 +5,7 @@ use std::{
     io::{
         self,
         BufReader,
+        BufWriter,
     },
     iter,
     mem,
@@ -1126,6 +1127,15 @@ impl Document {
         .map(|grapheme| grapheme.position())
         .unwrap_or_default()
         .col_offset(self.gutter_width())
+    }
+
+    pub(crate) fn save(&self) -> anyhow::Result<()> {
+        // TODO: atomic saves
+        // TODO: async saves
+        self.text
+            .write_to(BufWriter::new(File::create(&self.file_path)?))?;
+
+        Ok(())
     }
 }
 
