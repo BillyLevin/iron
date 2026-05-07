@@ -1,3 +1,5 @@
+use std::iter;
+
 use crossterm::event::Event;
 
 use crate::{
@@ -12,21 +14,22 @@ use crate::{
 };
 
 pub(crate) struct Editor {
+    document: Document,
     layers: Vec<Box<dyn Layer>>,
 }
 
 impl Editor {
     pub(crate) fn new(document: Document) -> Self {
         Self {
-            layers: vec![Box::new(document)],
+            document,
+            layers: vec![],
         }
     }
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
-        self.layers
-            .iter()
+        self.layers()
             .rev()
-            .find_map(|layer| layer.visual_cursor_position())
+            .find_map(Layer::visual_cursor_position)
             .expect(
                 "at least one visual layer must have a cursor position (i.e. `Document` cursor \
                  position is always `Some`)",
@@ -34,23 +37,29 @@ impl Editor {
     }
 
     pub(crate) fn handle_event(&mut self, event: &Event) -> EventOutcome {
+        let mut result = EventOutcome::Unhandled;
+
         let mut event_context = EventContext::new();
 
-        for layer in self.layers.iter_mut().rev() {
+        for layer in self.layers_mut().rev() {
             match layer.handle_event(event, &mut event_context) {
                 EventOutcome::Handled => {
-                    return self.apply_actions(event_context.actions());
+                    result = EventOutcome::Handled;
+                    break;
                 }
                 EventOutcome::CloseApp => return EventOutcome::CloseApp,
                 EventOutcome::Unhandled => {}
             }
         }
 
-        EventOutcome::Unhandled
+        match result {
+            EventOutcome::Handled => self.apply_actions(event_context.actions()),
+            EventOutcome::Unhandled | EventOutcome::CloseApp => result,
+        }
     }
 
     pub(crate) fn render(&mut self, buffer: &mut Buffer) {
-        for layer in &mut self.layers {
+        for layer in self.layers_mut() {
             layer.render(buffer);
         }
     }
@@ -58,7 +67,7 @@ impl Editor {
     pub(crate) fn handle_layer_events(&mut self) -> EventOutcome {
         let mut result = EventOutcome::Unhandled;
 
-        for layer in &mut self.layers {
+        for layer in self.layers_mut() {
             match layer.handle_internal_events() {
                 EventOutcome::Handled => result = EventOutcome::Handled,
                 EventOutcome::CloseApp => return EventOutcome::CloseApp,
@@ -67,6 +76,15 @@ impl Editor {
         }
 
         result
+    }
+
+    fn layers(&self) -> impl DoubleEndedIterator<Item = &dyn Layer> {
+        iter::once(&self.document as &dyn Layer).chain(self.layers.iter().map(AsRef::as_ref))
+    }
+
+    fn layers_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut (dyn Layer + '_)> {
+        iter::once(&mut self.document as &mut dyn Layer)
+            .chain(self.layers.iter_mut().map(|l| l.as_mut() as &mut dyn Layer))
     }
 
     fn apply_actions(&mut self, actions: Vec<EditorAction>) -> EventOutcome {
