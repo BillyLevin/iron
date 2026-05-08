@@ -3,10 +3,7 @@ use std::{
     ops,
 };
 
-use crossterm::{
-    event::Event,
-    style::Color,
-};
+use crossterm::event::Event;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
@@ -16,6 +13,7 @@ use crate::{
         EventContext,
         EventOutcome,
     },
+    style::Style,
 };
 
 /// A visual layer in the UI. The app can have multiple layers that are
@@ -455,8 +453,7 @@ impl<'text> Line<'text> {
 #[derive(Debug)]
 pub(crate) struct Span<'text> {
     text: Cow<'text, str>,
-    foreground: Option<Color>,
-    background: Option<Color>,
+    style: Style,
 }
 
 impl<'text> Span<'text> {
@@ -464,35 +461,20 @@ impl<'text> Span<'text> {
     pub(crate) fn new(text: impl Into<Cow<'text, str>>) -> Self {
         Self {
             text: text.into(),
-            foreground: None,
-            background: None,
+            style: Style::default(),
         }
     }
 
-    pub(crate) fn with_fg(self, foreground: Color) -> Self {
-        Self {
-            foreground: Some(foreground),
-            ..self
-        }
-    }
-
-    pub(crate) fn with_bg(self, background: Color) -> Self {
-        Self {
-            background: Some(background),
-            ..self
-        }
+    pub(crate) fn with_style(self, style: Style) -> Self {
+        Self { style, ..self }
     }
 
     pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
-    pub(crate) const fn fg(&self) -> Option<Color> {
-        self.foreground
-    }
-
-    pub(crate) const fn bg(&self) -> Option<Color> {
-        self.background
+    pub(crate) const fn style(&self) -> Style {
+        self.style
     }
 }
 

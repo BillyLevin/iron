@@ -12,6 +12,7 @@ use crate::{
         GraphemeLayoutIterator,
         WrapBehavior,
     },
+    style::Style,
     ui::{
         Alignment,
         Columns,
@@ -51,13 +52,14 @@ impl Buffer {
         self.cells.fill_with(Cell::default);
     }
 
-    /// Sets the background color for each cell within the provided `rectangle`.
-    pub(crate) fn fill_background(&mut self, rectangle: &Rectangle, color: Color) {
+    /// Clears all contents and sets the [`Style`] of all cells within the given
+    /// [`Rectangle`].
+    pub(crate) fn clear_and_style_rectangle(&mut self, rectangle: &Rectangle, style: Style) {
         for position in rectangle
             .offset()
             .area_iter(rectangle.width(), rectangle.height())
         {
-            self[position].reset().set_background(color);
+            self[position].reset().set_style(style);
         }
     }
 
@@ -76,7 +78,7 @@ impl Buffer {
     ///
     /// For convenience, returns the inner rectangle that doesn't include the
     /// border.
-    pub(crate) fn draw_border(&mut self, rectangle: &Rectangle, color: Color) -> Rectangle {
+    pub(crate) fn draw_border(&mut self, rectangle: &Rectangle, style: Style) -> Rectangle {
         assert!(
             rectangle.width() >= Columns::new(3),
             "rectangle must be at least 3 cells wide in order to have a border"
@@ -89,20 +91,20 @@ impl Buffer {
         let top_left = rectangle.offset();
         self[top_left]
             .set_content(&format!("┌{}┐", "─".repeat(rectangle.width().value() - 2)))
-            .set_foreground(color);
+            .set_style(style);
 
         for row in (1..rectangle.height().value() - 1).map(Rows::new) {
             let left = top_left.row_offset(row);
             let right = top_left.offset(Position::new(rectangle.width() - Columns::new(1), row));
 
-            self[left].set_content("│").set_foreground(color);
-            self[right].set_content("│").set_foreground(color);
+            self[left].set_content("│").set_style(style);
+            self[right].set_content("│").set_style(style);
         }
 
         let bottom_left = top_left.row_offset(rectangle.height() - Rows::new(1));
         self[bottom_left]
             .set_content(&format!("└{}┘", "─".repeat(rectangle.width().value() - 2)))
-            .set_foreground(color);
+            .set_style(style);
 
         rectangle.clip_border()
     }
@@ -162,14 +164,7 @@ impl Buffer {
             let cell = &mut self[current_position];
 
             cell.set_content(grapheme.grapheme().as_str());
-
-            if let Some(fg) = span.fg() {
-                cell.set_foreground(fg);
-            }
-
-            if let Some(bg) = span.bg() {
-                cell.set_background(bg);
-            }
+            cell.set_style(span.style());
 
             end_position = grapheme.end_position();
         }
@@ -241,13 +236,15 @@ impl Cell {
         self
     }
 
-    pub(crate) const fn set_foreground(&mut self, foreground: Color) -> &mut Self {
-        self.foreground = foreground;
-        self
-    }
+    pub(crate) const fn set_style(&mut self, style: Style) -> &mut Self {
+        if let Some(foreground) = style.foreground() {
+            self.foreground = foreground;
+        }
 
-    pub(crate) const fn set_background(&mut self, background: Color) -> &mut Self {
-        self.background = background;
+        if let Some(background) = style.background() {
+            self.background = background;
+        }
+
         self
     }
 

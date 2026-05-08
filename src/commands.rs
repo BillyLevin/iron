@@ -1,12 +1,9 @@
 use std::cmp;
 
-use crossterm::{
-    event::{
-        Event,
-        KeyCode,
-        KeyModifiers,
-    },
-    style::Color,
+use crossterm::event::{
+    Event,
+    KeyCode,
+    KeyModifiers,
 };
 use nucleo_matcher::{
     Config,
@@ -28,6 +25,7 @@ use crate::{
         EventOutcome,
     },
     keymap::KeyBinding,
+    style::Style,
     text::ByteIndex,
     ui::{
         Columns,
@@ -165,15 +163,11 @@ impl Layer for CommandList {
             app_rectangle.height() / 2,
         ));
 
-        buffer.fill_background(&rectangle, Color::Rgb {
-            r: 235,
-            g: 219,
-            b: 178,
-        });
+        buffer.clear_and_style_rectangle(&rectangle, Style::COMMAND_LIST);
 
         let (input_rectangle, commands_rectangle) = rectangle.split_at_row(Rows::new(3));
 
-        let input_text_rectangle = buffer.draw_border(&input_rectangle, Color::White);
+        let input_text_rectangle = buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
 
         let text = self
             .search_term
@@ -181,7 +175,7 @@ impl Layer for CommandList {
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
-            &Span::new(text).with_fg(Color::White),
+            &Span::new(text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
             &input_text_rectangle.offset(),
             &input_text_rectangle,
         );
@@ -191,7 +185,8 @@ impl Layer for CommandList {
             input_text_rectangle.width() - Columns::new(1),
         )));
 
-        let commands_rectangle = buffer.draw_border(&commands_rectangle, Color::White);
+        let commands_rectangle =
+            buffer.draw_border(&commands_rectangle, Style::COMMAND_LIST_BORDER);
 
         // TODO: check whether this re-allocates because of the `.collect()` (match_list
         // returns a Vec rather than iterator)
@@ -215,11 +210,9 @@ impl Layer for CommandList {
                 .enumerate()
                 .map(|(i, cmd)| {
                     let span = if i == self.selected_index {
-                        Span::new(cmd.name)
-                            .with_fg(Color::Black)
-                            .with_bg(Color::White)
+                        Span::new(cmd.name).with_style(Style::COMMAND_LIST_ITEM_SELECTED)
                     } else {
-                        Span::new(cmd.name).with_fg(Color::White)
+                        Span::new(cmd.name).with_style(Style::COMMAND_LIST_ITEM)
                     };
 
                     Line::new(vec![span])

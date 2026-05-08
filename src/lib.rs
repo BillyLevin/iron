@@ -7,6 +7,7 @@ pub mod grapheme_layout;
 pub mod jujutsu;
 pub mod keymap;
 pub mod language;
+pub mod style;
 pub mod terminal;
 pub mod text;
 pub mod ui;

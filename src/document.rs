@@ -26,14 +26,11 @@ use std::{
 };
 
 use anyhow::Context as _;
-use crossterm::{
-    event::{
-        Event,
-        KeyCode,
-        KeyEvent,
-        KeyModifiers,
-    },
-    style::Color,
+use crossterm::event::{
+    Event,
+    KeyCode,
+    KeyEvent,
+    KeyModifiers,
 };
 use itertools::Itertools as _;
 use ropey::{
@@ -63,6 +60,7 @@ use crate::{
         KeySequence,
     },
     language::Language,
+    style::Style,
     text::{
         ByteIndex,
         LeftChar,
@@ -266,11 +264,7 @@ impl Document {
             cmp::min(container.height(), max_height),
         ));
 
-        buffer.fill_background(&hints_rectangle, Color::Rgb {
-            r: 235,
-            g: 219,
-            b: 178,
-        });
+        buffer.clear_and_style_rectangle(&hints_rectangle, Style::HINTS);
 
         for visual_grapheme in GraphemeLayoutIterator::new(
             hints.graphemes(true),
@@ -288,8 +282,7 @@ impl Document {
             }
 
             buffer[visual_grapheme.position().offset(hints_rectangle.offset())]
-                .set_content(visual_grapheme.grapheme().as_str())
-                .set_foreground(Color::White);
+                .set_content(visual_grapheme.grapheme().as_str());
         }
     }
 
@@ -297,28 +290,20 @@ impl Document {
         let (status_rect, message_rect) =
             self.layout_info.status_line_rect.split_at_row(Rows::new(1));
 
-        buffer.fill_background(&status_rect, Color::Rgb {
-            r: 235,
-            g: 219,
-            b: 178,
-        });
+        buffer.clear_and_style_rectangle(&status_rect, Style::STATUS_LINE);
+        buffer.clear_and_style_rectangle(&message_rect, Style::STATUS_LINE_MESSAGES);
 
-        buffer.fill_background(&message_rect, Color::Black);
-
-        let mode_span = Span::new(format!(" {} ", self.mode))
-            .with_fg(Color::Black)
-            .with_bg(Color::Cyan);
+        let mode_span = Span::new(format!(" {} ", self.mode)).with_style(Style::STATUS_LINE_MODE);
 
         let file_name_span = self
             .file_path
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| Span::new(format!(" {name} ")).with_fg(Color::White));
+            .map(|name| Span::new(format!(" {name} ")).with_style(Style::STATUS_LINE_FILE_NAME));
 
-        let jj_desc_span = self
-            .jj_change_description
-            .as_ref()
-            .map(|desc| Span::new(format!(r#" "{desc}" "#)).with_fg(Color::White));
+        let jj_desc_span = self.jj_change_description.as_ref().map(|desc| {
+            Span::new(format!(r#" "{desc}" "#)).with_style(Style::STATUS_LINE_JJ_DESCRIPTION)
+        });
 
         let left_spans = match (file_name_span, jj_desc_span) {
             (None, None) => vec![mode_span],
@@ -327,7 +312,8 @@ impl Document {
             (Some(name_span), Some(desc_span)) => vec![mode_span, name_span, desc_span],
         };
 
-        let right_spans = vec![Span::new(format!(" {} ", self.language)).with_fg(Color::White)];
+        let right_spans =
+            vec![Span::new(format!(" {} ", self.language)).with_style(Style::STATUS_LINE_LANGUAGE)];
 
         let (left_rect, right_rect) = status_rect.split_at_column(spans_width(&left_spans));
 
@@ -336,7 +322,7 @@ impl Document {
 
         if let Some(ref error) = self.error {
             buffer.render_span(
-                &Span::new(error).with_fg(Color::Red),
+                &Span::new(error).with_style(Style::STATUS_LINE_ERROR),
                 &message_rect.offset(),
                 &message_rect,
             );
@@ -1170,6 +1156,8 @@ impl Layer for Document {
         let start_byte = self.text.slice(..).line_start_byte(self.scroll_offset);
         let text = self.text.slice(start_byte.value()..);
 
+        buffer.clear_and_style_rectangle(&self.layout_info.text_rect, Style::BACKGROUND);
+
         for visual_grapheme in
             GraphemeLayoutIterator::new(text.graphemes(), self.max_text_width(), WrapBehavior::Wrap)
         {
@@ -1188,8 +1176,7 @@ impl Layer for Document {
 
                 buffer[visual_grapheme.position()]
                     .set_content(&gutter_contents)
-                    .set_foreground(Color::Black)
-                    .set_background(Color::White);
+                    .set_style(Style::GUTTER);
             }
 
             let translated_position = visual_grapheme.position().col_offset(gutter_width);
@@ -1201,7 +1188,9 @@ impl Layer for Document {
 
             let grapheme = visual_grapheme.grapheme();
 
-            buffer[translated_position].set_content(grapheme.as_str());
+            buffer[translated_position]
+                .set_content(grapheme.as_str())
+                .set_style(Style::TEXT);
 
             if matches!(self.mode, Mode::Visual)
                 && self
@@ -1209,10 +1198,7 @@ impl Layer for Document {
                     .range(self.text.slice(..))
                     .contains(&(start_byte + visual_grapheme.byte_index()))
             {
-                // TODO: theme!
-                buffer[translated_position]
-                    .set_foreground(Color::Black)
-                    .set_background(Color::Grey);
+                buffer[translated_position].set_style(Style::TEXT_SELECTED);
             }
 
             if matches!(grapheme, Grapheme::LineBreak) {
