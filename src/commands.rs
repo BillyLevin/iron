@@ -165,11 +165,15 @@ impl Layer for CommandList {
             app_rectangle.height() / 2,
         ));
 
-        buffer.fill_background(&rectangle, Color::Magenta);
+        buffer.fill_background(&rectangle, Color::Rgb {
+            r: 235,
+            g: 219,
+            b: 178,
+        });
 
         let (input_rectangle, commands_rectangle) = rectangle.split_at_row(Rows::new(3));
 
-        let input_text_rectangle = buffer.draw_border(&input_rectangle, Color::Black);
+        let input_text_rectangle = buffer.draw_border(&input_rectangle, Color::White);
 
         let text = self
             .search_term
@@ -177,7 +181,7 @@ impl Layer for CommandList {
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
-            &Span::new(text).with_fg(Color::Black),
+            &Span::new(text).with_fg(Color::White),
             &input_text_rectangle.offset(),
             &input_text_rectangle,
         );
@@ -187,7 +191,7 @@ impl Layer for CommandList {
             input_text_rectangle.width() - Columns::new(1),
         )));
 
-        let commands_rectangle = buffer.draw_border(&commands_rectangle, Color::Black);
+        let commands_rectangle = buffer.draw_border(&commands_rectangle, Color::White);
 
         // TODO: check whether this re-allocates because of the `.collect()` (match_list
         // returns a Vec rather than iterator)
@@ -212,10 +216,10 @@ impl Layer for CommandList {
                 .map(|(i, cmd)| {
                     let span = if i == self.selected_index {
                         Span::new(cmd.name)
-                            .with_fg(Color::White)
-                            .with_bg(Color::Black)
+                            .with_fg(Color::Black)
+                            .with_bg(Color::White)
                     } else {
-                        Span::new(cmd.name).with_fg(Color::Black)
+                        Span::new(cmd.name).with_fg(Color::White)
                     };
 
                     Line::new(vec![span])
