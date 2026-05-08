@@ -117,6 +117,14 @@ impl Editor {
                         Err(err) => self.document.set_error(format!("{err:#}")),
                     }
                 }
+                EditorAction::WriteQuit => {
+                    match self.document.save() {
+                        Ok(()) => {}
+                        Err(err) => self.document.set_error(format!("{err:#}")),
+                    }
+
+                    return EventOutcome::CloseApp;
+                }
             }
         }
 
@@ -160,4 +168,5 @@ pub(crate) enum EditorAction {
     RemoveLayer(LayerKind),
     Quit,
     Write,
+    WriteQuit,
 }

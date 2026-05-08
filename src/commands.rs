@@ -42,6 +42,10 @@ const COMMANDS: &[Command] = &[
         name: "write",
         action: EditorAction::Write,
     },
+    Command {
+        name: "write-quit",
+        action: EditorAction::WriteQuit,
+    },
 ];
 
 #[derive(Debug)]
