@@ -182,10 +182,6 @@ impl Document {
         };
 
         maybe_action.map_or(EventOutcome::Unhandled, |action| {
-            if matches!(action, DocumentAction::CloseApp) {
-                return EventOutcome::CloseApp;
-            }
-
             self.apply_action(action, event_context);
 
             self.key_sequence.clear();
@@ -388,7 +384,6 @@ impl Document {
             DocumentAction::SelectCurrentWord => self.select_current_word(),
             DocumentAction::DeleteDown => self.delete_down(),
             DocumentAction::DeleteUp => self.delete_up(),
-            DocumentAction::CloseApp => {}
             DocumentAction::OpenCommandList => Self::open_command_list(event_context),
         }
 

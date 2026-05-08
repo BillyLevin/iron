@@ -97,9 +97,6 @@ impl KeyMap {
         );
         map.register(&[key!('c'), key!('e')], DocumentAction::ChangeToWordEnd);
 
-        // TODO: remove once commands are implemented;
-        map.register(&[key!('q')], DocumentAction::CloseApp);
-
         map
     }
 
@@ -300,7 +297,6 @@ pub(crate) enum DocumentAction {
     SelectCurrentWord,
     DeleteDown,
     DeleteUp,
-    CloseApp,
     OpenCommandList,
 }
 
@@ -358,7 +354,6 @@ impl DocumentAction {
             | Self::SwitchToInsertMode
             | Self::SwitchToNormalMode
             | Self::SwitchToVisualMode
-            | Self::CloseApp
             | Self::OpenCommandList => false,
         }
     }
@@ -411,7 +406,6 @@ impl DocumentAction {
             Self::SelectCurrentWord => "Select current word",
             Self::DeleteDown => "Delete down",
             Self::DeleteUp => "Delete up",
-            Self::CloseApp => "Close the application",
             Self::OpenCommandList => "Open command list",
         }
     }
