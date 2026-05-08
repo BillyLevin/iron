@@ -25,6 +25,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Context as _;
 use crossterm::{
     event::{
         Event,
@@ -124,6 +125,8 @@ pub(crate) struct Document {
     jj_change_description: Option<String>,
 
     jj_change_description_rx: Receiver<anyhow::Result<Option<String>>>,
+
+    error: Option<String>,
 }
 
 impl Document {
@@ -145,6 +148,7 @@ impl Document {
             layout_info: LayoutInfo::new(dimensions),
             jj_change_description: None,
             jj_change_description_rx: jj_desc_rx,
+            error: None,
         };
 
         doc.poll_jj(jj_desc_tx);
@@ -290,11 +294,16 @@ impl Document {
     }
 
     fn render_status_line(&self, buffer: &mut Buffer) {
-        buffer.fill_background(&self.layout_info.status_line_rect, Color::Rgb {
+        let (status_rect, message_rect) =
+            self.layout_info.status_line_rect.split_at_row(Rows::new(1));
+
+        buffer.fill_background(&status_rect, Color::Rgb {
             r: 235,
             g: 219,
             b: 178,
         });
+
+        buffer.fill_background(&message_rect, Color::Black);
 
         let mode_span = Span::new(format!(" {} ", self.mode))
             .with_fg(Color::Black)
@@ -320,13 +329,18 @@ impl Document {
 
         let right_spans = vec![Span::new(format!(" {} ", self.language)).with_fg(Color::White)];
 
-        let (left_rect, right_rect) = self
-            .layout_info
-            .status_line_rect
-            .split_at_column(spans_width(&left_spans));
+        let (left_rect, right_rect) = status_rect.split_at_column(spans_width(&left_spans));
 
         buffer.render_spans(&left_spans, &left_rect, Alignment::Left);
         buffer.render_spans(&right_spans, &right_rect, Alignment::Right);
+
+        if let Some(ref error) = self.error {
+            buffer.render_span(
+                &Span::new(error).with_fg(Color::Red),
+                &message_rect.offset(),
+                &message_rect,
+            );
+        }
     }
 
     const fn set_cursor(&mut self, index: ByteIndex) {
@@ -1132,10 +1146,18 @@ impl Document {
     pub(crate) fn save(&self) -> anyhow::Result<()> {
         // TODO: atomic saves
         // TODO: async saves
+
         self.text
-            .write_to(BufWriter::new(File::create(&self.file_path)?))?;
+            .write_to(BufWriter::new(
+                File::create(&self.file_path).context("File cannot be written to")?,
+            ))
+            .context("Failed to save")?;
 
         Ok(())
+    }
+
+    pub(crate) fn set_error(&mut self, error_message: String) {
+        self.error = Some(error_message);
     }
 }
 
@@ -1249,7 +1271,7 @@ pub(crate) struct LayoutInfo {
 impl LayoutInfo {
     fn new(dimensions: Dimensions) -> Self {
         let (text_rect, status_line_rect) = Rectangle::from_dimensions(dimensions)
-            .split_at_row(dimensions.height().saturating_sub(Rows::new(1)));
+            .split_at_row(dimensions.height().saturating_sub(Rows::new(2)));
 
         Self {
             dimensions,
@@ -1626,16 +1648,16 @@ mod tests {
 
         TestCase {
             initial_text: &text,
-            initial_cursor: 22 * 5,
-            expected_initial_visual_position: (3, 22),
+            initial_cursor: 21 * 5,
+            expected_initial_visual_position: (3, 21),
 
             keys: vec![key_event!('j'); 1],
 
             expected_text: &text,
-            expected_cursor: 23 * 5,
+            expected_cursor: 22 * 5,
             // visual position stays the same because we scrolled down, keeping the
             // cursor on the final line
-            expected_visual_position: (3, 22),
+            expected_visual_position: (3, 21),
         }
         .run();
     }

@@ -114,7 +114,7 @@ impl Editor {
                 EditorAction::Write => {
                     match self.document.save() {
                         Ok(()) => {}
-                        Err(_err) => todo!("display an error to the user if file failed to save"),
+                        Err(err) => self.document.set_error(format!("{err:#}")),
                     }
                 }
             }
