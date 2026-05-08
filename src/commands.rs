@@ -8,6 +8,15 @@ use crossterm::{
     },
     style::Color,
 };
+use nucleo_matcher::{
+    Config,
+    Matcher,
+    pattern::{
+        CaseMatching,
+        Normalization,
+        Pattern,
+    },
+};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -55,6 +64,23 @@ struct Command {
 }
 
 #[derive(Debug)]
+struct EnumeratedCommand {
+    inner: (usize, &'static Command),
+}
+
+impl EnumeratedCommand {
+    const fn new(value: (usize, &'static Command)) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl AsRef<str> for EnumeratedCommand {
+    fn as_ref(&self) -> &str {
+        self.inner.1.name
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct CommandList {
     search_term: String,
     cursor_position: Option<Position>,
@@ -63,15 +89,17 @@ pub(crate) struct CommandList {
     selected_index: usize,
     // List of indices into `COMMANDS` of the filtered commands.
     visible_commands: Vec<usize>,
+    matcher: Matcher,
 }
 
 impl CommandList {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             search_term: String::new(),
             cursor_position: None,
             selected_index: 0,
             visible_commands: Vec::new(),
+            matcher: Matcher::new(Config::DEFAULT),
         }
     }
 
@@ -161,12 +189,20 @@ impl Layer for CommandList {
 
         let commands_rectangle = buffer.draw_border(&commands_rectangle, Color::Black);
 
-        self.visible_commands = COMMANDS
-            .iter()
-            .enumerate()
-            .filter(|&(_i, cmd)| cmd.name.contains(&self.search_term))
-            .map(|(i, _cmd)| i)
-            .collect();
+        // TODO: check whether this re-allocates because of the `.collect()` (match_list
+        // returns a Vec rather than iterator)
+        self.visible_commands = Pattern::parse(
+            &self.search_term,
+            CaseMatching::Ignore,
+            Normalization::Smart,
+        )
+        .match_list(
+            COMMANDS.iter().enumerate().map(EnumeratedCommand::new),
+            &mut self.matcher,
+        )
+        .iter()
+        .map(|&(ref cmd, _score)| cmd.inner.0)
+        .collect();
 
         buffer.render_lines(
             self.visible_commands
