@@ -498,7 +498,7 @@ impl Document {
     fn gutter_width(&self) -> Columns {
         Columns::from(cmp::max(
             3,
-            number_of_digits(self.text.slice(..).line_count()),
+            number_of_digits(self.text.slice(..).line_count()) + 1,
         ))
     }
 
@@ -1171,7 +1171,8 @@ impl Layer for Document {
                 let gutter_contents = if visual_grapheme.is_wrapped() {
                     " ".repeat(gutter_width.value())
                 } else {
-                    format!("{line_number:>width$}", width = gutter_width.value())
+                    let line_number_str = format!("{line_number} ");
+                    format!("{line_number_str:>width$}", width = gutter_width.value())
                 };
 
                 buffer[visual_grapheme.position()]
@@ -1656,13 +1657,13 @@ mod tests {
         TestCase {
             initial_text: &text,
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_visual_position: (4, 0),
 
             keys: vec![key_event!('G'); 1],
 
             expected_text: &text,
             expected_cursor: (200 * 99) + 99,
-            expected_visual_position: (3, 0),
+            expected_visual_position: (4, 0),
         }
         .run();
     }
