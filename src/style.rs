@@ -32,8 +32,8 @@ impl Style {
         background: Some(colors::DARK1),
     };
     pub(crate) const GUTTER: Self = Self {
-        foreground: Some(colors::LIGHT0),
-        background: Some(colors::DARK1),
+        foreground: Some(colors::GRAY),
+        background: Some(colors::LIGHT0),
     };
     pub(crate) const HINTS: Self = Self {
         foreground: Some(colors::DARK1),
@@ -339,7 +339,6 @@ mod colors {
         b: 193,
     };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const GRAY: Color = Color::Rgb {
         r: 146,
         g: 131,
