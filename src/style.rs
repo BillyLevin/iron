@@ -32,7 +32,11 @@ impl Style {
         background: Some(colors::DARK1),
     };
     pub(crate) const GUTTER: Self = Self {
-        foreground: Some(colors::GRAY),
+        foreground: Some(colors::LIGHT4),
+        background: Some(colors::LIGHT0),
+    };
+    pub(crate) const GUTTER_SELECTED: Self = Self {
+        foreground: Some(colors::FADED_YELLOW),
         background: Some(colors::LIGHT0),
     };
     pub(crate) const HINTS: Self = Self {
@@ -149,7 +153,6 @@ mod colors {
         b: 147,
     };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const LIGHT4: Color = Color::Rgb {
         r: 168,
         g: 153,
@@ -263,7 +266,6 @@ mod colors {
         b: 14,
     };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const FADED_YELLOW: Color = Color::Rgb {
         r: 181,
         g: 118,
@@ -339,6 +341,7 @@ mod colors {
         b: 193,
     };
 
+    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const GRAY: Color = Color::Rgb {
         r: 146,
         g: 131,

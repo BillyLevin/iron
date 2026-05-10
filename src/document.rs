@@ -1175,9 +1175,20 @@ impl Layer for Document {
                     format!("{line_number_str:>width$}", width = gutter_width.value())
                 };
 
+                let gutter_style = if self
+                    .text
+                    .slice(..)
+                    .line_idx_containing_byte(self.selection.cursor)
+                    == LineIndex::new(line_number - 1)
+                {
+                    Style::GUTTER_SELECTED
+                } else {
+                    Style::GUTTER
+                };
+
                 buffer[visual_grapheme.position()]
                     .set_content(&gutter_contents)
-                    .set_style(Style::GUTTER);
+                    .set_style(gutter_style);
             }
 
             let translated_position = visual_grapheme.position().col_offset(gutter_width);
