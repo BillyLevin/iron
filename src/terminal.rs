@@ -96,8 +96,8 @@ impl Terminal {
 
                 match terminal_event {
                     Event::Resize(columns, rows) => {
-                        self.buffer =
-                            Buffer::new(Dimensions::new(Columns::from(columns), Rows::from(rows)));
+                        self.buffer
+                            .resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
                         rerender = true;
                     }
                     Event::FocusGained

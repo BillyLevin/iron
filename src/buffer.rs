@@ -35,9 +35,14 @@ pub(crate) struct Buffer {
 impl Buffer {
     pub(crate) fn new(dimensions: Dimensions) -> Self {
         Self {
-            cells: vec![Cell::default(); dimensions.height().value() * dimensions.width().value()],
+            cells: vec![Cell::default(); dimensions.area()],
             dimensions,
         }
+    }
+
+    pub(crate) fn resize(&mut self, dimensions: Dimensions) {
+        self.cells.resize(dimensions.area(), Cell::default());
+        self.dimensions = dimensions;
     }
 
     pub(crate) fn cells(&self) -> &[Cell] {

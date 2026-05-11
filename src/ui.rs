@@ -250,6 +250,10 @@ impl Dimensions {
     pub(crate) const fn height(&self) -> Rows {
         self.height
     }
+
+    pub(crate) const fn area(&self) -> usize {
+        self.width.value() * self.height.value()
+    }
 }
 
 #[derive(
