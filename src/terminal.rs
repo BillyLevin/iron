@@ -9,7 +9,10 @@ use crossterm::{
         self,
         Event,
     },
-    style,
+    style::{
+        self,
+        Color,
+    },
     terminal::{
         BeginSynchronizedUpdate,
         EndSynchronizedUpdate,
@@ -129,24 +132,32 @@ impl Terminal {
     fn draw(&mut self, cursor_position: Position) -> io::Result<()> {
         crossterm::execute!(self.out, BeginSynchronizedUpdate)?;
 
-        crossterm::queue!(
-            self.out,
-            crossterm::cursor::Hide,
-            crossterm::cursor::MoveTo(0, 0)
-        )?;
+        crossterm::queue!(self.out, crossterm::cursor::MoveTo(0, 0))?;
 
         let cells = self.buffer.cells();
         let mut buffer_index = 0;
 
+        let mut fg = Color::Reset;
+        let mut bg = Color::Reset;
+
         while buffer_index < cells.len() {
             let cell = &cells[buffer_index];
 
-            crossterm::queue!(
-                self.out,
-                style::SetForegroundColor(cell.foreground()),
-                style::SetBackgroundColor(cell.background()),
-                style::Print(cell.content())
-            )?;
+            if let new_fg = cell.foreground()
+                && new_fg != fg
+            {
+                fg = new_fg;
+                crossterm::queue!(self.out, style::SetForegroundColor(fg))?;
+            }
+
+            if let new_bg = cell.background()
+                && new_bg != bg
+            {
+                bg = new_bg;
+                crossterm::queue!(self.out, style::SetBackgroundColor(bg))?;
+            }
+
+            crossterm::queue!(self.out, style::Print(cell.content()))?;
 
             buffer_index += cell.width();
         }
@@ -159,7 +170,6 @@ impl Terminal {
                 u16::try_from(cursor_position.top().value())
                     .expect("cursor row should be <= u16::MAX"),
             ),
-            crossterm::cursor::Show
         )?;
 
         crossterm::execute!(self.out, EndSynchronizedUpdate)?;
