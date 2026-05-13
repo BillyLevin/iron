@@ -9,6 +9,10 @@ use std::{
     },
     iter,
     mem,
+    num::{
+        NonZero,
+        NonZeroUsize,
+    },
     ops::{
         ControlFlow,
         Range,
@@ -111,6 +115,10 @@ pub(crate) struct Document {
     /// keybinding. Used in the `KeyMap` lookups.
     key_sequence: KeySequence,
 
+    /// The number of times to repeat the next [`DocumentAction`] (if supported
+    /// by the action).
+    action_count: Option<NonZeroUsize>,
+
     file_path: PathBuf,
 
     layout_info: LayoutInfo,
@@ -142,6 +150,7 @@ impl Document {
             desired_cursor_column: None,
             mode: Mode::Normal,
             key_sequence: KeySequence::default(),
+            action_count: None,
             language: Language::new(&file_path),
             file_path,
             layout_info: LayoutInfo::new(dimensions),
@@ -163,6 +172,13 @@ impl Document {
             Mode::Visual => &self.visual_keymap,
         };
 
+        if matches!(self.mode, Mode::Normal | Mode::Visual)
+            && let Some(count) = self.recalculate_action_count(key_event)
+        {
+            self.action_count = Some(count);
+            return EventOutcome::Handled;
+        }
+
         self.key_sequence.push(KeyBinding::from(key_event));
 
         let maybe_action = match keymap.get(&self.key_sequence) {
@@ -176,6 +192,7 @@ impl Document {
                 // the current key sequence does not form a binding for any of the registered
                 // commands. therefore, we clear the sequence
                 self.key_sequence.clear();
+                self.action_count = None;
 
                 // look for any fallback events that aren't registered in the map
                 self.event_fallback(key_event)
@@ -186,6 +203,7 @@ impl Document {
             self.apply_action(action, event_context);
 
             self.key_sequence.clear();
+            self.action_count = None;
 
             self.clamp_cursor();
             self.recalculate_scroll();
@@ -359,7 +377,8 @@ impl Document {
             DocumentAction::MoveNextParagraph => self.move_cursor_next_paragraph(),
             DocumentAction::MovePrevParagraph => self.move_cursor_prev_paragraph(),
             DocumentAction::GoToLastLine => self.go_to_last_line(),
-            DocumentAction::GoToFirstLine => self.go_to_first_line(),
+            DocumentAction::GoToNthOrLastLine => self.go_to_nth_or_last_line(),
+            DocumentAction::GoToNthOrFirstLine => self.go_to_nth_or_first_line(),
             DocumentAction::DeleteWord => self.delete_word(),
             DocumentAction::ChangeWord => self.change_word(),
             DocumentAction::DeleteToLineEnd => self.delete_to_line_end(),
@@ -388,6 +407,7 @@ impl Document {
             DocumentAction::DeleteDown => self.delete_down(),
             DocumentAction::DeleteUp => self.delete_up(),
             DocumentAction::OpenCommandList => Self::open_command_list(event_context),
+            DocumentAction::ClearInput => self.clear_input(),
         }
 
         if action.should_reset_desired_column() {
@@ -396,97 +416,109 @@ impl Document {
     }
 
     fn move_cursor_down(&mut self) {
-        let target_column = self.desired_column();
-        let text = self.text.slice(..);
+        for _ in 0..self.action_count() {
+            let target_column = self.desired_column();
+            let text = self.text.slice(..);
 
-        let byte = VisualLineInfo::new(
-            &self.text,
-            text.line_idx_containing_byte(self.selection.cursor),
-            self.max_text_width(),
-        )
-        .next_at_column(self.selection.cursor, target_column);
+            let byte = VisualLineInfo::new(
+                &self.text,
+                text.line_idx_containing_byte(self.selection.cursor),
+                self.max_text_width(),
+            )
+            .next_at_column(self.selection.cursor, target_column);
 
-        if let Some(byte_index) = byte {
-            self.set_cursor(byte_index);
+            if let Some(byte_index) = byte {
+                self.set_cursor(byte_index);
+            }
         }
     }
 
     fn move_cursor_up(&mut self) {
-        let target_column = self.desired_column();
+        for _ in 0..self.action_count() {
+            let target_column = self.desired_column();
 
-        let text = self.text.slice(..);
+            let text = self.text.slice(..);
 
-        let byte = VisualLineInfo::new(
-            &self.text,
-            text.line_idx_containing_byte(self.selection.cursor),
-            self.max_text_width(),
-        )
-        .prev_at_column(self.selection.cursor, target_column);
+            let byte = VisualLineInfo::new(
+                &self.text,
+                text.line_idx_containing_byte(self.selection.cursor),
+                self.max_text_width(),
+            )
+            .prev_at_column(self.selection.cursor, target_column);
 
-        if let Some(byte_index) = byte {
-            self.set_cursor(byte_index);
+            if let Some(byte_index) = byte {
+                self.set_cursor(byte_index);
+            }
         }
     }
 
     fn move_cursor_right(&mut self) {
-        self.set_cursor(
-            self.text
-                .slice(..)
-                .next_grapheme_position(self.selection.cursor),
-        );
+        for _ in 0..self.action_count() {
+            self.set_cursor(
+                self.text
+                    .slice(..)
+                    .next_grapheme_position(self.selection.cursor),
+            );
+        }
     }
 
     fn move_cursor_left(&mut self) {
-        self.set_cursor(
-            self.text
-                .slice(..)
-                .previous_grapheme_position(self.selection.cursor),
-        );
+        for _ in 0..self.action_count() {
+            self.set_cursor(
+                self.text
+                    .slice(..)
+                    .previous_grapheme_position(self.selection.cursor),
+            );
+        }
     }
 
     fn move_cursor_next_word_start(&mut self) {
-        let byte_index = match self
-            .text
-            .slice(self.selection.cursor.value()..)
-            .chars()
-            .tuple_windows()
-            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
-                let next_index = index + left.ch().len_utf8();
+        for _ in 0..self.action_count() {
+            let byte_index = match self
+                .text
+                .slice(self.selection.cursor.value()..)
+                .chars()
+                .tuple_windows()
+                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(self.selection.cursor, |index, (left, right)| {
+                    let next_index = index + left.ch().len_utf8();
 
-                if right.is_word_start(left) {
-                    ControlFlow::Break(next_index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            }) {
-            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-        };
+                    if right.is_word_start(left) {
+                        ControlFlow::Break(next_index)
+                    } else {
+                        ControlFlow::Continue(next_index)
+                    }
+                }) {
+                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+            };
 
-        self.set_cursor(byte_index);
+            self.set_cursor(byte_index);
+        }
     }
 
     fn move_cursor_prev_word_start(&mut self) {
-        let byte_index = self
-            .text
-            .slice(..self.selection.cursor.value())
-            .chars_at(self.selection.cursor.value())
-            .reversed()
-            .tuple_windows()
-            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
-                let next_index = index.saturating_sub(left.ch().len_utf8());
+        for _ in 0..self.action_count() {
+            let byte_index = self
+                .text
+                .slice(..self.selection.cursor.value())
+                .chars_at(self.selection.cursor.value())
+                .reversed()
+                .tuple_windows()
+                .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(self.selection.cursor, |index, (left, right)| {
+                    let next_index = index.saturating_sub(left.ch().len_utf8());
 
-                if right.is_word_start(left) {
-                    ControlFlow::Break(next_index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            })
-            .break_value()
-            .unwrap_or(ByteIndex::new(0));
+                    if right.is_word_start(left) {
+                        ControlFlow::Break(next_index)
+                    } else {
+                        ControlFlow::Continue(next_index)
+                    }
+                })
+                .break_value()
+                .unwrap_or(ByteIndex::new(0));
 
-        self.set_cursor(byte_index);
+            self.set_cursor(byte_index);
+        }
     }
 
     /// Ensures that the cursor does not go past the end of the file.
@@ -629,42 +661,46 @@ impl Document {
     }
 
     fn move_cursor_next_paragraph(&mut self) {
-        let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        for _ in 0..self.action_count() {
+            let text = self.text.slice(..);
+            let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
-        let line_offset = self
-            .text
-            .lines_at(line_index.value(), LineType::LF_CR)
-            .enumerate()
-            .skip_while(|&(_i, line)| line.is_whitespace())
-            .find(|&(_i, line)| line.is_whitespace())
-            .map(|(i, _line)| i);
+            let line_offset = self
+                .text
+                .lines_at(line_index.value(), LineType::LF_CR)
+                .enumerate()
+                .skip_while(|&(_i, line)| line.is_whitespace())
+                .find(|&(_i, line)| line.is_whitespace())
+                .map(|(i, _line)| i);
 
-        self.set_cursor(match line_offset {
-            Some(offset) => text.line_start_byte(line_index + offset),
-            None => ByteIndex::new(text.len()),
-        });
+            self.set_cursor(match line_offset {
+                Some(offset) => text.line_start_byte(line_index + offset),
+                None => ByteIndex::new(text.len()),
+            });
+        }
     }
 
     fn move_cursor_prev_paragraph(&mut self) {
-        let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        for _ in 0..self.action_count() {
+            let text = self.text.slice(..);
+            let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
-        let line_offset = self
-            .text
-            // NOTE: +1 because when we use `reversed()`, the iterator does not consume the
-            // line at the provided index
-            .lines_at(line_index.value() + 1, LineType::LF_CR)
-            .reversed()
-            .enumerate()
-            .skip_while(|&(_i, line)| line.is_whitespace())
-            .find(|&(_i, line)| line.is_whitespace())
-            .map(|(i, _line)| i);
+            let line_offset = self
+                .text
+                // NOTE: +1 because when we use `reversed()`, the iterator does not consume the
+                // line at the provided index
+                .lines_at(line_index.value() + 1, LineType::LF_CR)
+                .reversed()
+                .enumerate()
+                .skip_while(|&(_i, line)| line.is_whitespace())
+                .find(|&(_i, line)| line.is_whitespace())
+                .map(|(i, _line)| i);
 
-        self.set_cursor(match line_offset {
-            Some(offset) => text.line_start_byte(line_index.saturating_sub(offset)),
-            None => ByteIndex::new(0),
-        });
+            self.set_cursor(match line_offset {
+                Some(offset) => text.line_start_byte(line_index.saturating_sub(offset)),
+                None => ByteIndex::new(0),
+            });
+        }
     }
 
     fn go_to_last_line(&mut self) {
@@ -675,6 +711,32 @@ impl Document {
 
     const fn go_to_first_line(&mut self) {
         self.set_cursor(ByteIndex::new(0));
+    }
+
+    fn go_to_nth_or_first_line(&mut self) {
+        if let Some(line) = self.action_count {
+            self.go_to_line_index(cmp::min(
+                LineIndex::new(line.get() - 1),
+                self.text.slice(..).last_line_idx(),
+            ));
+        } else {
+            self.go_to_first_line();
+        }
+    }
+
+    fn go_to_nth_or_last_line(&mut self) {
+        if let Some(line) = self.action_count {
+            self.go_to_line_index(cmp::min(
+                LineIndex::new(line.get() - 1),
+                self.text.slice(..).last_line_idx(),
+            ));
+        } else {
+            self.go_to_last_line();
+        }
+    }
+
+    fn go_to_line_index(&mut self, line: LineIndex) {
+        self.set_cursor(self.text.slice(..).line_start_byte(line));
     }
 
     /// Determines the maximum room for text based on the dimensions of the
@@ -688,25 +750,27 @@ impl Document {
     /// Deletes from the current cursor position up to (but not including) the
     /// start of the next word.
     fn delete_word(&mut self) {
-        let end = match self
-            .text
-            .slice(self.selection.cursor.value()..)
-            .chars()
-            .tuple_windows()
-            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
-                let next_index = index + left.ch().len_utf8();
+        for _ in 0..self.action_count() {
+            let end = match self
+                .text
+                .slice(self.selection.cursor.value()..)
+                .chars()
+                .tuple_windows()
+                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(self.selection.cursor, |index, (left, right)| {
+                    let next_index = index + left.ch().len_utf8();
 
-                if right.is_word_start(left) {
-                    ControlFlow::Break(next_index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            }) {
-            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-        };
+                    if right.is_word_start(left) {
+                        ControlFlow::Break(next_index)
+                    } else {
+                        ControlFlow::Continue(next_index)
+                    }
+                }) {
+                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+            };
 
-        self.text.remove(self.selection.cursor.value()..end.value());
+            self.text.remove(self.selection.cursor.value()..end.value());
+        }
     }
 
     fn change_word(&mut self) {
@@ -760,88 +824,94 @@ impl Document {
     }
 
     fn delete_line(&mut self) {
-        let text = self.text.slice(..);
+        for _ in 0..self.action_count() {
+            let text = self.text.slice(..);
 
-        let index = text.line_idx_containing_byte(self.selection.cursor);
-        let start = text.line_start_byte(index);
-        let end = start + ByteIndex::new(text.line_at(index).len());
+            let index = text.line_idx_containing_byte(self.selection.cursor);
+            let start = text.line_start_byte(index);
+            let end = start + ByteIndex::new(text.line_at(index).len());
 
-        self.text.remove(start.value()..end.value());
-        self.set_cursor(start);
+            self.text.remove(start.value()..end.value());
+            self.set_cursor(start);
+        }
     }
 
     fn delete_whole_word(&mut self) {
-        let current_ch = self.text.char(self.selection.cursor.value());
+        for _ in 0..self.action_count() {
+            let current_ch = self.text.char(self.selection.cursor.value());
 
-        let reversed_chars = self
-            .text
-            .slice(..self.selection.cursor.value())
-            .chars_at(self.selection.cursor.value())
-            .reversed();
+            let reversed_chars = self
+                .text
+                .slice(..self.selection.cursor.value())
+                .chars_at(self.selection.cursor.value())
+                .reversed();
 
-        let start = iter::once(current_ch)
-            .chain(reversed_chars)
-            .tuple_windows()
-            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
-                if right.is_word_start(left) {
-                    ControlFlow::Break(index)
-                } else {
-                    ControlFlow::Continue(index.saturating_sub(left.ch().len_utf8()))
-                }
-            })
-            .break_value()
-            .unwrap_or(ByteIndex::new(0));
+            let start = iter::once(current_ch)
+                .chain(reversed_chars)
+                .tuple_windows()
+                .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(self.selection.cursor, |index, (left, right)| {
+                    if right.is_word_start(left) {
+                        ControlFlow::Break(index)
+                    } else {
+                        ControlFlow::Continue(index.saturating_sub(left.ch().len_utf8()))
+                    }
+                })
+                .break_value()
+                .unwrap_or(ByteIndex::new(0));
 
-        let end = match self
-            .text
-            .slice(self.selection.cursor.value()..)
-            .chars()
-            .tuple_windows()
-            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
-                let next_index = index + left.ch().len_utf8();
+            let end = match self
+                .text
+                .slice(self.selection.cursor.value()..)
+                .chars()
+                .tuple_windows()
+                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(self.selection.cursor, |index, (left, right)| {
+                    let next_index = index + left.ch().len_utf8();
 
-                if left.is_word_end(right) {
-                    // we started at the leftmost byte of the `left` char, and we want to
-                    // delete it, and so the byte index we provide is the start of the next
-                    // char, allowing us to use an exclusive range in the `remove` call below
-                    ControlFlow::Break(next_index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            }) {
-            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-        };
+                    if left.is_word_end(right) {
+                        // we started at the leftmost byte of the `left` char, and we want to
+                        // delete it, and so the byte index we provide is the start of the next
+                        // char, allowing us to use an exclusive range in the `remove` call below
+                        ControlFlow::Break(next_index)
+                    } else {
+                        ControlFlow::Continue(next_index)
+                    }
+                }) {
+                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+            };
 
-        self.text.remove(start.value()..end.value());
-        self.set_cursor(start);
+            self.text.remove(start.value()..end.value());
+            self.set_cursor(start);
+        }
     }
 
     fn delete_to_prev_word_start(&mut self) {
-        let start = self
-            .text
-            .slice(..self.selection.cursor.value())
-            .chars_at(self.selection.cursor.value())
-            .reversed()
-            .tuple_windows()
-            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
-                let next_index = index.saturating_sub(left.ch().len_utf8());
+        for _ in 0..self.action_count() {
+            let start = self
+                .text
+                .slice(..self.selection.cursor.value())
+                .chars_at(self.selection.cursor.value())
+                .reversed()
+                .tuple_windows()
+                .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(self.selection.cursor, |index, (left, right)| {
+                    let next_index = index.saturating_sub(left.ch().len_utf8());
 
-                if right.is_word_start(left) {
-                    ControlFlow::Break(next_index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            })
-            .break_value()
-            .unwrap_or(ByteIndex::new(0));
+                    if right.is_word_start(left) {
+                        ControlFlow::Break(next_index)
+                    } else {
+                        ControlFlow::Continue(next_index)
+                    }
+                })
+                .break_value()
+                .unwrap_or(ByteIndex::new(0));
 
-        self.text
-            .remove(start.value()..self.selection.cursor.value());
+            self.text
+                .remove(start.value()..self.selection.cursor.value());
 
-        self.set_cursor(start);
+            self.set_cursor(start);
+        }
     }
 
     fn append_text(&mut self) {
@@ -871,64 +941,68 @@ impl Document {
     }
 
     fn move_cursor_word_end(&mut self) {
-        // we start searching at the next grapheme so that the cursor doesn't stay where
-        // it is if it's already at the end of a word (in that case, we want to
-        // go to the end of the **next** word)
-        let search_start = self
-            .text
-            .slice(..)
-            .next_grapheme_position(self.selection.cursor);
+        for _ in 0..self.action_count() {
+            // we start searching at the next grapheme so that the cursor doesn't stay where
+            // it is if it's already at the end of a word (in that case, we want to
+            // go to the end of the **next** word)
+            let search_start = self
+                .text
+                .slice(..)
+                .next_grapheme_position(self.selection.cursor);
 
-        let word_end = match self
-            .text
-            .slice(search_start.value()..)
-            .chars()
-            .tuple_windows()
-            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(search_start, |index, (left, right)| {
-                if left.is_word_end(right) {
-                    ControlFlow::Break(index)
-                } else {
-                    ControlFlow::Continue(index + left.ch().len_utf8())
-                }
-            }) {
-            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-        };
+            let word_end = match self
+                .text
+                .slice(search_start.value()..)
+                .chars()
+                .tuple_windows()
+                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(search_start, |index, (left, right)| {
+                    if left.is_word_end(right) {
+                        ControlFlow::Break(index)
+                    } else {
+                        ControlFlow::Continue(index + left.ch().len_utf8())
+                    }
+                }) {
+                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+            };
 
-        self.set_cursor(word_end);
+            self.set_cursor(word_end);
+        }
     }
 
     fn delete_to_word_end(&mut self) {
-        // we start searching at the next grapheme so that the cursor doesn't stay where
-        // it is if it's already at the end of a word (in that case, we want to
-        // go to the end of the **next** word)
-        let search_start = self
-            .text
-            .slice(..)
-            .next_grapheme_position(self.selection.cursor);
+        for _ in 0..self.action_count() {
+            // we start searching at the next grapheme so that the cursor doesn't stay where
+            // it is if it's already at the end of a word (in that case, we want to
+            // go to the end of the **next** word)
+            let search_start = self
+                .text
+                .slice(..)
+                .next_grapheme_position(self.selection.cursor);
 
-        let word_end = match self
-            .text
-            .slice(search_start.value()..)
-            .chars()
-            .tuple_windows()
-            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(search_start, |index, (left, right)| {
-                let next_index = index + left.ch().len_utf8();
+            let word_end = match self
+                .text
+                .slice(search_start.value()..)
+                .chars()
+                .tuple_windows()
+                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+                .try_fold(search_start, |index, (left, right)| {
+                    let next_index = index + left.ch().len_utf8();
 
-                if left.is_word_end(right) {
-                    // we want to delete the whole character, which may be multiple bytes,
-                    // and so we delete up to (but not including) the next character index
-                    ControlFlow::Break(next_index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            }) {
-            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-        };
+                    if left.is_word_end(right) {
+                        // we want to delete the whole character, which may be multiple bytes,
+                        // and so we delete up to (but not including) the next character index
+                        ControlFlow::Break(next_index)
+                    } else {
+                        ControlFlow::Continue(next_index)
+                    }
+                }) {
+                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+            };
 
-        self.text
-            .remove(self.selection.cursor.value()..word_end.value());
+            self.text
+                .remove(self.selection.cursor.value()..word_end.value());
+        }
     }
 
     fn change_to_line_start(&mut self) {
@@ -942,26 +1016,25 @@ impl Document {
     }
 
     fn change_line(&mut self) {
-        let text = self.text.slice(..);
+        for _ in 0..self.action_count() {
+            let text = self.text.slice(..);
 
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+            let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
-        let line_start = text.line_start_byte(line_index);
-        let line_break = text.line_break(line_index);
+            let line_start = text.line_start_byte(line_index);
+            let line_end = text.line_start_byte(line_index + 1);
 
-        self.text
-            .remove(line_start.value()..line_break.position.value());
+            self.text.remove(line_start.value()..line_end.value());
 
-        self.set_cursor(line_start);
-
-        // there is no linebreak, and so we need to make room to append text by adding
-        // one. we will not shift the cursor, so the user will overwrite the
-        // empty space when they enter text
-        if !line_break.has_linebreak {
-            // TODO: use the same linebreak style that the rest of the document uses, if
-            // applicable
-            self.text.insert_char(self.selection.cursor.value(), '\n');
+            self.set_cursor(line_start);
         }
+
+        // we removed the linebreak (if there was one), and so we need to make room to
+        // append text by adding one. we will not shift the cursor, so the user
+        // will overwrite the empty space when they enter text
+        // TODO: use the same linebreak style that the rest of the document uses, if
+        // applicable
+        self.text.insert_char(self.selection.cursor.value(), '\n');
 
         self.insert_mode();
     }
@@ -1073,26 +1146,27 @@ impl Document {
         self.set_cursor(end);
     }
 
-    /// Deletes the current and next line.
+    /// Deletes the current plus the `action_count` succeeding lines.
     fn delete_down(&mut self) {
         let text = self.text.slice(..);
 
         let current_line = text.line_idx_containing_byte(self.selection.cursor);
-        let next_line = current_line + 1;
 
         let start = text.line_start_byte(current_line);
 
-        let Some(next_line_start) = text.get_line_start_byte(next_line) else {
+        let Some(end) = (0..=self.action_count())
+            .filter_map(|i| text.get_line_start_byte(current_line + i + 1))
+            .next_back()
+        else {
             return;
         };
-
-        let end = next_line_start + ByteIndex::new(text.line_at(next_line).len());
 
         self.text.remove(start.value()..end.value());
         self.set_cursor(start);
         self.move_cursor_first_non_blank();
     }
 
+    /// Deletes the current plus the `action_count` preceding lines.
     fn delete_up(&mut self) {
         let text = self.text.slice(..);
 
@@ -1101,9 +1175,18 @@ impl Document {
             return;
         };
 
-        let start = text.line_start_byte(prev_line);
         let end =
             text.line_start_byte(current_line) + ByteIndex::new(text.line_at(current_line).len());
+
+        let start = text
+            // NOTE: +1 because when we use `reversed()`, the iterator does not consume the
+            // line at the provided index
+            .lines_at(current_line.value() + 1, LineType::LF_CR)
+            .reversed()
+            .take(self.action_count() + 1)
+            .fold(end, |byte_index, line| {
+                byte_index.saturating_sub(line.len())
+            });
 
         self.text.remove(start.value()..end.value());
         self.set_cursor(match prev_line.checked_sub(1) {
@@ -1146,6 +1229,38 @@ impl Document {
 
     pub(crate) fn set_error(&mut self, error_message: String) {
         self.error = Some(error_message);
+    }
+
+    /// Gets the current action count. Defaults to `1` since all actions should
+    /// execute at least once.
+    const fn action_count(&self) -> usize {
+        match self.action_count {
+            Some(count) => count.get(),
+            None => 1,
+        }
+    }
+
+    /// Checks whether the current `action_count` can be updated based on the
+    /// given [`KeyEvent`], giving back the updated value if so.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(new_count)` if a new count can be calculated, `None`
+    /// otherwise.
+    fn recalculate_action_count(&self, event: KeyEvent) -> Option<NonZeroUsize> {
+        let KeyCode::Char(ch @ '0'..='9') = event.code else {
+            return None;
+        };
+
+        let digit = ch.to_digit(10)? as usize;
+        let current_count = self.action_count.map_or(0, NonZero::get);
+
+        NonZeroUsize::new((current_count * 10) + digit)
+    }
+
+    fn clear_input(&mut self) {
+        self.key_sequence.clear();
+        self.action_count = None;
     }
 }
 
@@ -1489,6 +1604,22 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_right_n() {
+        TestCase {
+            initial_text: "Test ⚒️ 😀 ",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('8'), key_event!('l')],
+
+            expected_text: "Test ⚒️ 😀 ",
+            expected_cursor: 16,
+            expected_visual_position: (13, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn move_cursor_left() {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
@@ -1516,6 +1647,22 @@ mod tests {
             expected_text: "Test",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_left_n() {
+        TestCase {
+            initial_text: "Test ⚒️ 😀 ",
+            initial_cursor: 16,
+            expected_initial_visual_position: (13, 0),
+
+            keys: vec![key_event!('4'), key_event!('h')],
+
+            expected_text: "Test ⚒️ 😀 ",
+            expected_cursor: 4,
+            expected_visual_position: (7, 0),
         }
         .run();
     }
@@ -1585,6 +1732,38 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_down_n() {
+        TestCase {
+            initial_text: "Test\nTest\nTest",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('2'), key_event!('j')],
+
+            expected_text: "Test\nTest\nTest",
+            expected_cursor: 12,
+            expected_visual_position: (5, 2),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_down_n_multiple_digits() {
+        TestCase {
+            initial_text: &"Test\n".repeat(15),
+            initial_cursor: 3,
+            expected_initial_visual_position: (6, 0),
+
+            keys: vec![key_event!('1'), key_event!('2'), key_event!('j')],
+
+            expected_text: &"Test\n".repeat(15),
+            expected_cursor: 63,
+            expected_visual_position: (6, 12),
+        }
+        .run();
+    }
+
+    #[test]
     fn move_cursor_up() {
         TestCase {
             initial_text: "Test\nTest",
@@ -1628,6 +1807,22 @@ mod tests {
             expected_text: &"a".repeat(200),
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_up_n() {
+        TestCase {
+            initial_text: "Test\nTest\nTest",
+            initial_cursor: 11,
+            expected_initial_visual_position: (4, 2),
+
+            keys: vec![key_event!('2'), key_event!('k')],
+
+            expected_text: "Test\nTest\nTest",
+            expected_cursor: 1,
+            expected_visual_position: (4, 0),
         }
         .run();
     }
@@ -1932,6 +2127,22 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_next_word_start_n() {
+        TestCase {
+            initial_text: "hello world test",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('3'), key_event!('w')],
+
+            expected_text: "hello world test",
+            expected_cursor: 15,
+            expected_visual_position: (18, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn move_cursor_prev_word_start() {
         TestCase {
             initial_text: "Test text",
@@ -2103,6 +2314,22 @@ mod tests {
             expected_text: "",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn move_cursor_prev_word_start_n() {
+        TestCase {
+            initial_text: "hello world test",
+            initial_cursor: 15,
+            expected_initial_visual_position: (18, 0),
+
+            keys: vec![key_event!('2'), key_event!('b')],
+
+            expected_text: "hello world test",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
         }
         .run();
     }
@@ -2347,6 +2574,22 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_next_paragraph_n() {
+        TestCase {
+            initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('2'), key_event!('}')],
+
+            expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            expected_cursor: 26,
+            expected_visual_position: (3, 7),
+        }
+        .run();
+    }
+
+    #[test]
     fn move_cursor_prev_paragraph() {
         TestCase {
             initial_text: "hello\n\nworld\n\n",
@@ -2379,7 +2622,23 @@ mod tests {
     }
 
     #[test]
-    fn go_to_last_line() {
+    fn move_cursor_prev_paragraph_n() {
+        TestCase {
+            initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            initial_cursor: 26,
+            expected_initial_visual_position: (3, 7),
+
+            keys: vec![key_event!('2'), key_event!('{')],
+
+            expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn go_to_nth_or_last_line_no_n() {
         TestCase {
             initial_text: "hello\nworld\n",
             initial_cursor: 0,
@@ -2395,7 +2654,23 @@ mod tests {
     }
 
     #[test]
-    fn go_to_last_line_alias() {
+    fn go_to_nth_or_last_line_with_n() {
+        TestCase {
+            initial_text: "hello\nworld\nyo\n",
+            initial_cursor: 6,
+            expected_initial_visual_position: (3, 1),
+
+            keys: vec![key_event!('1'), key_event!('G')],
+
+            expected_text: "hello\nworld\nyo\n",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn go_to_last_line() {
         TestCase {
             initial_text: "hello\nworld\n",
             initial_cursor: 0,
@@ -2411,7 +2686,7 @@ mod tests {
     }
 
     #[test]
-    fn go_to_first_line() {
+    fn go_to_nth_or_first_line_no_n() {
         TestCase {
             initial_text: "hello\nworld\n",
             initial_cursor: 6,
@@ -2422,6 +2697,22 @@ mod tests {
             expected_text: "hello\nworld\n",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn go_to_nth_or_first_line_with_n() {
+        TestCase {
+            initial_text: "hello\nworld\nyo\n",
+            initial_cursor: 6,
+            expected_initial_visual_position: (3, 1),
+
+            keys: vec![key_event!('3'), key_event!('g'), key_event!('g')],
+
+            expected_text: "hello\nworld\nyo\n",
+            expected_cursor: 12,
+            expected_visual_position: (3, 2),
         }
         .run();
     }
@@ -2484,6 +2775,22 @@ mod tests {
             keys: vec![key_event!('d'), key_event!('w')],
 
             expected_text: "Hello-world",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_n() {
+        TestCase {
+            initial_text: "Hello world several words",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('2'), key_event!('d'), key_event!('w')],
+
+            expected_text: "several words",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
         }
@@ -2575,6 +2882,29 @@ mod tests {
     }
 
     #[test]
+    fn change_word_n() {
+        TestCase {
+            initial_text: "Hello world several words",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![
+                key_event!('2'),
+                key_event!('c'),
+                key_event!('w'),
+                key_event!('H'),
+                key_event!('i'),
+                key_event!(' '),
+            ],
+
+            expected_text: "Hi several words",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_to_line_end() {
         TestCase {
             initial_text: "Hello there!\nNext line",
@@ -2660,6 +2990,22 @@ mod tests {
     }
 
     #[test]
+    fn delete_line_n() {
+        TestCase {
+            initial_text: "Hello there!\nNext line!\nAnd another line!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![key_event!('2'), key_event!('d'), key_event!('d')],
+
+            expected_text: "And another line!",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_whole_word() {
         TestCase {
             initial_text: "Hello there!!!",
@@ -2708,6 +3054,27 @@ mod tests {
     }
 
     #[test]
+    fn delete_whole_word_n() {
+        TestCase {
+            initial_text: "Hello there!!! hi",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![
+                key_event!('2'),
+                key_event!('d'),
+                key_event!('i'),
+                key_event!('w'),
+            ],
+
+            expected_text: "Hello  hi",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_to_prev_word_start() {
         TestCase {
             initial_text: "Hello there!!!",
@@ -2719,6 +3086,22 @@ mod tests {
             expected_text: "there!!!",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_prev_word_start_n() {
+        TestCase {
+            initial_text: "Hello there words words words!!!",
+            initial_cursor: 26,
+            expected_initial_visual_position: (29, 0),
+
+            keys: vec![key_event!('4'), key_event!('d'), key_event!('b')],
+
+            expected_text: "Hello rds!!!",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
         }
         .run();
     }
@@ -2788,6 +3171,22 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_word_end_n() {
+        TestCase {
+            initial_text: "Hello__123: there words words words",
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: vec![key_event!('4'), key_event!('e')],
+
+            expected_text: "Hello__123: there words words words",
+            expected_cursor: 22,
+            expected_visual_position: (25, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_to_word_end() {
         TestCase {
             initial_text: "Hello there",
@@ -2797,6 +3196,22 @@ mod tests {
             keys: vec![key_event!('d'), key_event!('e')],
 
             expected_text: "He there",
+            expected_cursor: 2,
+            expected_visual_position: (5, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_word_end_n() {
+        TestCase {
+            initial_text: "Hello there there there there there",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('4'), key_event!('d'), key_event!('e')],
+
+            expected_text: "He there there",
             expected_cursor: 2,
             expected_visual_position: (5, 0),
         }
@@ -2892,6 +3307,29 @@ mod tests {
     }
 
     #[test]
+    fn change_line_n() {
+        TestCase {
+            initial_text: "Hello there!\nNext line!\nAnother line!",
+            initial_cursor: 4,
+            expected_initial_visual_position: (7, 0),
+
+            keys: vec![
+                key_event!('2'),
+                key_event!('c'),
+                key_event!('c'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey\nAnother line!",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn change_whole_word() {
         TestCase {
             initial_text: "Hello there!!!",
@@ -2961,6 +3399,30 @@ mod tests {
     }
 
     #[test]
+    fn change_whole_word_n() {
+        TestCase {
+            initial_text: "Hello there!!! words words",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![
+                key_event!('2'),
+                key_event!('c'),
+                key_event!('i'),
+                key_event!('w'),
+                key_event!('H'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hello Hey words words",
+            expected_cursor: 9,
+            expected_visual_position: (12, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn change_to_prev_word_start() {
         TestCase {
             initial_text: "Hello there!!!",
@@ -3000,6 +3462,27 @@ mod tests {
     }
 
     #[test]
+    fn change_to_prev_word_start_n() {
+        TestCase {
+            initial_text: "Hello there!!!",
+            initial_cursor: 8,
+            expected_initial_visual_position: (11, 0),
+
+            keys: vec![
+                key_event!('2'),
+                key_event!('c'),
+                key_event!('b'),
+                key_event!('H'),
+            ],
+
+            expected_text: "Here!!!",
+            expected_cursor: 1,
+            expected_visual_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn change_to_word_end() {
         TestCase {
             initial_text: "Hello there",
@@ -3009,6 +3492,27 @@ mod tests {
             keys: vec![key_event!('c'), key_event!('e'), key_event!('y')],
 
             expected_text: "Hey there",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_word_end_n() {
+        TestCase {
+            initial_text: "Hello there words words",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![
+                key_event!('3'),
+                key_event!('c'),
+                key_event!('e'),
+                key_event!('y'),
+            ],
+
+            expected_text: "Hey words",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
         }
@@ -3228,6 +3732,22 @@ mod tests {
     }
 
     #[test]
+    fn delete_down_n() {
+        TestCase {
+            initial_text: "Hello there\nAnother line\n     And another\nAnd one more",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('2'), key_event!('d'), key_event!('j')],
+
+            expected_text: "And one more",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_up() {
         TestCase {
             initial_text: "Hello there\nAnother line\nAnd another",
@@ -3239,6 +3759,38 @@ mod tests {
             expected_text: "Hello there\n",
             expected_cursor: 0,
             expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_up_n() {
+        TestCase {
+            initial_text: "Hello there\nAnother line\nAnd another\nAnd one more",
+            initial_cursor: 27,
+            expected_initial_visual_position: (5, 2),
+
+            keys: vec![key_event!('2'), key_event!('d'), key_event!('k')],
+
+            expected_text: "And one more",
+            expected_cursor: 0,
+            expected_visual_position: (3, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn clear_key_sequence_with_esc() {
+        TestCase {
+            initial_text: "Hello there\nAnother line\nAnd another\nAnd one more",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('2'), key_event!(Esc), key_event!('j')],
+
+            expected_text: "Hello there\nAnother line\nAnd another\nAnd one more",
+            expected_cursor: 12,
+            expected_visual_position: (3, 1),
         }
         .run();
     }

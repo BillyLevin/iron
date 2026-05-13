@@ -56,8 +56,8 @@ impl KeyMap {
         map.register(&[key!(':')], DocumentAction::OpenCommandList);
 
         map.register(&[key!('g'), key!('e')], DocumentAction::GoToLastLine);
-        map.register(&[key!('g'), key!('g')], DocumentAction::GoToFirstLine);
-        map.register(&[key!('G')], DocumentAction::GoToLastLine);
+        map.register(&[key!('g'), key!('g')], DocumentAction::GoToNthOrFirstLine);
+        map.register(&[key!('G')], DocumentAction::GoToNthOrLastLine);
 
         map.register(&[key!('d'), key!('w')], DocumentAction::DeleteWord);
         map.register(&[key!('d'), key!('$')], DocumentAction::DeleteToLineEnd);
@@ -97,6 +97,8 @@ impl KeyMap {
         );
         map.register(&[key!('c'), key!('e')], DocumentAction::ChangeToWordEnd);
 
+        map.register(&[key!(Esc)], DocumentAction::ClearInput);
+
         map
     }
 
@@ -130,8 +132,8 @@ impl KeyMap {
         map.register(&[key!('o')], DocumentAction::ReverseSelection);
 
         map.register(&[key!('g'), key!('e')], DocumentAction::GoToLastLine);
-        map.register(&[key!('g'), key!('g')], DocumentAction::GoToFirstLine);
-        map.register(&[key!('G')], DocumentAction::GoToLastLine);
+        map.register(&[key!('g'), key!('g')], DocumentAction::GoToNthOrFirstLine);
+        map.register(&[key!('G')], DocumentAction::GoToNthOrLastLine);
 
         map.register(&[key!('d')], DocumentAction::DeleteSelection);
         map.register(&[key!('c')], DocumentAction::ChangeSelection);
@@ -269,7 +271,8 @@ pub(crate) enum DocumentAction {
     MoveNextParagraph,
     MovePrevParagraph,
     GoToLastLine,
-    GoToFirstLine,
+    GoToNthOrFirstLine,
+    GoToNthOrLastLine,
     DeleteWord,
     ChangeWord,
     DeleteToLineEnd,
@@ -298,6 +301,7 @@ pub(crate) enum DocumentAction {
     DeleteDown,
     DeleteUp,
     OpenCommandList,
+    ClearInput,
 }
 
 impl DocumentAction {
@@ -317,7 +321,8 @@ impl DocumentAction {
             | Self::MoveNextParagraph
             | Self::MovePrevParagraph
             | Self::GoToLastLine
-            | Self::GoToFirstLine
+            | Self::GoToNthOrLastLine
+            | Self::GoToNthOrFirstLine
             | Self::InsertChar(_)
             | Self::DeleteGrapheme
             | Self::InsertNewline
@@ -354,7 +359,8 @@ impl DocumentAction {
             | Self::SwitchToInsertMode
             | Self::SwitchToNormalMode
             | Self::SwitchToVisualMode
-            | Self::OpenCommandList => false,
+            | Self::OpenCommandList
+            | Self::ClearInput => false,
         }
     }
 
@@ -378,7 +384,8 @@ impl DocumentAction {
             Self::MoveNextParagraph => "Move to next paragraph",
             Self::MovePrevParagraph => "Move to previous paragraph",
             Self::GoToLastLine => "Go to last line",
-            Self::GoToFirstLine => "Go to first line",
+            Self::GoToNthOrFirstLine => "Go to nth or first line",
+            Self::GoToNthOrLastLine => "Go to nth or last line",
             Self::DeleteWord => "Delete word",
             Self::ChangeWord => "Change word",
             Self::DeleteToLineEnd => "Delete to end of line",
@@ -407,6 +414,7 @@ impl DocumentAction {
             Self::DeleteDown => "Delete down",
             Self::DeleteUp => "Delete up",
             Self::OpenCommandList => "Open command list",
+            Self::ClearInput => "Clear current input",
         }
     }
 }

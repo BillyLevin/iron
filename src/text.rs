@@ -32,7 +32,7 @@ pub(crate) trait RopeSliceExt<'rope> {
     ///
     /// # Panics
     ///
-    /// Panics if `line >= self.len_lines()`.
+    /// Panics if `line > self.len_lines()`.
     fn line_start_byte(&self, line: LineIndex) -> ByteIndex;
 
     /// Non-panicking version of [`RopeSliceExt::line_start_byte`].
@@ -75,15 +75,12 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     }
 
     fn line_start_byte(&self, line: LineIndex) -> ByteIndex {
-        assert!(
-            line.value() < self.len_lines(LINE_TYPE),
-            "line index must be in bounds. use `get_line_start_byte` if this lookup is fallible."
-        );
-        ByteIndex::from(self.line_to_byte_idx(line.value(), LINE_TYPE))
+        self.get_line_start_byte(line).unwrap()
     }
 
     fn get_line_start_byte(&self, line: LineIndex) -> Option<ByteIndex> {
-        (line.value() < self.len_lines(LINE_TYPE)).then(|| self.line_start_byte(line))
+        (line.value() <= self.len_lines(LINE_TYPE))
+            .then(|| ByteIndex::new(self.line_to_byte_idx(line.value(), LINE_TYPE)))
     }
 
     fn line_at(&self, line_index: LineIndex) -> Self {
