@@ -123,6 +123,7 @@ pub(crate) struct Document {
     jj_change_description: Option<String>,
 
     jj_change_description_rx: Receiver<anyhow::Result<Option<String>>>,
+    jj_change_description_tx: Option<Sender<anyhow::Result<Option<String>>>>,
 
     error: Option<String>,
 }
@@ -131,7 +132,7 @@ impl Document {
     pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
         let (jj_desc_tx, jj_desc_rx) = sync::mpsc::channel();
 
-        let doc = Self {
+        Ok(Self {
             text: Rope::from_reader(BufReader::new(File::open(&file_path)?))?,
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
@@ -146,12 +147,9 @@ impl Document {
             layout_info: LayoutInfo::new(dimensions),
             jj_change_description: None,
             jj_change_description_rx: jj_desc_rx,
+            jj_change_description_tx: Some(jj_desc_tx),
             error: None,
-        };
-
-        doc.poll_jj(jj_desc_tx);
-
-        Ok(doc)
+        })
     }
 
     pub(crate) fn handle_key_event(
@@ -201,11 +199,15 @@ impl Document {
         self.recalculate_scroll();
     }
 
-    pub(crate) fn poll_jj(&self, tx: Sender<anyhow::Result<Option<String>>>) {
+    pub(crate) fn poll_jj(&mut self) {
         // TODO: this is a bad implementation. it won't work once we implement the
         // ability to change the file path of the document. this should all be
         // event-based so that it plays nicer with the main event loop.
         let path = self.file_path.clone();
+
+        let Some(tx) = self.jj_change_description_tx.take() else {
+            return;
+        };
 
         thread::spawn(move || -> ! {
             loop {
@@ -1244,6 +1246,8 @@ impl Layer for Document {
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
+        self.poll_jj();
+
         if let Ok(desc_result) = self.jj_change_description_rx.try_recv()
             && let Ok(desc) = desc_result
         {

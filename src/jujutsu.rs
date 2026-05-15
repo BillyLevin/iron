@@ -21,6 +21,7 @@ pub(crate) fn workspace_root(file: &Path) -> anyhow::Result<PathBuf> {
         .current_dir(current_dir)
         .arg("root")
         .arg("--ignore-working-copy")
+        .arg("--no-integrate-operation")
         .output()?;
 
     if !output.status.success() {
@@ -41,6 +42,7 @@ pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<Option<S
         .current_dir(root)
         .arg("log")
         .arg("--ignore-working-copy")
+        .arg("--no-integrate-operation")
         .arg("--no-pager")
         .arg("--no-graph")
         .arg("--color=never")
