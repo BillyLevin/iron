@@ -115,10 +115,6 @@ pub(crate) struct Document {
     /// keybinding. Used in the `KeyMap` lookups.
     key_sequence: KeySequence,
 
-    /// The number of times to repeat the next [`DocumentAction`] (if supported
-    /// by the action).
-    action_count: Option<NonZeroUsize>,
-
     file_path: PathBuf,
 
     layout_info: LayoutInfo,
@@ -150,7 +146,6 @@ impl Document {
             desired_cursor_column: None,
             mode: Mode::Normal,
             key_sequence: KeySequence::default(),
-            action_count: None,
             language: Language::new(&file_path),
             file_path,
             layout_info: LayoutInfo::new(dimensions),
@@ -204,7 +199,14 @@ impl Document {
     /// Displays the keybindings (if any) that are currently possible for the
     /// user to invoke, based on the current sequence of key events.
     fn render_key_hint(&self, buffer: &mut Buffer) {
-        if self.key_sequence.is_empty() {
+        let parsed = self.key_sequence.parse();
+
+        let keys = match self.mode {
+            Mode::Normal | Mode::Visual => parsed.keys(),
+            Mode::Insert => self.key_sequence.keys(),
+        };
+
+        if keys.is_empty() {
             return;
         }
 
@@ -214,7 +216,7 @@ impl Document {
             Mode::Visual => &self.visual_keymap,
         };
 
-        let Some(&KeyMap::BindingPart { ref map }) = keymap.get(&self.key_sequence) else {
+        let Some(&KeyMap::BindingPart { ref map }) = keymap.get(keys) else {
             return;
         };
 
@@ -318,14 +320,21 @@ impl Document {
         self.selection.anchor = index;
     }
 
-    fn apply_action(&mut self, action: DocumentAction, event_context: &mut EventContext) {
+    fn apply_action(
+        &mut self,
+        action: DocumentAction,
+        count: Option<NonZeroUsize>,
+        event_context: &mut EventContext,
+    ) {
+        let action_count = count.map_or(1, NonZero::get);
+
         match action {
-            DocumentAction::MoveDown => self.move_cursor_down(),
-            DocumentAction::MoveUp => self.move_cursor_up(),
-            DocumentAction::MoveRight => self.move_cursor_right(),
-            DocumentAction::MoveLeft => self.move_cursor_left(),
-            DocumentAction::MoveNextWordStart => self.move_cursor_next_word_start(),
-            DocumentAction::MovePrevWordStart => self.move_cursor_prev_word_start(),
+            DocumentAction::MoveDown => self.move_cursor_down(action_count),
+            DocumentAction::MoveUp => self.move_cursor_up(action_count),
+            DocumentAction::MoveRight => self.move_cursor_right(action_count),
+            DocumentAction::MoveLeft => self.move_cursor_left(action_count),
+            DocumentAction::MoveNextWordStart => self.move_cursor_next_word_start(action_count),
+            DocumentAction::MovePrevWordStart => self.move_cursor_prev_word_start(action_count),
             DocumentAction::SwitchToInsertMode => self.insert_mode(),
             DocumentAction::SwitchToNormalMode => self.normal_mode(),
             DocumentAction::SwitchToVisualMode => self.visual_mode(),
@@ -335,38 +344,38 @@ impl Document {
             DocumentAction::MoveLineEnd => self.move_cursor_line_end(),
             DocumentAction::MoveLineStart => self.move_cursor_line_start(),
             DocumentAction::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
-            DocumentAction::MoveNextParagraph => self.move_cursor_next_paragraph(),
-            DocumentAction::MovePrevParagraph => self.move_cursor_prev_paragraph(),
+            DocumentAction::MoveNextParagraph => self.move_cursor_next_paragraph(action_count),
+            DocumentAction::MovePrevParagraph => self.move_cursor_prev_paragraph(action_count),
             DocumentAction::GoToLastLine => self.go_to_last_line(),
-            DocumentAction::GoToNthOrLastLine => self.go_to_nth_or_last_line(),
-            DocumentAction::GoToNthOrFirstLine => self.go_to_nth_or_first_line(),
-            DocumentAction::DeleteWord => self.delete_word(),
-            DocumentAction::ChangeWord => self.change_word(),
+            DocumentAction::GoToNthOrLastLine => self.go_to_nth_or_last_line(count),
+            DocumentAction::GoToNthOrFirstLine => self.go_to_nth_or_first_line(count),
+            DocumentAction::DeleteWord => self.delete_word(action_count),
+            DocumentAction::ChangeWord => self.change_word(action_count),
             DocumentAction::DeleteToLineEnd => self.delete_to_line_end(),
             DocumentAction::ChangeToLineEnd => self.change_to_line_end(),
             DocumentAction::DeleteToLineStart => self.delete_to_line_start(),
             DocumentAction::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
-            DocumentAction::DeleteLine => self.delete_line(),
-            DocumentAction::DeleteWholeWord => self.delete_whole_word(),
-            DocumentAction::DeleteToPrevWordStart => self.delete_to_prev_word_start(),
+            DocumentAction::DeleteLine => self.delete_line(action_count),
+            DocumentAction::DeleteWholeWord => self.delete_whole_word(action_count),
+            DocumentAction::DeleteToPrevWordStart => self.delete_to_prev_word_start(action_count),
             DocumentAction::AppendText => self.append_text(),
             DocumentAction::AppendTextLineEnd => self.append_text_line_end(),
-            DocumentAction::MoveWordEnd => self.move_cursor_word_end(),
-            DocumentAction::DeleteToWordEnd => self.delete_to_word_end(),
+            DocumentAction::MoveWordEnd => self.move_cursor_word_end(action_count),
+            DocumentAction::DeleteToWordEnd => self.delete_to_word_end(action_count),
             DocumentAction::ChangeToLineStart => self.change_to_line_start(),
             DocumentAction::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
-            DocumentAction::ChangeLine => self.change_line(),
-            DocumentAction::ChangeWholeWord => self.change_whole_word(),
-            DocumentAction::ChangeToPrevWordStart => self.change_to_prev_word_start(),
-            DocumentAction::ChangeToWordEnd => self.change_to_word_end(),
+            DocumentAction::ChangeLine => self.change_line(action_count),
+            DocumentAction::ChangeWholeWord => self.change_whole_word(action_count),
+            DocumentAction::ChangeToPrevWordStart => self.change_to_prev_word_start(action_count),
+            DocumentAction::ChangeToWordEnd => self.change_to_word_end(action_count),
             DocumentAction::DeleteSelection => self.delete_selection(),
             DocumentAction::ChangeSelection => self.change_selection(),
             DocumentAction::ReverseSelection => self.reverse_selection(),
             DocumentAction::OpenLineBelow => self.open_new_line_below(),
             DocumentAction::OpenLineAbove => self.open_new_line_above(),
             DocumentAction::SelectCurrentWord => self.select_current_word(),
-            DocumentAction::DeleteDown => self.delete_down(),
-            DocumentAction::DeleteUp => self.delete_up(),
+            DocumentAction::DeleteDown => self.delete_down(action_count),
+            DocumentAction::DeleteUp => self.delete_up(action_count),
             DocumentAction::OpenCommandList => Self::open_command_list(event_context),
             DocumentAction::ClearInput => self.clear_input(),
         }
@@ -376,8 +385,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_down(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_down(&mut self, count: usize) {
+        for _ in 0..count {
             let target_column = self.desired_column();
             let text = self.text.slice(..);
 
@@ -394,8 +403,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_up(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_up(&mut self, count: usize) {
+        for _ in 0..count {
             let target_column = self.desired_column();
 
             let text = self.text.slice(..);
@@ -413,8 +422,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_right(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_right(&mut self, count: usize) {
+        for _ in 0..count {
             self.set_cursor(
                 self.text
                     .slice(..)
@@ -423,8 +432,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_left(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_left(&mut self, count: usize) {
+        for _ in 0..count {
             self.set_cursor(
                 self.text
                     .slice(..)
@@ -433,8 +442,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_next_word_start(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_next_word_start(&mut self, count: usize) {
+        for _ in 0..count {
             let byte_index = match self
                 .text
                 .slice(self.selection.cursor.value()..)
@@ -457,8 +466,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_prev_word_start(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_prev_word_start(&mut self, count: usize) {
+        for _ in 0..count {
             let byte_index = self
                 .text
                 .slice(..self.selection.cursor.value())
@@ -621,8 +630,8 @@ impl Document {
         self.set_cursor(text.line_start_byte(line_index) + offset);
     }
 
-    fn move_cursor_next_paragraph(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_next_paragraph(&mut self, count: usize) {
+        for _ in 0..count {
             let text = self.text.slice(..);
             let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
@@ -641,8 +650,8 @@ impl Document {
         }
     }
 
-    fn move_cursor_prev_paragraph(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_prev_paragraph(&mut self, count: usize) {
+        for _ in 0..count {
             let text = self.text.slice(..);
             let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
@@ -674,8 +683,8 @@ impl Document {
         self.set_cursor(ByteIndex::new(0));
     }
 
-    fn go_to_nth_or_first_line(&mut self) {
-        if let Some(line) = self.action_count {
+    fn go_to_nth_or_first_line(&mut self, line_number: Option<NonZeroUsize>) {
+        if let Some(line) = line_number {
             self.go_to_line_index(cmp::min(
                 LineIndex::new(line.get() - 1),
                 self.text.slice(..).last_line_idx(),
@@ -685,8 +694,8 @@ impl Document {
         }
     }
 
-    fn go_to_nth_or_last_line(&mut self) {
-        if let Some(line) = self.action_count {
+    fn go_to_nth_or_last_line(&mut self, line_number: Option<NonZeroUsize>) {
+        if let Some(line) = line_number {
             self.go_to_line_index(cmp::min(
                 LineIndex::new(line.get() - 1),
                 self.text.slice(..).last_line_idx(),
@@ -710,8 +719,8 @@ impl Document {
 
     /// Deletes from the current cursor position up to (but not including) the
     /// start of the next word.
-    fn delete_word(&mut self) {
-        for _ in 0..self.action_count() {
+    fn delete_word(&mut self, count: usize) {
+        for _ in 0..count {
             let end = match self
                 .text
                 .slice(self.selection.cursor.value()..)
@@ -734,8 +743,8 @@ impl Document {
         }
     }
 
-    fn change_word(&mut self) {
-        self.delete_word();
+    fn change_word(&mut self, count: usize) {
+        self.delete_word(count);
         self.insert_mode();
     }
 
@@ -784,8 +793,8 @@ impl Document {
         self.set_cursor(start);
     }
 
-    fn delete_line(&mut self) {
-        for _ in 0..self.action_count() {
+    fn delete_line(&mut self, count: usize) {
+        for _ in 0..count {
             let text = self.text.slice(..);
 
             let index = text.line_idx_containing_byte(self.selection.cursor);
@@ -797,8 +806,8 @@ impl Document {
         }
     }
 
-    fn delete_whole_word(&mut self) {
-        for _ in 0..self.action_count() {
+    fn delete_whole_word(&mut self, count: usize) {
+        for _ in 0..count {
             let current_ch = self.text.char(self.selection.cursor.value());
 
             let reversed_chars = self
@@ -847,8 +856,8 @@ impl Document {
         }
     }
 
-    fn delete_to_prev_word_start(&mut self) {
-        for _ in 0..self.action_count() {
+    fn delete_to_prev_word_start(&mut self, count: usize) {
+        for _ in 0..count {
             let start = self
                 .text
                 .slice(..self.selection.cursor.value())
@@ -876,7 +885,7 @@ impl Document {
     }
 
     fn append_text(&mut self) {
-        self.move_cursor_right();
+        self.move_cursor_right(1);
         self.insert_mode();
     }
 
@@ -901,8 +910,8 @@ impl Document {
         self.insert_mode();
     }
 
-    fn move_cursor_word_end(&mut self) {
-        for _ in 0..self.action_count() {
+    fn move_cursor_word_end(&mut self, count: usize) {
+        for _ in 0..count {
             // we start searching at the next grapheme so that the cursor doesn't stay where
             // it is if it's already at the end of a word (in that case, we want to
             // go to the end of the **next** word)
@@ -931,8 +940,8 @@ impl Document {
         }
     }
 
-    fn delete_to_word_end(&mut self) {
-        for _ in 0..self.action_count() {
+    fn delete_to_word_end(&mut self, count: usize) {
+        for _ in 0..count {
             // we start searching at the next grapheme so that the cursor doesn't stay where
             // it is if it's already at the end of a word (in that case, we want to
             // go to the end of the **next** word)
@@ -976,8 +985,8 @@ impl Document {
         self.insert_mode();
     }
 
-    fn change_line(&mut self) {
-        for _ in 0..self.action_count() {
+    fn change_line(&mut self, count: usize) {
+        for _ in 0..count {
             let text = self.text.slice(..);
 
             let line_index = text.line_idx_containing_byte(self.selection.cursor);
@@ -1000,18 +1009,18 @@ impl Document {
         self.insert_mode();
     }
 
-    fn change_whole_word(&mut self) {
-        self.delete_whole_word();
+    fn change_whole_word(&mut self, count: usize) {
+        self.delete_whole_word(count);
         self.insert_mode();
     }
 
-    fn change_to_prev_word_start(&mut self) {
-        self.delete_to_prev_word_start();
+    fn change_to_prev_word_start(&mut self, count: usize) {
+        self.delete_to_prev_word_start(count);
         self.insert_mode();
     }
 
-    fn change_to_word_end(&mut self) {
-        self.delete_to_word_end();
+    fn change_to_word_end(&mut self, count: usize) {
+        self.delete_to_word_end(count);
         self.insert_mode();
     }
 
@@ -1107,15 +1116,15 @@ impl Document {
         self.set_cursor(end);
     }
 
-    /// Deletes the current plus the `action_count` succeeding lines.
-    fn delete_down(&mut self) {
+    /// Deletes the current plus the `count` succeeding lines.
+    fn delete_down(&mut self, count: usize) {
         let text = self.text.slice(..);
 
         let current_line = text.line_idx_containing_byte(self.selection.cursor);
 
         let start = text.line_start_byte(current_line);
 
-        let Some(end) = (0..=self.action_count())
+        let Some(end) = (0..=count)
             .filter_map(|i| text.get_line_start_byte(current_line + i + 1))
             .next_back()
         else {
@@ -1127,8 +1136,8 @@ impl Document {
         self.move_cursor_first_non_blank();
     }
 
-    /// Deletes the current plus the `action_count` preceding lines.
-    fn delete_up(&mut self) {
+    /// Deletes the current plus the `count` preceding lines.
+    fn delete_up(&mut self, count: usize) {
         let text = self.text.slice(..);
 
         let current_line = text.line_idx_containing_byte(self.selection.cursor);
@@ -1144,7 +1153,7 @@ impl Document {
             // line at the provided index
             .lines_at(current_line.value() + 1, LineType::LF_CR)
             .reversed()
-            .take(self.action_count() + 1)
+            .take(count + 1)
             .fold(end, |byte_index, line| {
                 byte_index.saturating_sub(line.len())
             });
@@ -1192,36 +1201,8 @@ impl Document {
         self.error = Some(error_message);
     }
 
-    /// Gets the current action count. Defaults to `1` since all actions should
-    /// execute at least once.
-    const fn action_count(&self) -> usize {
-        match self.action_count {
-            Some(count) => count.get(),
-            None => 1,
-        }
-    }
-
-    /// Checks whether the current `action_count` can be updated based on the
-    /// given [`KeyEvent`], giving back the updated value if so.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(new_count)` if a new count can be calculated, `None`
-    /// otherwise.
-    fn recalculate_action_count(&self, event: KeyEvent) -> Option<NonZeroUsize> {
-        let KeyCode::Char(ch @ '0'..='9') = event.code else {
-            return None;
-        };
-
-        let digit = ch.to_digit(10)? as usize;
-        let current_count = self.action_count.map_or(0, NonZero::get);
-
-        NonZeroUsize::new((current_count * 10) + digit)
-    }
-
     fn clear_input(&mut self) {
         self.key_sequence.clear();
-        self.action_count = None;
     }
 
     fn handle_normal_mode_key_event(
@@ -1231,14 +1212,11 @@ impl Document {
     ) -> EventOutcome {
         let keymap = &self.normal_keymap;
 
-        if let Some(count) = self.recalculate_action_count(key_event) {
-            self.action_count = Some(count);
-            return EventOutcome::Handled;
-        }
-
         self.key_sequence.push(KeyBinding::from(key_event));
 
-        let maybe_action = match keymap.get(&self.key_sequence) {
+        let parsed_keys = self.key_sequence.parse();
+
+        let maybe_action = match keymap.get(parsed_keys.keys()) {
             Some(&KeyMap::BindingPart { .. }) => {
                 // the key sequence could form a binding with subsequent key events. since
                 // we'd already pushed the latest event to the sequence store, we are done
@@ -1249,17 +1227,15 @@ impl Document {
                 // the current key sequence does not form a binding for any of the registered
                 // commands. therefore, we clear the sequence
                 self.key_sequence.clear();
-                self.action_count = None;
 
                 None
             }
         };
 
         if let Some(action) = maybe_action {
-            self.apply_action(action, context);
+            self.apply_action(action, parsed_keys.count(), context);
 
             self.key_sequence.clear();
-            self.action_count = None;
 
             self.clamp_cursor();
             self.recalculate_scroll();
@@ -1277,7 +1253,7 @@ impl Document {
 
         self.key_sequence.push(KeyBinding::from(key_event));
 
-        let maybe_action = match keymap.get(&self.key_sequence) {
+        let maybe_action = match keymap.get(self.key_sequence.keys()) {
             Some(&KeyMap::BindingPart { .. }) => {
                 // the key sequence could form a binding with subsequent key events. since
                 // we'd already pushed the latest event to the sequence store, we are done
@@ -1288,7 +1264,6 @@ impl Document {
                 // the current key sequence does not form a binding for any of the registered
                 // commands. therefore, we clear the sequence
                 self.key_sequence.clear();
-                self.action_count = None;
 
                 // look for any fallback events that aren't registered in the map
                 self.event_fallback(key_event)
@@ -1296,10 +1271,9 @@ impl Document {
         };
 
         if let Some(action) = maybe_action {
-            self.apply_action(action, context);
+            self.apply_action(action, None, context);
 
             self.key_sequence.clear();
-            self.action_count = None;
 
             self.clamp_cursor();
             self.recalculate_scroll();
@@ -1315,14 +1289,11 @@ impl Document {
     ) -> EventOutcome {
         let keymap = &self.visual_keymap;
 
-        if let Some(count) = self.recalculate_action_count(key_event) {
-            self.action_count = Some(count);
-            return EventOutcome::Handled;
-        }
-
         self.key_sequence.push(KeyBinding::from(key_event));
 
-        let maybe_action = match keymap.get(&self.key_sequence) {
+        let parsed_keys = self.key_sequence.parse();
+
+        let maybe_action = match keymap.get(parsed_keys.keys()) {
             Some(&KeyMap::BindingPart { .. }) => {
                 // the key sequence could form a binding with subsequent key events. since
                 // we'd already pushed the latest event to the sequence store, we are done
@@ -1333,17 +1304,15 @@ impl Document {
                 // the current key sequence does not form a binding for any of the registered
                 // commands. therefore, we clear the sequence
                 self.key_sequence.clear();
-                self.action_count = None;
 
                 None
             }
         };
 
         if let Some(action) = maybe_action {
-            self.apply_action(action, context);
+            self.apply_action(action, parsed_keys.count(), context);
 
             self.key_sequence.clear();
-            self.action_count = None;
 
             self.clamp_cursor();
             self.recalculate_scroll();
