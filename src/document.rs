@@ -185,7 +185,7 @@ impl Document {
             Some(&KeyMap::BindingPart { .. }) => {
                 // the key sequence could form a binding with subsequent key events. since
                 // we'd already pushed the latest event to the sequence store, we are done
-                return EventOutcome::Handled;
+                None
             }
             Some(&KeyMap::Action(action)) => Some(action),
             None => {
@@ -199,7 +199,7 @@ impl Document {
             }
         };
 
-        maybe_action.map_or(EventOutcome::Unhandled, |action| {
+        if let Some(action) = maybe_action {
             self.apply_action(action, event_context);
 
             self.key_sequence.clear();
@@ -207,9 +207,9 @@ impl Document {
 
             self.clamp_cursor();
             self.recalculate_scroll();
+        }
 
-            EventOutcome::Handled
-        })
+        EventOutcome::Handled
     }
 
     pub(crate) fn resize(&mut self, dimensions: Dimensions) {
