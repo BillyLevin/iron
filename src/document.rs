@@ -164,52 +164,13 @@ impl Document {
     pub(crate) fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
-        event_context: &mut EventContext,
+        context: &mut EventContext,
     ) -> EventOutcome {
-        let keymap = match self.mode {
-            Mode::Normal => &self.normal_keymap,
-            Mode::Insert => &self.insert_keymap,
-            Mode::Visual => &self.visual_keymap,
-        };
-
-        if matches!(self.mode, Mode::Normal | Mode::Visual)
-            && let Some(count) = self.recalculate_action_count(key_event)
-        {
-            self.action_count = Some(count);
-            return EventOutcome::Handled;
+        match self.mode {
+            Mode::Normal => self.handle_normal_mode_key_event(key_event, context),
+            Mode::Insert => self.handle_insert_mode_key_event(key_event, context),
+            Mode::Visual => self.handle_visual_mode_key_event(key_event, context),
         }
-
-        self.key_sequence.push(KeyBinding::from(key_event));
-
-        let maybe_action = match keymap.get(&self.key_sequence) {
-            Some(&KeyMap::BindingPart { .. }) => {
-                // the key sequence could form a binding with subsequent key events. since
-                // we'd already pushed the latest event to the sequence store, we are done
-                None
-            }
-            Some(&KeyMap::Action(action)) => Some(action),
-            None => {
-                // the current key sequence does not form a binding for any of the registered
-                // commands. therefore, we clear the sequence
-                self.key_sequence.clear();
-                self.action_count = None;
-
-                // look for any fallback events that aren't registered in the map
-                self.event_fallback(key_event)
-            }
-        };
-
-        if let Some(action) = maybe_action {
-            self.apply_action(action, event_context);
-
-            self.key_sequence.clear();
-            self.action_count = None;
-
-            self.clamp_cursor();
-            self.recalculate_scroll();
-        }
-
-        EventOutcome::Handled
     }
 
     pub(crate) fn resize(&mut self, dimensions: Dimensions) {
@@ -1261,6 +1222,134 @@ impl Document {
     fn clear_input(&mut self) {
         self.key_sequence.clear();
         self.action_count = None;
+    }
+
+    fn handle_normal_mode_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        context: &mut EventContext,
+    ) -> EventOutcome {
+        let keymap = &self.normal_keymap;
+
+        if let Some(count) = self.recalculate_action_count(key_event) {
+            self.action_count = Some(count);
+            return EventOutcome::Handled;
+        }
+
+        self.key_sequence.push(KeyBinding::from(key_event));
+
+        let maybe_action = match keymap.get(&self.key_sequence) {
+            Some(&KeyMap::BindingPart { .. }) => {
+                // the key sequence could form a binding with subsequent key events. since
+                // we'd already pushed the latest event to the sequence store, we are done
+                None
+            }
+            Some(&KeyMap::Action(action)) => Some(action),
+            None => {
+                // the current key sequence does not form a binding for any of the registered
+                // commands. therefore, we clear the sequence
+                self.key_sequence.clear();
+                self.action_count = None;
+
+                None
+            }
+        };
+
+        if let Some(action) = maybe_action {
+            self.apply_action(action, context);
+
+            self.key_sequence.clear();
+            self.action_count = None;
+
+            self.clamp_cursor();
+            self.recalculate_scroll();
+        }
+
+        EventOutcome::Handled
+    }
+
+    fn handle_insert_mode_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        context: &mut EventContext,
+    ) -> EventOutcome {
+        let keymap = &self.insert_keymap;
+
+        self.key_sequence.push(KeyBinding::from(key_event));
+
+        let maybe_action = match keymap.get(&self.key_sequence) {
+            Some(&KeyMap::BindingPart { .. }) => {
+                // the key sequence could form a binding with subsequent key events. since
+                // we'd already pushed the latest event to the sequence store, we are done
+                None
+            }
+            Some(&KeyMap::Action(action)) => Some(action),
+            None => {
+                // the current key sequence does not form a binding for any of the registered
+                // commands. therefore, we clear the sequence
+                self.key_sequence.clear();
+                self.action_count = None;
+
+                // look for any fallback events that aren't registered in the map
+                self.event_fallback(key_event)
+            }
+        };
+
+        if let Some(action) = maybe_action {
+            self.apply_action(action, context);
+
+            self.key_sequence.clear();
+            self.action_count = None;
+
+            self.clamp_cursor();
+            self.recalculate_scroll();
+        }
+
+        EventOutcome::Handled
+    }
+
+    fn handle_visual_mode_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        context: &mut EventContext,
+    ) -> EventOutcome {
+        let keymap = &self.visual_keymap;
+
+        if let Some(count) = self.recalculate_action_count(key_event) {
+            self.action_count = Some(count);
+            return EventOutcome::Handled;
+        }
+
+        self.key_sequence.push(KeyBinding::from(key_event));
+
+        let maybe_action = match keymap.get(&self.key_sequence) {
+            Some(&KeyMap::BindingPart { .. }) => {
+                // the key sequence could form a binding with subsequent key events. since
+                // we'd already pushed the latest event to the sequence store, we are done
+                None
+            }
+            Some(&KeyMap::Action(action)) => Some(action),
+            None => {
+                // the current key sequence does not form a binding for any of the registered
+                // commands. therefore, we clear the sequence
+                self.key_sequence.clear();
+                self.action_count = None;
+
+                None
+            }
+        };
+
+        if let Some(action) = maybe_action {
+            self.apply_action(action, context);
+
+            self.key_sequence.clear();
+            self.action_count = None;
+
+            self.clamp_cursor();
+            self.recalculate_scroll();
+        }
+
+        EventOutcome::Handled
     }
 }
 
