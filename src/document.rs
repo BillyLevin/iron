@@ -109,8 +109,6 @@ pub(crate) struct Document {
     /// the `gutter_width`.
     desired_cursor_column: Option<Columns>,
 
-    mode: Mode,
-
     /// The keys that have been pressed which may add up to a registered
     /// keybinding. Used in the `KeyMap` lookups.
     key_sequence: KeySequence,
@@ -144,8 +142,7 @@ impl Document {
             visual_keymap: KeyMap::visual(),
             scroll_offset: LineIndex::default(),
             desired_cursor_column: None,
-            mode: Mode::Normal,
-            key_sequence: KeySequence::default(),
+            key_sequence: KeySequence::new(Mode::Normal),
             language: Language::new(&file_path),
             file_path,
             layout_info: LayoutInfo::new(dimensions),
@@ -161,11 +158,43 @@ impl Document {
         key_event: KeyEvent,
         context: &mut EventContext,
     ) -> EventOutcome {
-        match self.mode {
-            Mode::Normal => self.handle_normal_mode_key_event(key_event, context),
-            Mode::Insert => self.handle_insert_mode_key_event(key_event, context),
-            Mode::Visual => self.handle_visual_mode_key_event(key_event, context),
+        let keymap = match self.mode() {
+            Mode::Normal => &self.normal_keymap,
+            Mode::Insert => &self.insert_keymap,
+            Mode::Visual => &self.visual_keymap,
+        };
+
+        self.key_sequence.push(KeyBinding::from(key_event));
+
+        let (keys, count) = self.key_sequence.parse();
+
+        let maybe_action = match keymap.get(&keys) {
+            Some(&KeyMap::BindingPart { .. }) => {
+                // the key sequence could form a binding with subsequent key events. since
+                // we'd already pushed the latest event to the sequence store, we are done
+                None
+            }
+            Some(&KeyMap::Action(action)) => Some(action),
+            None => {
+                // the current key sequence does not form a binding for any of the registered
+                // commands. therefore, we clear the sequence
+                self.key_sequence.clear();
+
+                // look for any fallback events that aren't registered in the map
+                self.event_fallback(key_event)
+            }
+        };
+
+        if let Some(action) = maybe_action {
+            self.apply_action(action, count, context);
+
+            self.key_sequence.clear();
+
+            self.clamp_cursor();
+            self.recalculate_scroll();
         }
+
+        EventOutcome::Handled
     }
 
     pub(crate) fn resize(&mut self, dimensions: Dimensions) {
@@ -199,24 +228,20 @@ impl Document {
     /// Displays the keybindings (if any) that are currently possible for the
     /// user to invoke, based on the current sequence of key events.
     fn render_key_hint(&self, buffer: &mut Buffer) {
-        let parsed = self.key_sequence.parse();
-
-        let keys = match self.mode {
-            Mode::Normal | Mode::Visual => parsed.keys(),
-            Mode::Insert => self.key_sequence.keys(),
-        };
+        // TODO: would be nice to display the count in the labels where it's relevant
+        let (keys, _count) = self.key_sequence.parse();
 
         if keys.is_empty() {
             return;
         }
 
-        let keymap = match self.mode {
+        let keymap = match self.mode() {
             Mode::Normal => &self.normal_keymap,
             Mode::Insert => &self.insert_keymap,
             Mode::Visual => &self.visual_keymap,
         };
 
-        let Some(&KeyMap::BindingPart { ref map }) = keymap.get(keys) else {
+        let Some(&KeyMap::BindingPart { ref map }) = keymap.get(&keys) else {
             return;
         };
 
@@ -276,7 +301,7 @@ impl Document {
         buffer.clear_and_style_rectangle(&status_rect, Style::STATUS_LINE);
         buffer.clear_and_style_rectangle(&message_rect, Style::STATUS_LINE_MESSAGES);
 
-        let mode_span = Span::new(format!(" {} ", self.mode)).with_style(Style::STATUS_LINE_MODE);
+        let mode_span = Span::new(format!(" {} ", self.mode())).with_style(Style::STATUS_LINE_MODE);
 
         let file_name_span = self
             .file_path
@@ -552,7 +577,7 @@ impl Document {
     }
 
     const fn event_fallback(&self, key_event: KeyEvent) -> Option<DocumentAction> {
-        match self.mode {
+        match self.mode() {
             Mode::Normal | Mode::Visual => None,
             Mode::Insert => {
                 if let KeyCode::Char(ch) = key_event.code
@@ -568,16 +593,16 @@ impl Document {
     }
 
     const fn insert_mode(&mut self) {
-        self.mode = Mode::Insert;
+        self.key_sequence.set_mode(Mode::Insert);
     }
 
     const fn normal_mode(&mut self) {
-        self.mode = Mode::Normal;
+        self.key_sequence.set_mode(Mode::Normal);
     }
 
     const fn visual_mode(&mut self) {
         self.selection.anchor = self.selection.cursor;
-        self.mode = Mode::Visual;
+        self.key_sequence.set_mode(Mode::Visual);
     }
 
     fn insert_char(&mut self, ch: char) {
@@ -1205,120 +1230,8 @@ impl Document {
         self.key_sequence.clear();
     }
 
-    fn handle_normal_mode_key_event(
-        &mut self,
-        key_event: KeyEvent,
-        context: &mut EventContext,
-    ) -> EventOutcome {
-        let keymap = &self.normal_keymap;
-
-        self.key_sequence.push(KeyBinding::from(key_event));
-
-        let parsed_keys = self.key_sequence.parse();
-
-        let maybe_action = match keymap.get(parsed_keys.keys()) {
-            Some(&KeyMap::BindingPart { .. }) => {
-                // the key sequence could form a binding with subsequent key events. since
-                // we'd already pushed the latest event to the sequence store, we are done
-                None
-            }
-            Some(&KeyMap::Action(action)) => Some(action),
-            None => {
-                // the current key sequence does not form a binding for any of the registered
-                // commands. therefore, we clear the sequence
-                self.key_sequence.clear();
-
-                None
-            }
-        };
-
-        if let Some(action) = maybe_action {
-            self.apply_action(action, parsed_keys.count(), context);
-
-            self.key_sequence.clear();
-
-            self.clamp_cursor();
-            self.recalculate_scroll();
-        }
-
-        EventOutcome::Handled
-    }
-
-    fn handle_insert_mode_key_event(
-        &mut self,
-        key_event: KeyEvent,
-        context: &mut EventContext,
-    ) -> EventOutcome {
-        let keymap = &self.insert_keymap;
-
-        self.key_sequence.push(KeyBinding::from(key_event));
-
-        let maybe_action = match keymap.get(self.key_sequence.keys()) {
-            Some(&KeyMap::BindingPart { .. }) => {
-                // the key sequence could form a binding with subsequent key events. since
-                // we'd already pushed the latest event to the sequence store, we are done
-                None
-            }
-            Some(&KeyMap::Action(action)) => Some(action),
-            None => {
-                // the current key sequence does not form a binding for any of the registered
-                // commands. therefore, we clear the sequence
-                self.key_sequence.clear();
-
-                // look for any fallback events that aren't registered in the map
-                self.event_fallback(key_event)
-            }
-        };
-
-        if let Some(action) = maybe_action {
-            self.apply_action(action, None, context);
-
-            self.key_sequence.clear();
-
-            self.clamp_cursor();
-            self.recalculate_scroll();
-        }
-
-        EventOutcome::Handled
-    }
-
-    fn handle_visual_mode_key_event(
-        &mut self,
-        key_event: KeyEvent,
-        context: &mut EventContext,
-    ) -> EventOutcome {
-        let keymap = &self.visual_keymap;
-
-        self.key_sequence.push(KeyBinding::from(key_event));
-
-        let parsed_keys = self.key_sequence.parse();
-
-        let maybe_action = match keymap.get(parsed_keys.keys()) {
-            Some(&KeyMap::BindingPart { .. }) => {
-                // the key sequence could form a binding with subsequent key events. since
-                // we'd already pushed the latest event to the sequence store, we are done
-                None
-            }
-            Some(&KeyMap::Action(action)) => Some(action),
-            None => {
-                // the current key sequence does not form a binding for any of the registered
-                // commands. therefore, we clear the sequence
-                self.key_sequence.clear();
-
-                None
-            }
-        };
-
-        if let Some(action) = maybe_action {
-            self.apply_action(action, parsed_keys.count(), context);
-
-            self.key_sequence.clear();
-
-            self.clamp_cursor();
-            self.recalculate_scroll();
-        }
-
-        EventOutcome::Handled
+    const fn mode(&self) -> Mode {
+        self.key_sequence.mode()
     }
 }
 
@@ -1383,7 +1296,7 @@ impl Layer for Document {
                 .set_content(grapheme.as_str())
                 .set_style(Style::TEXT);
 
-            if matches!(self.mode, Mode::Visual)
+            if matches!(self.mode(), Mode::Visual)
                 && self
                     .selection
                     .range(text)
@@ -1518,8 +1431,8 @@ fn number_of_digits(value: usize) -> usize {
     (value.checked_ilog10().unwrap_or(0) + 1) as usize
 }
 
-#[derive(Debug)]
-enum Mode {
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Mode {
     Normal,
     Insert,
     Visual,

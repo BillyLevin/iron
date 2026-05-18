@@ -13,6 +13,8 @@ use crossterm::event::{
     KeyModifiers,
 };
 
+use crate::document::Mode;
+
 macro_rules! key {
     ($key:literal) => {
         KeyBinding::from(KeyCode::Char($key))
@@ -423,13 +425,20 @@ impl DocumentAction {
     }
 }
 
-#[derive(Debug, Default, derive_more::IntoIterator)]
+#[derive(Debug)]
 pub(crate) struct KeySequence {
-    #[into_iterator(owned, ref)]
     keys: Vec<KeyBinding>,
+    mode: Mode,
 }
 
 impl KeySequence {
+    pub(crate) const fn new(mode: Mode) -> Self {
+        Self {
+            keys: Vec::new(),
+            mode,
+        }
+    }
+
     pub(crate) fn clear(&mut self) {
         self.keys.clear();
     }
@@ -438,48 +447,43 @@ impl KeySequence {
         self.keys.push(key);
     }
 
-    pub(crate) fn parse(&self) -> ParsedKeySequence {
-        let mut keys = Vec::new();
-        let mut count = None;
+    pub(crate) const fn mode(&self) -> Mode {
+        self.mode
+    }
 
-        for key in &self.keys {
-            match (key.code, key.modifiers) {
-                (KeyCode::Char(digit @ '0'..='9'), KeyModifiers::NONE) => {
-                    let digit = digit.to_digit(10).expect("`digit` is a valid digit") as usize;
+    pub(crate) const fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+    }
 
-                    if let Some(new_count) =
-                        NonZeroUsize::new((count.map_or(0, NonZero::get) * 10) + digit)
-                    {
-                        count = Some(new_count);
-                    } else {
-                        keys.push(*key);
+    pub(crate) fn parse(&self) -> (Vec<KeyBinding>, Option<NonZeroUsize>) {
+        match self.mode {
+            // TODO: ew
+            Mode::Insert => (self.keys.clone(), None),
+            Mode::Normal | Mode::Visual => {
+                let mut keys = Vec::new();
+                let mut count = None;
+
+                for key in &self.keys {
+                    match (key.code, key.modifiers) {
+                        (KeyCode::Char(digit @ '0'..='9'), KeyModifiers::NONE) => {
+                            let digit =
+                                digit.to_digit(10).expect("`digit` is a valid digit") as usize;
+
+                            if let Some(new_count) =
+                                NonZeroUsize::new((count.map_or(0, NonZero::get) * 10) + digit)
+                            {
+                                count = Some(new_count);
+                            } else {
+                                keys.push(*key);
+                            }
+                        }
+                        _ => keys.push(*key),
                     }
                 }
-                _ => keys.push(*key),
+
+                (keys, count)
             }
         }
-
-        ParsedKeySequence { keys, count }
-    }
-
-    pub(crate) fn keys(&self) -> &[KeyBinding] {
-        &self.keys
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ParsedKeySequence {
-    keys: Vec<KeyBinding>,
-    count: Option<NonZeroUsize>,
-}
-
-impl ParsedKeySequence {
-    pub(crate) fn keys(&self) -> &[KeyBinding] {
-        &self.keys
-    }
-
-    pub(crate) const fn count(&self) -> Option<NonZeroUsize> {
-        self.count
     }
 }
 
@@ -491,72 +495,93 @@ mod tests {
     fn parse_key_sequence() {
         let keys = KeySequence {
             keys: vec![key!('2'), key!('d'), key!('w')],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('d'), key!('w')],
-            count: Some(NonZeroUsize::new(2).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('d'), key!('w')],
+                Some(NonZeroUsize::new(2).unwrap())
+            )
+        );
     }
 
     #[test]
     fn parse_key_sequence_multiple_digits() {
         let keys = KeySequence {
             keys: vec![key!('2'), key!('7'), key!('d'), key!('w')],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('d'), key!('w')],
-            count: Some(NonZeroUsize::new(27).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('d'), key!('w')],
+                Some(NonZeroUsize::new(27).unwrap())
+            )
+        );
     }
 
     #[test]
     fn parse_key_sequence_leading_zero() {
         let keys = KeySequence {
             keys: vec![key!('0'), key!('2'), key!('g')],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('0'), key!('g')],
-            count: Some(NonZeroUsize::new(2).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('0'), key!('g')],
+                Some(NonZeroUsize::new(2).unwrap())
+            )
+        );
     }
 
     #[test]
     fn parse_key_sequence_multiple_leading_zero() {
         let keys = KeySequence {
             keys: vec![key!('0'), key!('0'), key!('7'), key!('g')],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('0'), key!('0'), key!('g')],
-            count: Some(NonZeroUsize::new(7).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('0'), key!('0'), key!('g')],
+                Some(NonZeroUsize::new(7).unwrap())
+            )
+        );
     }
 
     #[test]
     fn parse_key_sequence_non_leading_zero() {
         let keys = KeySequence {
             keys: vec![key!('1'), key!('0'), key!('c')],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('c')],
-            count: Some(NonZeroUsize::new(10).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (vec![key!('c')], Some(NonZeroUsize::new(10).unwrap()))
+        );
     }
 
     #[test]
     fn parse_key_sequence_interleaved_digits() {
         let keys = KeySequence {
             keys: vec![key!('g'), key!('1'), key!('0'), key!('w')],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('g'), key!('w')],
-            count: Some(NonZeroUsize::new(10).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('g'), key!('w')],
+                Some(NonZeroUsize::new(10).unwrap())
+            )
+        );
     }
 
     #[test]
@@ -571,11 +596,71 @@ mod tests {
                 key!('w'),
                 key!('4'),
             ],
+            mode: Mode::Normal,
         };
 
-        assert_eq!(keys.parse(), ParsedKeySequence {
-            keys: vec![key!('g'), key!('0'), key!('w')],
-            count: Some(NonZeroUsize::new(8904).unwrap())
-        });
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('g'), key!('0'), key!('w')],
+                Some(NonZeroUsize::new(8904).unwrap())
+            )
+        );
+    }
+
+    #[test]
+    fn parse_key_sequence_visual_mode_has_count() {
+        let keys = KeySequence {
+            keys: vec![
+                key!('g'),
+                key!('0'),
+                key!('8'),
+                key!('9'),
+                key!('0'),
+                key!('w'),
+                key!('4'),
+            ],
+            mode: Mode::Visual,
+        };
+
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![key!('g'), key!('0'), key!('w')],
+                Some(NonZeroUsize::new(8904).unwrap())
+            )
+        );
+    }
+
+    #[test]
+    fn parse_key_sequence_insert_mode_has_no_count() {
+        let keys = KeySequence {
+            keys: vec![
+                key!('g'),
+                key!('0'),
+                key!('8'),
+                key!('9'),
+                key!('0'),
+                key!('w'),
+                key!('4'),
+            ],
+            mode: Mode::Insert,
+        };
+
+        assert_eq!(
+            keys.parse(),
+            (
+                vec![
+                    key!('g'),
+                    key!('0'),
+                    key!('8'),
+                    key!('9'),
+                    key!('0'),
+                    key!('w'),
+                    key!('4'),
+                ],
+                None,
+            )
+        );
     }
 }
