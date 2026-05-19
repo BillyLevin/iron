@@ -56,7 +56,10 @@ use crate::{
         GraphemeLayoutIterator,
         WrapBehavior,
     },
-    jujutsu,
+    jujutsu::{
+        self,
+        DiffSummary,
+    },
     keymap::{
         DocumentAction,
         KeyBinding,
@@ -124,8 +127,11 @@ pub(crate) struct Document {
     /// The description of the current jj change (if it exists).
     jj_change_description: Option<String>,
 
-    jj_change_description_rx: Receiver<anyhow::Result<Option<String>>>,
-    jj_change_description_tx: Option<Sender<anyhow::Result<Option<String>>>>,
+    /// The diff summary for the current file (if there are any).
+    jj_diff_summary: Option<DiffSummary>,
+
+    jj_poll_rx: Receiver<JJPoll>,
+    jj_poll_tx: Option<Sender<JJPoll>>,
 
     error: Option<String>,
 }
@@ -147,8 +153,9 @@ impl Document {
             file_path,
             layout_info: LayoutInfo::new(dimensions),
             jj_change_description: None,
-            jj_change_description_rx: jj_desc_rx,
-            jj_change_description_tx: Some(jj_desc_tx),
+            jj_diff_summary: None,
+            jj_poll_rx: jj_desc_rx,
+            jj_poll_tx: Some(jj_desc_tx),
             error: None,
         })
     }
@@ -208,21 +215,28 @@ impl Document {
         // event-based so that it plays nicer with the main event loop.
         let path = self.file_path.clone();
 
-        let Some(tx) = self.jj_change_description_tx.take() else {
+        let Some(tx) = self.jj_poll_tx.take() else {
             return;
         };
 
         thread::spawn(move || -> ! {
             loop {
-                tx.send(jujutsu::current_change_description(&path))
-                    .expect("jj description receiver should be alive");
+                tx.send(JJPoll {
+                    description: jujutsu::current_change_description(&path),
+                    diff: jujutsu::diff_summary(&path),
+                })
+                .expect("jj description receiver should be alive");
                 thread::sleep(Duration::from_secs(1));
             }
         });
     }
 
-    pub(crate) fn set_jj_change_description(&mut self, desc: Option<String>) {
+    fn set_jj_change_description(&mut self, desc: Option<String>) {
         self.jj_change_description = desc;
+    }
+
+    const fn set_jj_diff_summary(&mut self, diff: Option<DiffSummary>) {
+        self.jj_diff_summary = diff;
     }
 
     /// Displays the keybindings (if any) that are currently possible for the
@@ -314,12 +328,26 @@ impl Document {
             .as_ref()
             .map(|desc| Span::new(format!(r#" "{desc}" "#)).with_style(Style::STATUS_LINE_TEXT));
 
-        let left_spans = match (file_name_span, jj_desc_span) {
-            (None, None) => vec![mode_span],
-            (None, Some(desc_span)) => vec![mode_span, desc_span],
-            (Some(name_span), None) => vec![mode_span, name_span],
-            (Some(name_span), Some(desc_span)) => vec![mode_span, name_span, desc_span],
-        };
+        let (jj_diff_added_span, jj_diff_removed_span) = self
+            .jj_diff_summary
+            .as_ref()
+            .map(|diff| {
+                (
+                    Span::new(format!(" +{}", diff.added())).with_style(Style::DIFF_ADDED),
+                    Span::new(format!(" -{} ", diff.removed())).with_style(Style::DIFF_REMOVED),
+                )
+            })
+            .unzip();
+
+        let left_spans: Vec<Span> = iter::once(Some(mode_span))
+            .chain([
+                file_name_span,
+                jj_diff_added_span,
+                jj_diff_removed_span,
+                jj_desc_span,
+            ])
+            .flatten()
+            .collect();
 
         let language_span =
             Span::new(format!(" {} ", self.language)).with_style(Style::STATUS_LINE_TEXT);
@@ -1345,10 +1373,15 @@ impl Layer for Document {
     fn handle_internal_events(&mut self) -> EventOutcome {
         self.poll_jj();
 
-        if let Ok(desc_result) = self.jj_change_description_rx.try_recv()
-            && let Ok(desc) = desc_result
-        {
-            self.set_jj_change_description(desc);
+        if let Ok(poll_outcome) = self.jj_poll_rx.try_recv() {
+            if let Ok(desc) = poll_outcome.description {
+                self.set_jj_change_description(desc);
+            }
+
+            if let Ok(diff) = poll_outcome.diff {
+                self.set_jj_diff_summary(diff);
+            }
+
             EventOutcome::Handled
         } else {
             EventOutcome::Unhandled
@@ -1457,6 +1490,12 @@ impl fmt::Display for Mode {
             Self::Visual => "VISUAL",
         })
     }
+}
+
+#[derive(Debug)]
+struct JJPoll {
+    description: anyhow::Result<Option<String>>,
+    diff: anyhow::Result<Option<DiffSummary>>,
 }
 
 #[cfg(test)]

@@ -31,6 +31,14 @@ impl Style {
         foreground: Some(colors::LIGHT0),
         background: Some(colors::DARK1),
     };
+    pub(crate) const DIFF_ADDED: Self = Self {
+        foreground: Some(colors::FADED_GREEN),
+        background: None,
+    };
+    pub(crate) const DIFF_REMOVED: Self = Self {
+        foreground: Some(colors::FADED_RED),
+        background: None,
+    };
     pub(crate) const GUTTER: Self = Self {
         foreground: Some(colors::LIGHT4),
         background: Some(colors::LIGHT0),
@@ -251,7 +259,6 @@ mod colors {
 
     pub(super) const FADED_RED: Color = Color::Rgb { r: 157, g: 0, b: 6 };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const FADED_GREEN: Color = Color::Rgb {
         r: 121,
         g: 116,
