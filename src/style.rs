@@ -68,8 +68,8 @@ impl Style {
         background: None,
     };
     pub(crate) const TEXT_SELECTED: Self = Self {
-        foreground: Some(colors::LIGHT0),
-        background: Some(colors::DARK4),
+        foreground: Some(colors::DARK1),
+        background: Some(colors::LIGHT3),
     };
 
     pub(crate) const fn foreground(self) -> Option<Color> {
@@ -113,6 +113,7 @@ mod colors {
         b: 84,
     };
 
+    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const DARK4: Color = Color::Rgb {
         r: 124,
         g: 111,
@@ -138,7 +139,6 @@ mod colors {
         b: 161,
     };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const LIGHT3: Color = Color::Rgb {
         r: 189,
         g: 174,
