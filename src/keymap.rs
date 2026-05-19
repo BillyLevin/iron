@@ -146,6 +146,8 @@ impl KeyMap {
 
         map.register(&[key!('i'), key!('w')], DocumentAction::SelectCurrentWord);
 
+        map.register(&[key!(':')], DocumentAction::OpenCommandList);
+
         map
     }
 
