@@ -307,11 +307,12 @@ impl Document {
             .file_path
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| Span::new(format!(" {name} ")).with_style(Style::STATUS_LINE_FILE_NAME));
+            .map(|name| Span::new(format!(" {name} ")).with_style(Style::STATUS_LINE_TEXT));
 
-        let jj_desc_span = self.jj_change_description.as_ref().map(|desc| {
-            Span::new(format!(r#" "{desc}" "#)).with_style(Style::STATUS_LINE_JJ_DESCRIPTION)
-        });
+        let jj_desc_span = self
+            .jj_change_description
+            .as_ref()
+            .map(|desc| Span::new(format!(r#" "{desc}" "#)).with_style(Style::STATUS_LINE_TEXT));
 
         let left_spans = match (file_name_span, jj_desc_span) {
             (None, None) => vec![mode_span],
@@ -320,8 +321,18 @@ impl Document {
             (Some(name_span), Some(desc_span)) => vec![mode_span, name_span, desc_span],
         };
 
-        let right_spans =
-            vec![Span::new(format!(" {} ", self.language)).with_style(Style::STATUS_LINE_LANGUAGE)];
+        let language_span =
+            Span::new(format!(" {} ", self.language)).with_style(Style::STATUS_LINE_TEXT);
+
+        let right_spans = match self.key_sequence.to_string().as_str() {
+            "" => vec![language_span],
+            keys => {
+                vec![
+                    Span::new(format!(" {keys} ")).with_style(Style::STATUS_LINE_TEXT),
+                    language_span,
+                ]
+            }
+        };
 
         let (left_rect, right_rect) = status_rect.split_at_column(spans_width(&left_spans));
 

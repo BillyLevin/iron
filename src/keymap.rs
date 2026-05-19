@@ -487,6 +487,22 @@ impl KeySequence {
     }
 }
 
+impl fmt::Display for KeySequence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (keys, count) = self.parse();
+
+        if let Some(count) = count {
+            write!(f, "{count}")?;
+        }
+
+        for key in keys {
+            write!(f, "{key}")?;
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -51,18 +51,6 @@ impl Style {
         foreground: Some(colors::FADED_RED),
         background: None,
     };
-    pub(crate) const STATUS_LINE_FILE_NAME: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const STATUS_LINE_JJ_DESCRIPTION: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const STATUS_LINE_LANGUAGE: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
     pub(crate) const STATUS_LINE_MESSAGES: Self = Self {
         foreground: None,
         background: Some(colors::LIGHT0),
@@ -70,6 +58,10 @@ impl Style {
     pub(crate) const STATUS_LINE_MODE: Self = Self {
         foreground: Some(colors::LIGHT0),
         background: Some(colors::FADED_AQUA),
+    };
+    pub(crate) const STATUS_LINE_TEXT: Self = Self {
+        foreground: Some(colors::DARK1),
+        background: None,
     };
     pub(crate) const TEXT: Self = Self {
         foreground: Some(colors::DARK1),
