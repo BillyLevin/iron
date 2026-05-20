@@ -159,7 +159,7 @@ impl Terminal {
 
             crossterm::queue!(self.out, style::Print(cell.content()))?;
 
-            buffer_index += cell.width();
+            buffer_index += cell.width().value();
         }
 
         crossterm::queue!(

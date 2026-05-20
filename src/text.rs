@@ -10,7 +10,6 @@ use unicode_segmentation::{
     GraphemeIncomplete,
     UnicodeSegmentation as _,
 };
-use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     document::Grapheme,
@@ -173,8 +172,12 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
 
             match grapheme {
                 Grapheme::LineBreak => break,
+                Grapheme::Tab => {
+                    column += TAB_VISUAL_WIDTH;
+                    byte_index += '\t'.len_utf8();
+                }
                 Grapheme::Text(raw) => {
-                    column += raw.width();
+                    column += text_width(raw);
                     byte_index += raw.len();
                 }
             }
@@ -498,4 +501,19 @@ pub(crate) struct LineBreakOutcome {
     /// The last line of a file may not have a line break, and this often
     /// requires special handling.
     pub(crate) has_linebreak: bool,
+}
+
+pub(crate) const TAB_VISUAL_WIDTH: Columns = Columns::new(4);
+
+/// Wrapper around [`unicode_width::UnicodeWidthStr`] that treats tabs as the
+/// width that we display them as.
+pub(crate) fn text_width(text: &str) -> Columns {
+    text.graphemes(true)
+        .map(|grapheme| {
+            match grapheme {
+                "\t" => TAB_VISUAL_WIDTH,
+                g => Columns::new(unicode_width::UnicodeWidthStr::width(g)),
+            }
+        })
+        .sum()
 }

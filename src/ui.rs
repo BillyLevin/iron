@@ -4,7 +4,6 @@ use std::{
 };
 
 use crossterm::event::Event;
-use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     buffer::Buffer,
@@ -14,6 +13,10 @@ use crate::{
         EventOutcome,
     },
     style::Style,
+    text::{
+        TAB_VISUAL_WIDTH,
+        text_width,
+    },
 };
 
 /// A visual layer in the UI. The app can have multiple layers that are
@@ -371,7 +374,13 @@ impl Position {
             }
             Grapheme::Text(text) => {
                 Self {
-                    left: self.left + Columns::new(text.width()),
+                    left: self.left + text_width(text),
+                    top: self.top,
+                }
+            }
+            Grapheme::Tab => {
+                Self {
+                    left: self.left + TAB_VISUAL_WIDTH,
                     top: self.top,
                 }
             }
@@ -483,10 +492,7 @@ impl<'text> Span<'text> {
 }
 
 pub(crate) fn spans_width(spans: &[Span]) -> Columns {
-    spans
-        .iter()
-        .map(|span| Columns::new(span.text().width()))
-        .sum()
+    spans.iter().map(|span| text_width(span.text())).sum()
 }
 
 #[derive(Debug, Clone, Copy)]

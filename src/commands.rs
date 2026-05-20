@@ -15,7 +15,6 @@ use nucleo_matcher::{
     },
 };
 use unicode_segmentation::UnicodeSegmentation as _;
-use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     buffer::Buffer,
@@ -26,7 +25,10 @@ use crate::{
     },
     keymap::KeyBinding,
     style::Style,
-    text::ByteIndex,
+    text::{
+        ByteIndex,
+        text_width,
+    },
     ui::{
         Columns,
         Dimensions,
@@ -140,7 +142,7 @@ impl CommandList {
         let mut width = Columns::new(0);
 
         for grapheme in self.search_term.graphemes(true).rev() {
-            width += Columns::new(grapheme.width());
+            width += text_width(grapheme);
             if width >= text_rectangle.width() {
                 scroll += ByteIndex::new(grapheme.len());
             }
@@ -181,7 +183,7 @@ impl Layer for CommandList {
         );
 
         self.cursor_position = Some(input_text_rectangle.offset().col_offset(cmp::min(
-            Columns::new(text.width()),
+            text_width(text),
             input_text_rectangle.width() - Columns::new(1),
         )));
 

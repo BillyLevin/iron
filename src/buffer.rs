@@ -5,7 +5,6 @@ use std::{
 
 use crossterm::style::Color;
 use unicode_segmentation::UnicodeSegmentation as _;
-use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     grapheme_layout::{
@@ -13,6 +12,7 @@ use crate::{
         WrapBehavior,
     },
     style::Style,
+    text::text_width,
     ui::{
         Alignment,
         Columns,
@@ -253,8 +253,8 @@ impl Cell {
         self
     }
 
-    pub(crate) fn width(&self) -> usize {
-        self.content.width()
+    pub(crate) fn width(&self) -> Columns {
+        text_width(&self.content)
     }
 
     pub(crate) fn reset(&mut self) -> &mut Self {

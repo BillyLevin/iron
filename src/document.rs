@@ -43,7 +43,6 @@ use ropey::{
     RopeSlice,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
-use unicode_width::UnicodeWidthStr;
 
 use crate::{
     buffer::Buffer,
@@ -74,7 +73,9 @@ use crate::{
         LineIndex,
         RightChar,
         RopeSliceExt as _,
+        TAB_VISUAL_WIDTH,
         VisualLineInfo,
+        text_width,
     },
     ui::{
         Alignment,
@@ -272,7 +273,7 @@ impl Document {
 
                 (
                     hints + &hint,
-                    cmp::max(max_width, Columns::new(hint.width())),
+                    cmp::max(max_width, text_width(&hint)),
                     // we will disable wrapping so we can simply increment the count
                     max_height + Rows::new(1),
                 )
@@ -604,8 +605,7 @@ impl Document {
 
             text.slice(line_start.value()..self.selection.cursor.value())
                 .chunks()
-                .map(UnicodeWidthStr::width)
-                .map(Columns::new)
+                .map(text_width)
                 .sum::<Columns>()
                 .map(|cols| cols % width.value())
         })
@@ -1420,13 +1420,24 @@ impl LayoutInfo {
 #[derive(Debug)]
 pub(crate) enum Grapheme<'grapheme> {
     LineBreak,
+    Tab,
     Text(&'grapheme str),
 }
 
+const fn tab_str() -> &'static str {
+    match str::from_utf8(&[b' '; TAB_VISUAL_WIDTH.value()]) {
+        Ok(s) => s,
+        Err(_) => unreachable!(),
+    }
+}
+
 impl Grapheme<'_> {
+    const TAB_STR: &'static str = tab_str();
+
     pub(crate) const fn as_str(&self) -> &str {
         match *self {
             Grapheme::LineBreak => " ",
+            Grapheme::Tab => Self::TAB_STR,
             Grapheme::Text(text) => text,
         }
     }
@@ -1436,6 +1447,7 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
     fn from(value: &'grapheme str) -> Self {
         match value {
             "\n" | "\r\n" => Self::LineBreak,
+            "\t" => Self::Tab,
             _ => Self::Text(value),
         }
     }
