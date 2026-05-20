@@ -443,6 +443,7 @@ impl Document {
             DocumentAction::DeleteUp => self.delete_up(action_count),
             DocumentAction::OpenCommandList => Self::open_command_list(event_context),
             DocumentAction::ClearInput => self.clear_input(),
+            DocumentAction::InsertTab => self.insert_tab(),
         }
 
         if action.should_reset_desired_column() {
@@ -1271,6 +1272,12 @@ impl Document {
 
     const fn mode(&self) -> Mode {
         self.key_sequence.mode()
+    }
+
+    fn insert_tab(&mut self) {
+        // TODO: if the file treats tabs as spaces, then we should insert spaces here
+        // instead.
+        self.insert_char('\t');
     }
 }
 

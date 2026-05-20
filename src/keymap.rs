@@ -114,6 +114,7 @@ impl KeyMap {
         map.register(&[key!(Backspace)], DocumentAction::DeleteGrapheme);
         map.register(&[key!(Esc)], DocumentAction::SwitchToNormalMode);
         map.register(&[key!(Enter)], DocumentAction::InsertNewline);
+        map.register(&[key!(Tab)], DocumentAction::InsertTab);
 
         map
     }
@@ -310,6 +311,7 @@ pub(crate) enum DocumentAction {
     DeleteUp,
     OpenCommandList,
     ClearInput,
+    InsertTab,
 }
 
 impl DocumentAction {
@@ -360,7 +362,8 @@ impl DocumentAction {
             | Self::OpenLineAbove
             | Self::SelectCurrentWord
             | Self::DeleteDown
-            | Self::DeleteUp => true,
+            | Self::DeleteUp
+            | Self::InsertTab => true,
 
             Self::MoveDown
             | Self::MoveUp
@@ -423,6 +426,7 @@ impl DocumentAction {
             Self::DeleteUp => "Delete up",
             Self::OpenCommandList => "Open command list",
             Self::ClearInput => "Clear current input",
+            Self::InsertTab => "Insert tab",
         }
     }
 }
