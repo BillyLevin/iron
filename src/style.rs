@@ -1,5 +1,7 @@
 use crossterm::style::Color;
 
+use crate::highlight::TokenKind;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Style {
     foreground: Option<Color>,
@@ -86,6 +88,25 @@ impl Style {
 
     pub(crate) const fn background(self) -> Option<Color> {
         self.background
+    }
+}
+
+impl From<TokenKind> for Style {
+    fn from(kind: TokenKind) -> Self {
+        match kind {
+            TokenKind::Identifier => {
+                Self {
+                    foreground: Some(colors::FADED_AQUA),
+                    background: None,
+                }
+            }
+            TokenKind::Whitespace => {
+                Self {
+                    foreground: None,
+                    background: None,
+                }
+            }
+        }
     }
 }
 

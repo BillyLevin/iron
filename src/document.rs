@@ -55,6 +55,10 @@ use crate::{
         GraphemeLayoutIterator,
         WrapBehavior,
     },
+    highlight::{
+        Highlighter,
+        Token,
+    },
     jujutsu::{
         self,
         DiffSummary,
@@ -1295,6 +1299,8 @@ impl Layer for Document {
 
         let mut line_index = self.scroll_offset;
 
+        let mut highlighter = Highlighter::new(text, self.language);
+
         for visual_grapheme in GraphemeLayoutIterator::new(
             self.text.slice(start_byte.value()..).graphemes(),
             self.max_text_width(),
@@ -1338,15 +1344,19 @@ impl Layer for Document {
 
             let grapheme = visual_grapheme.grapheme();
 
+            let grapheme_index = start_byte + visual_grapheme.byte_index();
+
+            let style = highlighter
+                .advance_until(grapheme_index)
+                .map(Token::kind)
+                .map_or(Style::TEXT, Style::from);
+
             buffer[translated_position]
                 .set_content(grapheme.as_str())
-                .set_style(Style::TEXT);
+                .set_style(style);
 
             if matches!(self.mode(), Mode::Visual)
-                && self
-                    .selection
-                    .range(text)
-                    .contains(&(start_byte + visual_grapheme.byte_index()))
+                && self.selection.range(text).contains(&grapheme_index)
             {
                 buffer[translated_position].set_style(Style::TEXT_SELECTED);
             }

@@ -4,6 +4,7 @@ pub mod commands;
 pub mod document;
 pub mod editor;
 pub mod grapheme_layout;
+pub mod highlight;
 pub mod jujutsu;
 pub mod keymap;
 pub mod language;
