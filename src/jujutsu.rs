@@ -103,16 +103,16 @@ pub(crate) fn diff_summary(file: &Path) -> anyhow::Result<Option<DiffSummary>> {
 
 #[derive(Debug)]
 pub(crate) struct DiffSummary {
-    lines_added: u64,
-    lines_removed: u64,
+    lines_added: u32,
+    lines_removed: u32,
 }
 
 impl DiffSummary {
-    pub(crate) const fn added(&self) -> u64 {
+    pub(crate) const fn added(&self) -> u32 {
         self.lines_added
     }
 
-    pub(crate) const fn removed(&self) -> u64 {
+    pub(crate) const fn removed(&self) -> u32 {
         self.lines_removed
     }
 }
