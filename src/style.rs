@@ -96,6 +96,12 @@ impl From<TokenKind> for Style {
         match kind {
             TokenKind::Identifier => {
                 Self {
+                    foreground: Some(colors::FADED_RED),
+                    background: None,
+                }
+            }
+            TokenKind::Keyword => {
+                Self {
                     foreground: Some(colors::FADED_AQUA),
                     background: None,
                 }

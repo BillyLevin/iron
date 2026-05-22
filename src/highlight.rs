@@ -74,6 +74,7 @@ impl Token {
 pub(crate) enum TokenKind {
     Identifier,
     Whitespace,
+    Keyword,
 }
 
 #[derive(Debug)]
@@ -110,6 +111,9 @@ impl<'src> RustLexer<'src> {
                 }
             })
             .map(|kind| {
+                let range = start..self.current_position;
+                let kind = self.check_keyword(range, kind);
+
                 Token {
                     kind,
                     range: start..self.current_position,
@@ -150,6 +154,28 @@ impl<'src> RustLexer<'src> {
 
         TokenKind::Whitespace
     }
+
+    fn check_keyword(&self, range: Range<ByteIndex>, kind: TokenKind) -> TokenKind {
+        if matches!(kind, TokenKind::Identifier) {
+            match self
+                .source
+                .slice(range.start.value()..range.end.value())
+                .bytes()
+                .collect::<Vec<u8>>()
+                .as_slice()
+            {
+                b"_" | b"as" | b"async" | b"await" | b"break" | b"const" | b"continue"
+                | b"crate" | b"dyn" | b"else" | b"enum" | b"extern" | b"false" | b"fn" | b"for"
+                | b"if" | b"impl" | b"in" | b"let" | b"loop" | b"match" | b"mod" | b"move"
+                | b"mut" | b"pub" | b"ref" | b"return" | b"self" | b"Self" | b"static"
+                | b"struct" | b"super" | b"trait" | b"true" | b"type" | b"unsafe" | b"use"
+                | b"where" | b"while" => TokenKind::Keyword,
+                _ => kind,
+            }
+        } else {
+            kind
+        }
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +210,68 @@ mod tests {
             Some(Token {
                 kind: TokenKind::Identifier,
                 range: ByteIndex::new(4)..ByteIndex::new(7)
+            })
+        );
+    }
+
+    #[test]
+    fn keyword() {
+        let source = Rope::from_str("use foo fn bar");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Keyword,
+                range: ByteIndex::new(0)..ByteIndex::new(3)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(3)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(4)..ByteIndex::new(7)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(7)..ByteIndex::new(8)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Keyword,
+                range: ByteIndex::new(8)..ByteIndex::new(10)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(10)..ByteIndex::new(11)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(11)..ByteIndex::new(14)
             })
         );
     }
