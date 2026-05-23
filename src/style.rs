@@ -2,7 +2,7 @@ use crossterm::style::Color;
 
 use crate::highlight::TokenKind;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Style {
     foreground: Option<Color>,
     background: Option<Color>,
@@ -78,7 +78,7 @@ impl Style {
         background: None,
     };
     pub(crate) const TEXT_SELECTED: Self = Self {
-        foreground: Some(colors::DARK1),
+        foreground: None,
         background: Some(colors::LIGHT3),
     };
 
@@ -88,6 +88,16 @@ impl Style {
 
     pub(crate) const fn background(self) -> Option<Color> {
         self.background
+    }
+
+    /// Merges `other` into `self`. For each style in `other`:
+    /// - if style is `Some`, overwrite
+    /// - otherwise, do not overwrite
+    pub(crate) fn merge(self, other: Self) -> Self {
+        Self {
+            foreground: other.foreground().or(self.foreground),
+            background: other.background().or(self.background),
+        }
     }
 }
 
@@ -131,6 +141,131 @@ impl From<TokenKind> for Style {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_keeps_original_when_other_is_empty() {
+        let base = Style {
+            foreground: Some(Color::Red),
+            background: Some(Color::Black),
+        };
+
+        let other = Style {
+            foreground: None,
+            background: None,
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: Some(Color::Red),
+            background: Some(Color::Black),
+        });
+    }
+
+    #[test]
+    fn merge_overwrites_foreground_when_present() {
+        let base = Style {
+            foreground: Some(Color::Red),
+            background: Some(Color::Black),
+        };
+
+        let other = Style {
+            foreground: Some(Color::Blue),
+            background: None,
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: Some(Color::Blue),
+            background: Some(Color::Black),
+        });
+    }
+
+    #[test]
+    fn merge_overwrites_background_when_present() {
+        let base = Style {
+            foreground: Some(Color::White),
+            background: Some(Color::Black),
+        };
+
+        let other = Style {
+            foreground: None,
+            background: Some(Color::Green),
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: Some(Color::White),
+            background: Some(Color::Green),
+        });
+    }
+
+    #[test]
+    fn merge_overwrites_both_fields_when_present() {
+        let base = Style {
+            foreground: Some(Color::Red),
+            background: Some(Color::Black),
+        };
+
+        let other = Style {
+            foreground: Some(Color::Blue),
+            background: Some(Color::White),
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: Some(Color::Blue),
+            background: Some(Color::White),
+        });
+    }
+
+    #[test]
+    fn merge_can_fill_missing_fields() {
+        let base = Style {
+            foreground: None,
+            background: Some(Color::Black),
+        };
+
+        let other = Style {
+            foreground: Some(Color::Green),
+            background: None,
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: Some(Color::Green),
+            background: Some(Color::Black),
+        });
+    }
+
+    #[test]
+    fn merge_with_all_none_results_in_no_changes() {
+        let base = Style {
+            foreground: None,
+            background: None,
+        };
+
+        let other = Style {
+            foreground: None,
+            background: None,
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: None,
+            background: None,
+        });
     }
 }
 

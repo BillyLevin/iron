@@ -1358,7 +1358,7 @@ impl Layer for Document {
             if matches!(self.mode(), Mode::Visual)
                 && self.selection.range(text).contains(&grapheme_index)
             {
-                buffer[translated_position].set_style(Style::TEXT_SELECTED);
+                buffer[translated_position].set_style(style.merge(Style::TEXT_SELECTED));
             }
 
             if matches!(grapheme, Grapheme::LineBreak) {
