@@ -112,6 +112,12 @@ impl From<TokenKind> for Style {
                     background: None,
                 }
             }
+            TokenKind::Type => {
+                Self {
+                    foreground: Some(colors::FADED_YELLOW),
+                    background: None,
+                }
+            }
             TokenKind::Whitespace => {
                 Self {
                     foreground: None,

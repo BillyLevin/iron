@@ -76,6 +76,7 @@ pub(crate) enum TokenKind {
     Whitespace,
     Keyword,
     String,
+    Type,
 }
 
 #[derive(Debug)]
@@ -105,6 +106,7 @@ impl<'src> RustLexer<'src> {
                     'a'..='z' | '_' => self.read_identifier(),
                     c if c.is_whitespace() => self.read_whitespace(),
                     '"' => self.read_string(),
+                    'A'..='Z' => self.read_type(),
                     _ => {
                         // TODO: everything else!
                         self.next_char();
@@ -197,6 +199,22 @@ impl<'src> RustLexer<'src> {
 
         TokenKind::String
     }
+
+    fn read_type(&mut self) -> TokenKind {
+        assert!(
+            matches!(self.current_char(), Some('A'..='Z')),
+            "types must start with a capital letter"
+        );
+        self.next_char();
+
+        while let Some(ch) = self.current_char()
+            && matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_')
+        {
+            self.next_char();
+        }
+
+        TokenKind::Type
+    }
 }
 
 #[cfg(test)]
@@ -206,7 +224,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn identifier() {
+    fn identifiers() {
         let source = Rope::from_str("foo bar");
         let mut lexer = RustLexer::new(source.slice(..));
 
@@ -236,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn keyword() {
+    fn keywords() {
         let source = Rope::from_str("use foo fn bar");
         let mut lexer = RustLexer::new(source.slice(..));
 
@@ -298,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn string() {
+    fn strings() {
         let source = Rope::from_str(r#"foo "hello""#);
         let mut lexer = RustLexer::new(source.slice(..));
 
@@ -323,6 +341,36 @@ mod tests {
             Some(Token {
                 kind: TokenKind::String,
                 range: ByteIndex::new(4)..ByteIndex::new(11)
+            })
+        );
+    }
+
+    #[test]
+    fn types() {
+        let source = Rope::from_str("struct Foo");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Keyword,
+                range: ByteIndex::new(0)..ByteIndex::new(6)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(6)..ByteIndex::new(7)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Type,
+                range: ByteIndex::new(7)..ByteIndex::new(10)
             })
         );
     }
