@@ -134,7 +134,13 @@ impl From<TokenKind> for Style {
                     background: None,
                 }
             }
-            TokenKind::Whitespace => {
+            TokenKind::Operator => {
+                Self {
+                    foreground: Some(colors::FADED_ORANGE),
+                    background: None,
+                }
+            }
+            TokenKind::Whitespace | TokenKind::Unknown => {
                 Self {
                     foreground: None,
                     background: None,
@@ -471,7 +477,6 @@ mod colors {
         b: 88,
     };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const FADED_ORANGE: Color = Color::Rgb {
         r: 175,
         g: 58,

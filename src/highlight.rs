@@ -78,6 +78,8 @@ pub(crate) enum TokenKind {
     String,
     Type,
     Comment,
+    Operator,
+    Unknown,
 }
 
 #[derive(Debug)]
@@ -108,11 +110,115 @@ impl<'src> RustLexer<'src> {
                     c if c.is_whitespace() => self.read_whitespace(),
                     '"' => self.read_string(),
                     'A'..='Z' => self.read_type(),
-                    '/' => self.read_comment(),
+                    '/' => self.read_slash(),
+                    '\'' | '@' => {
+                        self.next_char();
+                        TokenKind::Operator
+                    }
+                    '-' => {
+                        self.next_char();
+
+                        if let Some('>' | '=') = self.current_char() {
+                            self.next_char();
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '=' => {
+                        self.next_char();
+
+                        if let Some('>' | '=') = self.current_char() {
+                            self.next_char();
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '<' => {
+                        self.next_char();
+
+                        match self.current_char() {
+                            Some('=') => {
+                                self.next_char();
+                            }
+
+                            Some('<') => {
+                                self.next_char();
+
+                                if self.current_char() == Some('=') {
+                                    self.next_char();
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '>' => {
+                        self.next_char();
+
+                        match self.current_char() {
+                            Some('=') => {
+                                self.next_char();
+                            }
+
+                            Some('>') => {
+                                self.next_char();
+
+                                if self.current_char() == Some('=') {
+                                    self.next_char();
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '!' | '%' | '^' | '*' | '+' => {
+                        self.next_char();
+
+                        if self.current_char() == Some('=') {
+                            self.next_char();
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '&' => {
+                        self.next_char();
+
+                        if let Some('&' | '=') = self.current_char() {
+                            self.next_char();
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '|' => {
+                        self.next_char();
+
+                        if let Some('|' | '=') = self.current_char() {
+                            self.next_char();
+                        }
+
+                        TokenKind::Operator
+                    }
+                    '.' => {
+                        self.next_char();
+
+                        if self.current_char() == Some('.') {
+                            self.next_char();
+
+                            if self.current_char() == Some('=') {
+                                self.next_char();
+                            }
+
+                            TokenKind::Operator
+                        } else {
+                            TokenKind::Unknown
+                        }
+                    }
                     _ => {
                         // TODO: everything else!
                         self.next_char();
-                        TokenKind::Whitespace
+                        TokenKind::Unknown
                     }
                 }
             })
@@ -218,14 +324,15 @@ impl<'src> RustLexer<'src> {
         TokenKind::Type
     }
 
-    fn read_comment(&mut self) -> TokenKind {
+    fn read_slash(&mut self) -> TokenKind {
         assert!(
             matches!(self.current_char(), Some('/')),
-            "comment must start with a `/`"
+            "`read_slash` must only be called when the current character is a slash"
         );
         self.next_char();
 
         match self.current_char() {
+            // line/doc comment
             Some('/') => {
                 self.next_char();
 
@@ -238,7 +345,10 @@ impl<'src> RustLexer<'src> {
                 {
                     self.next_char();
                 }
+
+                TokenKind::Comment
             }
+            // block comment
             Some('*') => {
                 self.next_char();
 
@@ -250,11 +360,18 @@ impl<'src> RustLexer<'src> {
                         break;
                     }
                 }
-            }
-            _ => {}
-        }
 
-        TokenKind::Comment
+                TokenKind::Comment
+            }
+
+            // division assignment
+            Some('=') => {
+                self.next_char();
+                TokenKind::Operator
+            }
+
+            Some(_) | None => TokenKind::Operator,
+        }
     }
 }
 
@@ -592,5 +709,50 @@ use foo",
                 range: ByteIndex::new(14)..ByteIndex::new(17)
             })
         );
+    }
+
+    #[test]
+    fn operators() {
+        #[rustfmt::skip]
+        let operators =  [
+              "'", "->", "=>", "<=", "=", "==", "!",
+              "!=", "%", "%=", "&", "&=", "&&", "|",
+              "|=", "||", "^", "^=", "*", "*=", "-",
+              "-=", "+", "+=", "/", "/=", ">", "<",
+              ">=", ">>", "<<", ">>=", "<<=", "@",
+              "..", "..=",
+        ];
+
+        let source = Rope::from_str(&operators.join(" "));
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        let mut position = ByteIndex::new(0);
+
+        let mut operators_iter = operators.iter().peekable();
+
+        while let Some(operator) = operators_iter.next() {
+            let is_last = operators_iter.peek().is_none();
+
+            assert_eq!(
+                lexer.next_token(),
+                Some(Token {
+                    kind: TokenKind::Operator,
+                    range: position..position + operator.len()
+                })
+            );
+
+            position += operator.len();
+
+            if !is_last {
+                assert_eq!(
+                    lexer.next_token(),
+                    Some(Token {
+                        kind: TokenKind::Whitespace,
+                        range: position..position + 1
+                    })
+                );
+                position += 1;
+            }
+        }
     }
 }
