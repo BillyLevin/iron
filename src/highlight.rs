@@ -75,6 +75,7 @@ pub(crate) enum TokenKind {
     Identifier,
     Whitespace,
     Keyword,
+    String,
 }
 
 #[derive(Debug)]
@@ -103,6 +104,7 @@ impl<'src> RustLexer<'src> {
                 match ch {
                     'a'..='z' | '_' => self.read_identifier(),
                     c if c.is_whitespace() => self.read_whitespace(),
+                    '"' => self.read_string(),
                     _ => {
                         // TODO: everything else!
                         self.next_char();
@@ -175,6 +177,25 @@ impl<'src> RustLexer<'src> {
         } else {
             kind
         }
+    }
+
+    fn read_string(&mut self) -> TokenKind {
+        assert_eq!(
+            self.current_char(),
+            Some('"'),
+            "`read_string` should only be called if the current character is the start of a string"
+        );
+        self.next_char();
+
+        while let Some(ch) = self.current_char()
+            && ch != '"'
+        {
+            self.next_char();
+        }
+
+        self.next_char();
+
+        TokenKind::String
     }
 }
 
@@ -272,6 +293,36 @@ mod tests {
             Some(Token {
                 kind: TokenKind::Identifier,
                 range: ByteIndex::new(11)..ByteIndex::new(14)
+            })
+        );
+    }
+
+    #[test]
+    fn string() {
+        let source = Rope::from_str(r#"foo "hello""#);
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(0)..ByteIndex::new(3)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(3)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::String,
+                range: ByteIndex::new(4)..ByteIndex::new(11)
             })
         );
     }
