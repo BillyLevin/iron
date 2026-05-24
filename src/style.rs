@@ -9,78 +9,50 @@ pub(crate) struct Style {
 }
 
 impl Style {
-    pub(crate) const BACKGROUND: Self = Self {
-        foreground: None,
-        background: Some(colors::LIGHT0),
-    };
-    pub(crate) const COMMAND_LIST: Self = Self {
-        foreground: None,
-        background: Some(colors::LIGHT1),
-    };
-    pub(crate) const COMMAND_LIST_BORDER: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const COMMAND_LIST_INPUT_TEXT: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const COMMAND_LIST_ITEM: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const COMMAND_LIST_ITEM_SELECTED: Self = Self {
-        foreground: Some(colors::LIGHT0),
-        background: Some(colors::DARK1),
-    };
-    pub(crate) const DIFF_ADDED: Self = Self {
-        foreground: Some(colors::FADED_GREEN),
-        background: None,
-    };
-    pub(crate) const DIFF_REMOVED: Self = Self {
-        foreground: Some(colors::FADED_RED),
-        background: None,
-    };
-    pub(crate) const GUTTER: Self = Self {
-        foreground: Some(colors::LIGHT4),
-        background: Some(colors::LIGHT0),
-    };
-    pub(crate) const GUTTER_SELECTED: Self = Self {
-        foreground: Some(colors::FADED_YELLOW),
-        background: Some(colors::LIGHT0),
-    };
-    pub(crate) const HINTS: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: Some(colors::LIGHT1),
-    };
-    pub(crate) const STATUS_LINE: Self = Self {
-        foreground: None,
-        background: Some(colors::LIGHT1),
-    };
-    pub(crate) const STATUS_LINE_ERROR: Self = Self {
-        foreground: Some(colors::FADED_RED),
-        background: None,
-    };
-    pub(crate) const STATUS_LINE_MESSAGES: Self = Self {
-        foreground: None,
-        background: Some(colors::LIGHT0),
-    };
-    pub(crate) const STATUS_LINE_MODE: Self = Self {
-        foreground: Some(colors::LIGHT0),
-        background: Some(colors::FADED_AQUA),
-    };
-    pub(crate) const STATUS_LINE_TEXT: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const TEXT: Self = Self {
-        foreground: Some(colors::DARK1),
-        background: None,
-    };
-    pub(crate) const TEXT_SELECTED: Self = Self {
-        foreground: None,
-        background: Some(colors::LIGHT3),
-    };
+    pub(crate) const BACKGROUND: Self = Self::new().with_bg(colors::LIGHT0);
+    pub(crate) const COMMAND_LIST: Self = Self::new().with_bg(colors::LIGHT1);
+    pub(crate) const COMMAND_LIST_BORDER: Self = Self::new().with_fg(colors::DARK1);
+    pub(crate) const COMMAND_LIST_INPUT_TEXT: Self = Self::new().with_fg(colors::DARK1);
+    pub(crate) const COMMAND_LIST_ITEM: Self = Self::new().with_fg(colors::DARK1);
+    pub(crate) const COMMAND_LIST_ITEM_SELECTED: Self =
+        Self::new().with_fg(colors::LIGHT0).with_bg(colors::DARK1);
+    pub(crate) const DIFF_ADDED: Self = Self::new().with_fg(colors::FADED_GREEN);
+    pub(crate) const DIFF_REMOVED: Self = Self::new().with_fg(colors::FADED_RED);
+    pub(crate) const GUTTER: Self = Self::new().with_fg(colors::LIGHT4).with_bg(colors::LIGHT0);
+    pub(crate) const GUTTER_SELECTED: Self = Self::new()
+        .with_fg(colors::FADED_YELLOW)
+        .with_bg(colors::LIGHT0);
+    pub(crate) const HINTS: Self = Self::new().with_fg(colors::DARK1).with_bg(colors::LIGHT1);
+    pub(crate) const STATUS_LINE: Self = Self::new().with_bg(colors::LIGHT1);
+    pub(crate) const STATUS_LINE_ERROR: Self = Self::new().with_fg(colors::FADED_RED);
+    pub(crate) const STATUS_LINE_MESSAGES: Self = Self::new().with_bg(colors::LIGHT0);
+    pub(crate) const STATUS_LINE_MODE: Self = Self::new()
+        .with_fg(colors::LIGHT0)
+        .with_bg(colors::FADED_AQUA);
+    pub(crate) const STATUS_LINE_TEXT: Self = Self::new().with_fg(colors::DARK1);
+    pub(crate) const TEXT: Self = Self::new().with_fg(colors::DARK1);
+    pub(crate) const TEXT_SELECTED: Self = Self::new().with_bg(colors::LIGHT3);
+
+    pub(crate) const fn new() -> Self {
+        Self {
+            foreground: None,
+            background: None,
+        }
+    }
+
+    pub(crate) const fn with_fg(self, foreground: Color) -> Self {
+        Self {
+            foreground: Some(foreground),
+            ..self
+        }
+    }
+
+    pub(crate) const fn with_bg(self, background: Color) -> Self {
+        Self {
+            background: Some(background),
+            ..self
+        }
+    }
 
     pub(crate) const fn foreground(self) -> Option<Color> {
         self.foreground
@@ -104,48 +76,13 @@ impl Style {
 impl From<TokenKind> for Style {
     fn from(kind: TokenKind) -> Self {
         match kind {
-            TokenKind::Identifier => {
-                Self {
-                    foreground: Some(colors::FADED_RED),
-                    background: None,
-                }
-            }
-            TokenKind::Keyword => {
-                Self {
-                    foreground: Some(colors::FADED_AQUA),
-                    background: None,
-                }
-            }
-            TokenKind::String => {
-                Self {
-                    foreground: Some(colors::FADED_GREEN),
-                    background: None,
-                }
-            }
-            TokenKind::Type => {
-                Self {
-                    foreground: Some(colors::FADED_YELLOW),
-                    background: None,
-                }
-            }
-            TokenKind::Comment => {
-                Self {
-                    foreground: Some(colors::GRAY),
-                    background: None,
-                }
-            }
-            TokenKind::Operator => {
-                Self {
-                    foreground: Some(colors::FADED_ORANGE),
-                    background: None,
-                }
-            }
-            TokenKind::Whitespace | TokenKind::Unknown => {
-                Self {
-                    foreground: None,
-                    background: None,
-                }
-            }
+            TokenKind::Identifier => Self::new().with_fg(colors::FADED_RED),
+            TokenKind::Keyword => Self::new().with_fg(colors::FADED_AQUA),
+            TokenKind::String => Self::new().with_fg(colors::FADED_GREEN),
+            TokenKind::Type => Self::new().with_fg(colors::FADED_YELLOW),
+            TokenKind::Comment => Self::new().with_fg(colors::GRAY),
+            TokenKind::Operator => Self::new().with_fg(colors::FADED_ORANGE),
+            TokenKind::Whitespace | TokenKind::Unknown => Self::new(),
         }
     }
 }
