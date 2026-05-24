@@ -82,6 +82,7 @@ pub(crate) enum TokenKind {
     Unknown,
     Character,
     Lifetime,
+    FunctionName,
 }
 
 #[derive(Debug)]
@@ -89,6 +90,11 @@ struct RustLexer<'src> {
     source: RopeSlice<'src>,
     current_position: ByteIndex,
     current: Option<char>,
+
+    /// If the current token being read could impact the semantics of the next
+    /// token, then this map describes the transformation from `[0]` to `[1]` of
+    /// the token kind that should take place.
+    expected_token_map: Option<[TokenKind; 2]>,
 }
 
 impl<'src> RustLexer<'src> {
@@ -99,6 +105,7 @@ impl<'src> RustLexer<'src> {
             source,
             current_position: ByteIndex::new(0),
             current,
+            expected_token_map: None,
         }
     }
 
@@ -227,6 +234,7 @@ impl<'src> RustLexer<'src> {
             })
             .map(|kind| {
                 let range = start..self.current_position;
+                let kind = self.check_expected_mapping(kind);
                 let kind = self.check_keyword(range, kind);
 
                 Token {
@@ -287,7 +295,7 @@ impl<'src> RustLexer<'src> {
         TokenKind::Whitespace
     }
 
-    fn check_keyword(&self, range: Range<ByteIndex>, kind: TokenKind) -> TokenKind {
+    fn check_keyword(&mut self, range: Range<ByteIndex>, kind: TokenKind) -> TokenKind {
         if matches!(kind, TokenKind::Identifier) {
             match self
                 .source
@@ -297,11 +305,18 @@ impl<'src> RustLexer<'src> {
                 .as_slice()
             {
                 b"_" | b"as" | b"async" | b"await" | b"break" | b"const" | b"continue"
-                | b"crate" | b"dyn" | b"else" | b"enum" | b"extern" | b"false" | b"fn" | b"for"
-                | b"if" | b"impl" | b"in" | b"let" | b"loop" | b"match" | b"mod" | b"move"
-                | b"mut" | b"pub" | b"ref" | b"return" | b"self" | b"Self" | b"static"
-                | b"struct" | b"super" | b"trait" | b"true" | b"type" | b"unsafe" | b"use"
-                | b"where" | b"while" => TokenKind::Keyword,
+                | b"crate" | b"dyn" | b"else" | b"enum" | b"extern" | b"false" | b"for" | b"if"
+                | b"impl" | b"in" | b"let" | b"loop" | b"match" | b"mod" | b"move" | b"mut"
+                | b"pub" | b"ref" | b"return" | b"self" | b"Self" | b"static" | b"struct"
+                | b"super" | b"trait" | b"true" | b"type" | b"unsafe" | b"use" | b"where"
+                | b"while" => TokenKind::Keyword,
+                b"fn" => {
+                    // TODO: probably a better place to do this mutation
+                    self.expected_token_map =
+                        Some([TokenKind::Identifier, TokenKind::FunctionName]);
+
+                    TokenKind::Keyword
+                }
                 _ => kind,
             }
         } else {
@@ -436,6 +451,24 @@ impl<'src> RustLexer<'src> {
 
         TokenKind::Lifetime
     }
+
+    /// If the token kind has an expected semantic mapping, then we apply it
+    /// here.
+    fn check_expected_mapping(&mut self, kind: TokenKind) -> TokenKind {
+        if kind == TokenKind::Whitespace {
+            return kind;
+        }
+
+        let token_map = self.expected_token_map.take();
+
+        if let Some(map) = token_map
+            && map[0] == kind
+        {
+            map[1]
+        } else {
+            kind
+        }
+    }
 }
 
 #[cfg(test)]
@@ -476,7 +509,7 @@ mod tests {
 
     #[test]
     fn keywords() {
-        let source = Rope::from_str("use foo fn bar");
+        let source = Rope::from_str("use foo impl bar");
         let mut lexer = RustLexer::new(source.slice(..));
 
         assert_eq!(
@@ -515,7 +548,7 @@ mod tests {
             lexer.next_token(),
             Some(Token {
                 kind: TokenKind::Keyword,
-                range: ByteIndex::new(8)..ByteIndex::new(10)
+                range: ByteIndex::new(8)..ByteIndex::new(12)
             })
         );
 
@@ -523,7 +556,7 @@ mod tests {
             lexer.next_token(),
             Some(Token {
                 kind: TokenKind::Whitespace,
-                range: ByteIndex::new(10)..ByteIndex::new(11)
+                range: ByteIndex::new(12)..ByteIndex::new(13)
             })
         );
 
@@ -531,7 +564,7 @@ mod tests {
             lexer.next_token(),
             Some(Token {
                 kind: TokenKind::Identifier,
-                range: ByteIndex::new(11)..ByteIndex::new(14)
+                range: ByteIndex::new(13)..ByteIndex::new(16)
             })
         );
     }
@@ -937,6 +970,36 @@ use foo",
             Some(Token {
                 kind: TokenKind::Operator,
                 range: ByteIndex::new(27)..ByteIndex::new(28)
+            })
+        );
+    }
+
+    #[test]
+    fn function_name() {
+        let source = Rope::from_str("fn hello");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Keyword,
+                range: ByteIndex::new(0)..ByteIndex::new(2)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(2)..ByteIndex::new(3)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::FunctionName,
+                range: ByteIndex::new(3)..ByteIndex::new(8)
             })
         );
     }

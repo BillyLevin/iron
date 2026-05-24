@@ -103,6 +103,11 @@ impl From<TokenKind> for Style {
             }
             TokenKind::Operator => Self::new().with_fg(colors::FADED_ORANGE),
             TokenKind::Character => Self::new().with_fg(colors::FADED_PURPLE),
+            TokenKind::FunctionName => {
+                Self::new()
+                    .with_fg(colors::FADED_GREEN)
+                    .with_attributes(StyleAttributes::Bold)
+            }
             TokenKind::Whitespace | TokenKind::Unknown => Self::new(),
         }
     }
