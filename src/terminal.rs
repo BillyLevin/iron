@@ -11,6 +11,8 @@ use crossterm::{
     },
     style::{
         self,
+        Attribute,
+        Attributes,
         Color,
     },
     terminal::{
@@ -27,6 +29,7 @@ use crate::{
         Editor,
         EventOutcome,
     },
+    style::StyleAttributes,
     ui::{
         Columns,
         Dimensions,
@@ -139,6 +142,7 @@ impl Terminal {
 
         let mut fg = Color::Reset;
         let mut bg = Color::Reset;
+        let mut attributes = StyleAttributes::empty();
 
         while buffer_index < cells.len() {
             let cell = &cells[buffer_index];
@@ -155,6 +159,14 @@ impl Terminal {
             {
                 bg = new_bg;
                 crossterm::queue!(self.out, style::SetBackgroundColor(bg))?;
+            }
+
+            if let new_attributes = cell.attributes()
+                && new_attributes != attributes
+            {
+                let diff = attributes_diff(attributes, new_attributes);
+                attributes = new_attributes;
+                crossterm::queue!(self.out, style::SetAttributes(diff))?;
             }
 
             crossterm::queue!(self.out, style::Print(cell.content()))?;
@@ -176,4 +188,34 @@ impl Terminal {
 
         Ok(())
     }
+}
+
+/// Calculates all of the [`Attributes`] that need to be queued to the terminal
+/// based on the diff between the current and next [`StyleAttributes`].
+fn attributes_diff(current: StyleAttributes, next: StyleAttributes) -> Attributes {
+    let mut result = Attributes::none();
+
+    let removed = current - next;
+    for attribute in removed {
+        let opposite = match attribute {
+            StyleAttributes::Bold => Attribute::NoBold,
+            StyleAttributes::Italic => Attribute::NoItalic,
+            StyleAttributes::Underlined => Attribute::NoUnderline,
+            _ => unreachable!(),
+        };
+
+        result.set(opposite);
+    }
+
+    let added = next - current;
+    for attribute in added {
+        result.set(match attribute {
+            StyleAttributes::Bold => Attribute::Bold,
+            StyleAttributes::Italic => Attribute::Italic,
+            StyleAttributes::Underlined => Attribute::Underlined,
+            _ => unreachable!(),
+        });
+    }
+
+    result
 }

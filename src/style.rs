@@ -1,11 +1,13 @@
+use bitflags::bitflags;
 use crossterm::style::Color;
 
 use crate::highlight::TokenKind;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Style {
     foreground: Option<Color>,
     background: Option<Color>,
+    attributes: StyleAttributes,
 }
 
 impl Style {
@@ -37,6 +39,7 @@ impl Style {
         Self {
             foreground: None,
             background: None,
+            attributes: StyleAttributes::empty(),
         }
     }
 
@@ -54,6 +57,10 @@ impl Style {
         }
     }
 
+    pub(crate) const fn with_attributes(self, attributes: StyleAttributes) -> Self {
+        Self { attributes, ..self }
+    }
+
     pub(crate) const fn foreground(self) -> Option<Color> {
         self.foreground
     }
@@ -62,13 +69,18 @@ impl Style {
         self.background
     }
 
+    pub(crate) const fn attributes(&self) -> StyleAttributes {
+        self.attributes
+    }
+
     /// Merges `other` into `self`. For each style in `other`:
     /// - if style is `Some`, overwrite
     /// - otherwise, do not overwrite
     pub(crate) fn merge(self, other: Self) -> Self {
         Self {
-            foreground: other.foreground().or(self.foreground),
-            background: other.background().or(self.background),
+            foreground: other.foreground.or(self.foreground),
+            background: other.background.or(self.background),
+            attributes: self.attributes | other.attributes,
         }
     }
 }
@@ -78,12 +90,29 @@ impl From<TokenKind> for Style {
         match kind {
             TokenKind::Identifier => Self::new().with_fg(colors::FADED_RED),
             TokenKind::Keyword => Self::new().with_fg(colors::FADED_AQUA),
-            TokenKind::String => Self::new().with_fg(colors::FADED_GREEN),
+            TokenKind::String => {
+                Self::new()
+                    .with_fg(colors::FADED_GREEN)
+                    .with_attributes(StyleAttributes::Italic)
+            }
             TokenKind::Type => Self::new().with_fg(colors::FADED_YELLOW),
-            TokenKind::Comment => Self::new().with_fg(colors::GRAY),
+            TokenKind::Comment => {
+                Self::new()
+                    .with_fg(colors::GRAY)
+                    .with_attributes(StyleAttributes::Italic)
+            }
             TokenKind::Operator => Self::new().with_fg(colors::FADED_ORANGE),
             TokenKind::Whitespace | TokenKind::Unknown => Self::new(),
         }
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) struct StyleAttributes: u8 {
+        const Bold =  0b0000_0001;
+        const Italic = 0b0000_0010;
+        const Underlined = 0b0000_0100;
     }
 }
 
@@ -96,11 +125,13 @@ mod tests {
         let base = Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Bold,
         };
 
         let other = Style {
             foreground: None,
             background: None,
+            attributes: StyleAttributes::empty(),
         };
 
         let merged = base.merge(other);
@@ -108,6 +139,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Bold,
         });
     }
 
@@ -116,11 +148,13 @@ mod tests {
         let base = Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Italic,
         };
 
         let other = Style {
             foreground: Some(Color::Blue),
             background: None,
+            attributes: StyleAttributes::empty(),
         };
 
         let merged = base.merge(other);
@@ -128,6 +162,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Blue),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Italic,
         });
     }
 
@@ -136,11 +171,13 @@ mod tests {
         let base = Style {
             foreground: Some(Color::White),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Underlined,
         };
 
         let other = Style {
             foreground: None,
             background: Some(Color::Green),
+            attributes: StyleAttributes::empty(),
         };
 
         let merged = base.merge(other);
@@ -148,6 +185,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::White),
             background: Some(Color::Green),
+            attributes: StyleAttributes::Underlined
         });
     }
 
@@ -156,11 +194,13 @@ mod tests {
         let base = Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Bold,
         };
 
         let other = Style {
             foreground: Some(Color::Blue),
             background: Some(Color::White),
+            attributes: StyleAttributes::Italic,
         };
 
         let merged = base.merge(other);
@@ -168,6 +208,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Blue),
             background: Some(Color::White),
+            attributes: StyleAttributes::Bold | StyleAttributes::Italic,
         });
     }
 
@@ -176,11 +217,13 @@ mod tests {
         let base = Style {
             foreground: None,
             background: Some(Color::Black),
+            attributes: StyleAttributes::empty(),
         };
 
         let other = Style {
             foreground: Some(Color::Green),
             background: None,
+            attributes: StyleAttributes::Bold,
         };
 
         let merged = base.merge(other);
@@ -188,6 +231,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Green),
             background: Some(Color::Black),
+            attributes: StyleAttributes::Bold,
         });
     }
 
@@ -196,11 +240,13 @@ mod tests {
         let base = Style {
             foreground: None,
             background: None,
+            attributes: StyleAttributes::empty(),
         };
 
         let other = Style {
             foreground: None,
             background: None,
+            attributes: StyleAttributes::empty(),
         };
 
         let merged = base.merge(other);
@@ -208,6 +254,32 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: None,
             background: None,
+            attributes: StyleAttributes::empty(),
+        });
+    }
+
+    #[test]
+    fn merge_combines_attributes() {
+        let base = Style {
+            foreground: None,
+            background: None,
+            attributes: StyleAttributes::Bold,
+        };
+
+        let other = Style {
+            foreground: None,
+            background: None,
+            attributes: StyleAttributes::Italic | StyleAttributes::Underlined,
+        };
+
+        let merged = base.merge(other);
+
+        assert_eq!(merged, Style {
+            foreground: None,
+            background: None,
+            attributes: StyleAttributes::Bold
+                | StyleAttributes::Italic
+                | StyleAttributes::Underlined
         });
     }
 }

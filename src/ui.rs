@@ -474,7 +474,7 @@ impl<'text> Span<'text> {
     pub(crate) fn new(text: impl Into<Cow<'text, str>>) -> Self {
         Self {
             text: text.into(),
-            style: Style::default(),
+            style: Style::new(),
         }
     }
 

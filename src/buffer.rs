@@ -11,7 +11,10 @@ use crate::{
         GraphemeLayoutIterator,
         WrapBehavior,
     },
-    style::Style,
+    style::{
+        Style,
+        StyleAttributes,
+    },
     text::text_width,
     ui::{
         Alignment,
@@ -212,6 +215,7 @@ pub(crate) struct Cell {
     content: String,
     foreground: Color,
     background: Color,
+    attributes: StyleAttributes,
 }
 
 impl Cell {
@@ -220,6 +224,7 @@ impl Cell {
             content: String::from(content),
             foreground: Color::Reset,
             background: Color::Reset,
+            attributes: StyleAttributes::empty(),
         }
     }
 
@@ -233,6 +238,10 @@ impl Cell {
 
     pub(crate) const fn background(&self) -> Color {
         self.background
+    }
+
+    pub(crate) const fn attributes(&self) -> StyleAttributes {
+        self.attributes
     }
 
     pub(crate) fn set_content(&mut self, text: &str) -> &mut Self {
@@ -249,6 +258,8 @@ impl Cell {
         if let Some(background) = style.background() {
             self.background = background;
         }
+
+        self.attributes = style.attributes();
 
         self
     }
