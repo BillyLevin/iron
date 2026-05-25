@@ -37,6 +37,8 @@ impl Editor {
     }
 
     pub(crate) fn handle_event(&mut self, event: &Event) -> EventOutcome {
+        puffin::profile_function!();
+
         let mut result = EventOutcome::Unhandled;
 
         let mut event_context = EventContext::new();
@@ -59,6 +61,8 @@ impl Editor {
     }
 
     pub(crate) fn render(&mut self, buffer: &mut Buffer) {
+        puffin::profile_function!();
+
         for layer in self.layers_mut() {
             layer.render(buffer);
         }

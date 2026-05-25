@@ -90,11 +90,15 @@ impl Terminal {
         self.draw(editor.visual_cursor_position())?;
 
         loop {
+            puffin::GlobalProfiler::lock().new_frame();
+
             self.buffer.clear();
 
             let mut rerender = false;
 
             if event::poll(Duration::from_millis(16))? {
+                puffin::profile_scope!("terminal_event");
+
                 let terminal_event = event::read()?;
 
                 match terminal_event {

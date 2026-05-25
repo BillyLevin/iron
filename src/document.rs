@@ -395,6 +395,8 @@ impl Document {
         count: Option<NonZeroUsize>,
         event_context: &mut EventContext,
     ) {
+        puffin::profile_function!();
+
         let action_count = count.map_or(1, NonZero::get);
 
         match action {
@@ -577,6 +579,8 @@ impl Document {
     }
 
     fn recalculate_scroll(&mut self) {
+        puffin::profile_function!();
+
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
 
@@ -1240,6 +1244,11 @@ impl Document {
     }
 
     fn visual_cursor_position_impl(&self) -> Position {
+        // TODO: this is unacceptably slow if we jump very far down a document (10,000s
+        // of lines). not yet sure why it would be so slow since we only search through
+        // the relevant slice of the rope.
+        puffin::profile_function!();
+
         let start = self.text.slice(..).line_start_byte(self.scroll_offset);
 
         GraphemeLayoutIterator::new(

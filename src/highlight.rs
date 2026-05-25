@@ -29,6 +29,15 @@ impl<'src> Highlighter<'src> {
     }
 
     pub(crate) fn advance_until(&mut self, index: ByteIndex) -> Option<&Token> {
+        // TODO: very slow at the bottom of extremely large files. potential ways to
+        // improve perf:
+        // - cache and re-use tokens if no edits made
+        // - be smarter about which parts of the code we caclulate highlights for (it's
+        //   not as
+        // simple as just looking at the viewport bytes because some tokens may lose
+        // semantics if the start goes off the screen)
+        puffin::profile_function!();
+
         while let Some(ref token) = self.current_token
             && !token.range.contains(&index)
         {
