@@ -198,7 +198,7 @@ fn attributes_diff(current: StyleAttributes, next: StyleAttributes) -> Attribute
     let removed = current - next;
     for attribute in removed {
         let opposite = match attribute {
-            StyleAttributes::Bold => Attribute::NoBold,
+            StyleAttributes::Bold => Attribute::NormalIntensity,
             StyleAttributes::Italic => Attribute::NoItalic,
             StyleAttributes::Underlined => Attribute::NoUnderline,
             _ => unreachable!(),
