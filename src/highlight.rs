@@ -81,6 +81,7 @@ pub(crate) enum TokenKind {
     Operator,
     Unknown,
     Character,
+    Lifetime,
 }
 
 #[derive(Debug)]
@@ -395,29 +396,45 @@ impl<'src> RustLexer<'src> {
 
     fn read_single_quote(&mut self) -> TokenKind {
         assert!(
-            matches!(self.current_char(), Some('\'')),
+            self.eat_if('\''),
             "`read_single_quote` must only be called when the current character is a single quote"
         );
-        self.next_char();
 
-        let is_simple_char = self.peek_char() == Some('\'');
-
-        if is_simple_char {
-            self.next_char();
-            assert!(
-                self.eat_if('\''),
-                "we verified above that `\\` is the current character"
-            );
-            TokenKind::Character
+        let is_maybe_lifetime = if self.peek_char() == Some('\'') {
+            false
         } else {
-            // TODO: could be:
-            // - a lifetime
-            // - a longer char literal (e.g. something like '\n')
-            // - a char that was accidentally not terminated
-            // - a string that was accidentally declared with single quotes
-            // decide how/if we want to handle these cases especially.
-            TokenKind::Operator
+            matches!(self.current_char(), Some('a'..='z' | '_'))
+        };
+
+        if !is_maybe_lifetime {
+            while let Some(ch) = self.current_char() {
+                match ch {
+                    '\'' => {
+                        self.next_char();
+                        return TokenKind::Character;
+                    }
+                    // escaping something; let's skip the slash and the next char
+                    '\\' => {
+                        self.next_char();
+                        self.next_char();
+                    }
+                    _ => {
+                        self.next_char();
+                    }
+                }
+            }
         }
+
+        // we'll assume it's a lifetime
+        // TODO: it could also be intended as a string but they accidentally put it in
+        // single quotes: do we want to highlight that differently?
+        while let Some(ch) = self.current_char()
+            && matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_')
+        {
+            self.next_char();
+        }
+
+        TokenKind::Lifetime
     }
 }
 
@@ -761,7 +778,7 @@ use foo",
     fn operators() {
         #[rustfmt::skip]
         let operators =  [
-              "'", "->", "=>", "<=", "=", "==", "!",
+              "->", "=>", "<=", "=", "==", "!",
               "!=", "%", "%=", "&", "&=", "&&", "|",
               "|=", "||", "^", "^=", "*", "*=", "-",
               "-=", "+", "+=", "/", "/=", ">", "<",
@@ -828,6 +845,98 @@ use foo",
             Some(Token {
                 kind: TokenKind::Character,
                 range: ByteIndex::new(4)..ByteIndex::new(7)
+            })
+        );
+    }
+
+    #[test]
+    fn long_chars() {
+        let source = Rope::from_str("'\\''");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Character,
+                range: ByteIndex::new(0)..ByteIndex::new(4)
+            })
+        );
+    }
+
+    #[test]
+    fn lifetimes() {
+        let source = Rope::from_str("impl<'src> Highlighter<'src>");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Keyword,
+                range: ByteIndex::new(0)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Operator,
+                range: ByteIndex::new(4)..ByteIndex::new(5)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Lifetime,
+                range: ByteIndex::new(5)..ByteIndex::new(9)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Operator,
+                range: ByteIndex::new(9)..ByteIndex::new(10)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(10)..ByteIndex::new(11)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Type,
+                range: ByteIndex::new(11)..ByteIndex::new(22)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Operator,
+                range: ByteIndex::new(22)..ByteIndex::new(23)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Lifetime,
+                range: ByteIndex::new(23)..ByteIndex::new(27)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Operator,
+                range: ByteIndex::new(27)..ByteIndex::new(28)
             })
         );
     }
