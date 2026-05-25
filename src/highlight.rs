@@ -80,6 +80,7 @@ pub(crate) enum TokenKind {
     Comment,
     Operator,
     Unknown,
+    Character,
 }
 
 #[derive(Debug)]
@@ -111,7 +112,8 @@ impl<'src> RustLexer<'src> {
                     '"' => self.read_string(),
                     'A'..='Z' => self.read_type(),
                     '/' => self.read_slash(),
-                    '\'' | '@' => {
+                    '\'' => self.read_single_quote(),
+                    '@' => {
                         self.next_char();
                         TokenKind::Operator
                     }
@@ -237,6 +239,12 @@ impl<'src> RustLexer<'src> {
         self.current
     }
 
+    fn peek_char(&self) -> Option<char> {
+        let position = self.current_position + self.current_char()?.len_utf8();
+
+        self.source.get_char(position.value()).ok()
+    }
+
     fn next_char(&mut self) -> Option<char> {
         let current_ch = self.current_char()?;
         let next_position = self.current_position + current_ch.len_utf8();
@@ -245,6 +253,17 @@ impl<'src> RustLexer<'src> {
 
         self.current = self.source.get_char(next_position.value()).ok();
         self.current
+    }
+
+    /// Optionally eats the current char if it matches the given `ch`. Returns
+    /// `true` if it ate the char.
+    fn eat_if(&mut self, ch: char) -> bool {
+        if self.current_char() == Some(ch) {
+            self.next_char();
+            true
+        } else {
+            false
+        }
     }
 
     fn read_identifier(&mut self) -> TokenKind {
@@ -371,6 +390,33 @@ impl<'src> RustLexer<'src> {
             }
 
             Some(_) | None => TokenKind::Operator,
+        }
+    }
+
+    fn read_single_quote(&mut self) -> TokenKind {
+        assert!(
+            matches!(self.current_char(), Some('\'')),
+            "`read_single_quote` must only be called when the current character is a single quote"
+        );
+        self.next_char();
+
+        let is_simple_char = self.peek_char() == Some('\'');
+
+        if is_simple_char {
+            self.next_char();
+            assert!(
+                self.eat_if('\''),
+                "we verified above that `\\` is the current character"
+            );
+            TokenKind::Character
+        } else {
+            // TODO: could be:
+            // - a lifetime
+            // - a longer char literal (e.g. something like '\n')
+            // - a char that was accidentally not terminated
+            // - a string that was accidentally declared with single quotes
+            // decide how/if we want to handle these cases especially.
+            TokenKind::Operator
         }
     }
 }
@@ -754,5 +800,35 @@ use foo",
                 position += 1;
             }
         }
+    }
+
+    #[test]
+    fn chars() {
+        let source = Rope::from_str("'h' 'i'");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Character,
+                range: ByteIndex::new(0)..ByteIndex::new(3)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(3)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Character,
+                range: ByteIndex::new(4)..ByteIndex::new(7)
+            })
+        );
     }
 }
