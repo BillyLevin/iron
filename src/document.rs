@@ -64,10 +64,13 @@ use crate::{
         DiffSummary,
     },
     keymap::{
+        BehaviorAction,
         DocumentAction,
+        EditAction,
         KeyBinding,
         KeyMap,
         KeySequence,
+        MovementAction,
     },
     language::Language,
     style::Style,
@@ -400,56 +403,100 @@ impl Document {
         let action_count = count.map_or(1, NonZero::get);
 
         match action {
-            DocumentAction::MoveDown => self.move_cursor_down(action_count),
-            DocumentAction::MoveUp => self.move_cursor_up(action_count),
-            DocumentAction::MoveRight => self.move_cursor_right(action_count),
-            DocumentAction::MoveLeft => self.move_cursor_left(action_count),
-            DocumentAction::MoveNextWordStart => self.move_cursor_next_word_start(action_count),
-            DocumentAction::MovePrevWordStart => self.move_cursor_prev_word_start(action_count),
-            DocumentAction::SwitchToInsertMode => self.insert_mode(),
-            DocumentAction::SwitchToNormalMode => self.normal_mode(),
-            DocumentAction::SwitchToVisualMode => self.visual_mode(),
-            DocumentAction::InsertChar(ch) => self.insert_char(ch),
-            DocumentAction::DeleteGrapheme => self.delete_grapheme(),
-            DocumentAction::InsertNewline => self.insert_newline(),
-            DocumentAction::MoveLineEnd => self.move_cursor_line_end(),
-            DocumentAction::MoveLineStart => self.move_cursor_line_start(),
-            DocumentAction::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
-            DocumentAction::MoveNextParagraph => self.move_cursor_next_paragraph(action_count),
-            DocumentAction::MovePrevParagraph => self.move_cursor_prev_paragraph(action_count),
-            DocumentAction::GoToLastLine => self.go_to_last_line(),
-            DocumentAction::GoToNthOrLastLine => self.go_to_nth_or_last_line(count),
-            DocumentAction::GoToNthOrFirstLine => self.go_to_nth_or_first_line(count),
-            DocumentAction::DeleteWord => self.delete_word(action_count),
-            DocumentAction::ChangeWord => self.change_word(action_count),
-            DocumentAction::DeleteToLineEnd => self.delete_to_line_end(),
-            DocumentAction::ChangeToLineEnd => self.change_to_line_end(),
-            DocumentAction::DeleteToLineStart => self.delete_to_line_start(),
-            DocumentAction::DeleteToLineFirstNonBlank => self.delete_to_first_non_blank(),
-            DocumentAction::DeleteLine => self.delete_line(action_count),
-            DocumentAction::DeleteWholeWord => self.delete_whole_word(action_count),
-            DocumentAction::DeleteToPrevWordStart => self.delete_to_prev_word_start(action_count),
-            DocumentAction::AppendText => self.append_text(),
-            DocumentAction::AppendTextLineEnd => self.append_text_line_end(),
-            DocumentAction::MoveWordEnd => self.move_cursor_word_end(action_count),
-            DocumentAction::DeleteToWordEnd => self.delete_to_word_end(action_count),
-            DocumentAction::ChangeToLineStart => self.change_to_line_start(),
-            DocumentAction::ChangeToLineFirstNonBlank => self.change_to_first_non_blank(),
-            DocumentAction::ChangeLine => self.change_line(action_count),
-            DocumentAction::ChangeWholeWord => self.change_whole_word(action_count),
-            DocumentAction::ChangeToPrevWordStart => self.change_to_prev_word_start(action_count),
-            DocumentAction::ChangeToWordEnd => self.change_to_word_end(action_count),
-            DocumentAction::DeleteSelection => self.delete_selection(),
-            DocumentAction::ChangeSelection => self.change_selection(),
-            DocumentAction::ReverseSelection => self.reverse_selection(),
-            DocumentAction::OpenLineBelow => self.open_new_line_below(),
-            DocumentAction::OpenLineAbove => self.open_new_line_above(),
-            DocumentAction::SelectCurrentWord => self.select_current_word(),
-            DocumentAction::DeleteDown => self.delete_down(action_count),
-            DocumentAction::DeleteUp => self.delete_up(action_count),
-            DocumentAction::OpenCommandList => Self::open_command_list(event_context),
-            DocumentAction::ClearInput => self.clear_input(),
-            DocumentAction::InsertTab => self.insert_tab(),
+            DocumentAction::Movement(MovementAction::MoveDown) => {
+                self.move_cursor_down(action_count);
+            }
+            DocumentAction::Movement(MovementAction::MoveUp) => self.move_cursor_up(action_count),
+            DocumentAction::Movement(MovementAction::MoveRight) => {
+                self.move_cursor_right(action_count);
+            }
+            DocumentAction::Movement(MovementAction::MoveLeft) => {
+                self.move_cursor_left(action_count);
+            }
+            DocumentAction::Movement(MovementAction::MoveNextWordStart) => {
+                self.move_cursor_next_word_start(action_count);
+            }
+            DocumentAction::Movement(MovementAction::MovePrevWordStart) => {
+                self.move_cursor_prev_word_start(action_count);
+            }
+            DocumentAction::Behavior(BehaviorAction::SwitchToInsertMode) => self.insert_mode(),
+            DocumentAction::Behavior(BehaviorAction::SwitchToNormalMode) => self.normal_mode(),
+            DocumentAction::Behavior(BehaviorAction::SwitchToVisualMode) => self.visual_mode(),
+            DocumentAction::Edit(EditAction::InsertChar(ch)) => self.insert_char(ch),
+            DocumentAction::Edit(EditAction::DeleteGrapheme) => self.delete_grapheme(),
+            DocumentAction::Edit(EditAction::InsertNewline) => self.insert_newline(),
+            DocumentAction::Movement(MovementAction::MoveLineEnd) => self.move_cursor_line_end(),
+            DocumentAction::Movement(MovementAction::MoveLineStart) => {
+                self.move_cursor_line_start();
+            }
+            DocumentAction::Movement(MovementAction::MoveLineFirstNonBlank) => {
+                self.move_cursor_first_non_blank();
+            }
+            DocumentAction::Movement(MovementAction::MoveNextParagraph) => {
+                self.move_cursor_next_paragraph(action_count);
+            }
+            DocumentAction::Movement(MovementAction::MovePrevParagraph) => {
+                self.move_cursor_prev_paragraph(action_count);
+            }
+            DocumentAction::Movement(MovementAction::GoToLastLine) => self.go_to_last_line(),
+            DocumentAction::Movement(MovementAction::GoToNthOrLastLine) => {
+                self.go_to_nth_or_last_line(count);
+            }
+            DocumentAction::Movement(MovementAction::GoToNthOrFirstLine) => {
+                self.go_to_nth_or_first_line(count);
+            }
+            DocumentAction::Edit(EditAction::DeleteWord) => self.delete_word(action_count),
+            DocumentAction::Edit(EditAction::ChangeWord) => self.change_word(action_count),
+            DocumentAction::Edit(EditAction::DeleteToLineEnd) => self.delete_to_line_end(),
+            DocumentAction::Edit(EditAction::ChangeToLineEnd) => self.change_to_line_end(),
+            DocumentAction::Edit(EditAction::DeleteToLineStart) => self.delete_to_line_start(),
+            DocumentAction::Edit(EditAction::DeleteToLineFirstNonBlank) => {
+                self.delete_to_first_non_blank();
+            }
+            DocumentAction::Edit(EditAction::DeleteLine) => self.delete_line(action_count),
+            DocumentAction::Edit(EditAction::DeleteWholeWord) => {
+                self.delete_whole_word(action_count);
+            }
+            DocumentAction::Edit(EditAction::DeleteToPrevWordStart) => {
+                self.delete_to_prev_word_start(action_count);
+            }
+            DocumentAction::Edit(EditAction::AppendText) => self.append_text(),
+            DocumentAction::Edit(EditAction::AppendTextLineEnd) => self.append_text_line_end(),
+            DocumentAction::Movement(MovementAction::MoveWordEnd) => {
+                self.move_cursor_word_end(action_count);
+            }
+            DocumentAction::Edit(EditAction::DeleteToWordEnd) => {
+                self.delete_to_word_end(action_count);
+            }
+            DocumentAction::Edit(EditAction::ChangeToLineStart) => self.change_to_line_start(),
+            DocumentAction::Edit(EditAction::ChangeToLineFirstNonBlank) => {
+                self.change_to_first_non_blank();
+            }
+            DocumentAction::Edit(EditAction::ChangeLine) => self.change_line(action_count),
+            DocumentAction::Edit(EditAction::ChangeWholeWord) => {
+                self.change_whole_word(action_count);
+            }
+            DocumentAction::Edit(EditAction::ChangeToPrevWordStart) => {
+                self.change_to_prev_word_start(action_count);
+            }
+            DocumentAction::Edit(EditAction::ChangeToWordEnd) => {
+                self.change_to_word_end(action_count);
+            }
+            DocumentAction::Edit(EditAction::DeleteSelection) => self.delete_selection(),
+            DocumentAction::Edit(EditAction::ChangeSelection) => self.change_selection(),
+            DocumentAction::Movement(MovementAction::ReverseSelection) => self.reverse_selection(),
+            DocumentAction::Edit(EditAction::OpenLineBelow) => self.open_new_line_below(),
+            DocumentAction::Edit(EditAction::OpenLineAbove) => self.open_new_line_above(),
+            DocumentAction::Movement(MovementAction::SelectCurrentWord) => {
+                self.select_current_word();
+            }
+            DocumentAction::Edit(EditAction::DeleteDown) => self.delete_down(action_count),
+            DocumentAction::Edit(EditAction::DeleteUp) => self.delete_up(action_count),
+            DocumentAction::Behavior(BehaviorAction::OpenCommandList) => {
+                Self::open_command_list(event_context);
+            }
+            DocumentAction::Behavior(BehaviorAction::ClearInput) => self.clear_input(),
+            DocumentAction::Edit(EditAction::InsertTab) => self.insert_tab(),
         }
 
         if action.should_reset_desired_column() {
@@ -637,7 +684,7 @@ impl Document {
                     && !key_event.modifiers.contains(KeyModifiers::CONTROL)
                     && !key_event.modifiers.contains(KeyModifiers::ALT)
                 {
-                    Some(DocumentAction::InsertChar(ch))
+                    Some(DocumentAction::Edit(EditAction::InsertChar(ch)))
                 } else {
                     None
                 }
