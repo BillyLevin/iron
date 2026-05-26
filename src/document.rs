@@ -579,18 +579,23 @@ impl Document {
     }
 
     fn recalculate_scroll(&mut self) {
-        puffin::profile_function!();
-
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
+
+        let height = self.layout_info.text_rect.height();
 
         if cursor_line < self.scroll_offset {
             // upwards scroll
             self.scroll_offset = cursor_line;
         } else {
-            let cursor = self.visual_cursor_position_impl();
+            // move the scroll offset further down so that we don't have to scan as much of
+            // the rope when calculating the cursor position. `scroll_offset` will still be
+            // off the screen, so it won't impact the calculation
+            if cursor_line > self.scroll_offset + LineIndex::new(height.value()) {
+                self.scroll_offset = cursor_line.saturating_sub(height.value());
+            }
 
-            let height = self.layout_info.text_rect.height();
+            let cursor = self.visual_cursor_position_impl();
 
             // downwards scroll
             if cursor.top() >= height {
@@ -1244,11 +1249,6 @@ impl Document {
     }
 
     fn visual_cursor_position_impl(&self) -> Position {
-        // TODO: this is unacceptably slow if we jump very far down a document (10,000s
-        // of lines). not yet sure why it would be so slow since we only search through
-        // the relevant slice of the rope.
-        puffin::profile_function!();
-
         let start = self.text.slice(..).line_start_byte(self.scroll_offset);
 
         GraphemeLayoutIterator::new(
