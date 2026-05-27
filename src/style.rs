@@ -108,7 +108,8 @@ impl From<TokenKind> for Style {
                     .with_fg(colors::FADED_GREEN)
                     .with_attributes(StyleAttributes::Bold)
             }
-            TokenKind::Whitespace | TokenKind::Unknown => Self::new(),
+            TokenKind::Unknown => Self::TEXT,
+            TokenKind::Whitespace => Self::new(),
         }
     }
 }
