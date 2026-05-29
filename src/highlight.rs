@@ -92,6 +92,7 @@ pub(crate) enum TokenKind {
     Character,
     Lifetime,
     FunctionName,
+    Bracket,
 }
 
 #[derive(Debug)]
@@ -130,6 +131,10 @@ impl<'src> RustLexer<'src> {
                     'A'..='Z' => self.read_type(),
                     '/' => self.read_slash(),
                     '\'' => self.read_single_quote(),
+                    '{' | '}' => {
+                        self.next_char();
+                        TokenKind::Bracket
+                    }
                     '@' => {
                         self.next_char();
                         TokenKind::Operator
@@ -1009,6 +1014,52 @@ use foo",
             Some(Token {
                 kind: TokenKind::FunctionName,
                 range: ByteIndex::new(3)..ByteIndex::new(8)
+            })
+        );
+    }
+
+    #[test]
+    fn brackets() {
+        let source = Rope::from_str("{ foo }");
+        let mut lexer = RustLexer::new(source.slice(..));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Bracket,
+                range: ByteIndex::new(0)..ByteIndex::new(1)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(1)..ByteIndex::new(2)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(2)..ByteIndex::new(5)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(5)..ByteIndex::new(6)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Bracket,
+                range: ByteIndex::new(6)..ByteIndex::new(7)
             })
         );
     }
