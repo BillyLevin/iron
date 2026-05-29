@@ -1,4 +1,7 @@
-use std::ops::Range;
+use std::{
+    assert_matches,
+    ops::Range,
+};
 
 use ropey::RopeSlice;
 
@@ -358,8 +361,9 @@ impl<'src> RustLexer<'src> {
     }
 
     fn read_type(&mut self) -> TokenKind {
-        assert!(
-            matches!(self.current_char(), Some('A'..='Z')),
+        assert_matches!(
+            self.current_char(),
+            Some('A'..='Z'),
             "types must start with a capital letter"
         );
         self.next_char();
@@ -374,8 +378,9 @@ impl<'src> RustLexer<'src> {
     }
 
     fn read_slash(&mut self) -> TokenKind {
-        assert!(
-            matches!(self.current_char(), Some('/')),
+        assert_matches!(
+            self.current_char(),
+            Some('/'),
             "`read_slash` must only be called when the current character is a slash"
         );
         self.next_char();
