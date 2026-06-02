@@ -58,6 +58,7 @@ use crate::{
     highlight::{
         Highlighter,
         Token,
+        TokenKind,
     },
     jujutsu::{
         self,
@@ -142,13 +143,20 @@ pub(crate) struct Document {
     jj_poll_tx: Option<Sender<JJPoll>>,
 
     error: Option<String>,
+
+    highlights: HighlightCache,
+
+    highlight_request_tx: Sender<HighlightRequest>,
+    highlight_response_rx: Receiver<HighlightCache>,
 }
 
 impl Document {
     pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
         let (jj_desc_tx, jj_desc_rx) = sync::mpsc::channel();
 
-        Ok(Self {
+        let (highlight_request_tx, highlight_response_rx) = spawn_highlights_thread();
+
+        let this = Self {
             text: Rope::from_reader(BufReader::new(File::open(&file_path)?))?,
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
@@ -165,7 +173,14 @@ impl Document {
             jj_poll_rx: jj_desc_rx,
             jj_poll_tx: Some(jj_desc_tx),
             error: None,
-        })
+            highlights: HighlightCache::new(),
+            highlight_request_tx,
+            highlight_response_rx,
+        };
+
+        this.request_highlight_refresh();
+
+        Ok(this)
     }
 
     pub(crate) fn handle_key_event(
@@ -497,6 +512,10 @@ impl Document {
             }
             DocumentAction::Behavior(BehaviorAction::ClearInput) => self.clear_input(),
             DocumentAction::Edit(EditAction::InsertTab) => self.insert_tab(),
+        }
+
+        if matches!(action, DocumentAction::Edit(_)) {
+            self.request_highlight_refresh();
         }
 
         if action.should_reset_desired_column() {
@@ -1339,6 +1358,39 @@ impl Document {
         // instead.
         self.insert_char('\t');
     }
+
+    fn request_highlight_refresh(&self) {
+        self.highlight_request_tx
+            .send(HighlightRequest {
+                text: self.text.clone(),
+                language: self.language,
+            })
+            .expect("highlight request receiver should be alive");
+    }
+}
+
+fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCache>) {
+    let (highlight_request_tx, highlight_request_rx) = sync::mpsc::channel::<HighlightRequest>();
+    let (highlight_response_tx, highlight_response_rx) = sync::mpsc::channel::<HighlightCache>();
+
+    thread::spawn(move || -> ! {
+        loop {
+            if let Ok(mut request) = highlight_request_rx.recv() {
+                while let Ok(latest_request) = highlight_request_rx.try_recv() {
+                    request = latest_request;
+                }
+
+                highlight_response_tx
+                    .send(HighlightCache {
+                        tokens: Highlighter::new(request.text.slice(..), request.language)
+                            .collect(),
+                    })
+                    .expect("highlight response receiver should be alive");
+            }
+        }
+    });
+
+    (highlight_request_tx, highlight_response_rx)
 }
 
 impl Layer for Document {
@@ -1354,8 +1406,6 @@ impl Layer for Document {
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
 
         let mut line_index = self.scroll_offset;
-
-        let mut highlighter = Highlighter::new(text, self.language);
 
         for visual_grapheme in GraphemeLayoutIterator::new(
             self.text.slice(start_byte.value()..).graphemes(),
@@ -1402,9 +1452,9 @@ impl Layer for Document {
 
             let grapheme_index = start_byte + visual_grapheme.byte_index();
 
-            let style = highlighter
-                .advance_until(grapheme_index)
-                .map(Token::kind)
+            let style = self
+                .highlights
+                .token_kind_at(grapheme_index)
                 .map_or(Style::TEXT, Style::from);
 
             buffer[translated_position]
@@ -1446,7 +1496,7 @@ impl Layer for Document {
     fn handle_internal_events(&mut self) -> EventOutcome {
         self.poll_jj();
 
-        if let Ok(poll_outcome) = self.jj_poll_rx.try_recv() {
+        let outcome = if let Ok(poll_outcome) = self.jj_poll_rx.try_recv() {
             if let Ok(desc) = poll_outcome.description {
                 self.set_jj_change_description(desc);
             }
@@ -1458,6 +1508,17 @@ impl Layer for Document {
             EventOutcome::Handled
         } else {
             EventOutcome::Unhandled
+        };
+
+        if let Ok(mut highlights) = self.highlight_response_rx.try_recv() {
+            while let Ok(latest) = self.highlight_response_rx.try_recv() {
+                highlights = latest;
+            }
+
+            self.highlights = highlights;
+            EventOutcome::Handled
+        } else {
+            outcome
         }
     }
 
@@ -1581,6 +1642,33 @@ impl fmt::Display for Mode {
 struct JJPoll {
     description: anyhow::Result<Option<String>>,
     diff: anyhow::Result<Option<DiffSummary>>,
+}
+
+#[derive(Debug)]
+struct HighlightCache {
+    tokens: Vec<Token>,
+}
+
+impl HighlightCache {
+    const fn new() -> Self {
+        Self { tokens: Vec::new() }
+    }
+
+    fn token_kind_at(&self, index: ByteIndex) -> Option<TokenKind> {
+        let candidate_index = self
+            .tokens
+            .partition_point(|token| token.start() <= index)
+            .saturating_sub(1);
+
+        let token = self.tokens.get(candidate_index)?;
+        token.contains(index).then_some(token.kind())
+    }
+}
+
+#[derive(Debug)]
+struct HighlightRequest {
+    text: Rope,
+    language: Language,
 }
 
 #[cfg(test)]
