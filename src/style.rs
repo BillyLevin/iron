@@ -89,7 +89,8 @@ impl From<TokenKind> for Style {
     fn from(kind: TokenKind) -> Self {
         match kind {
             TokenKind::Identifier => Self::new().with_fg(colors::FADED_BLUE),
-            TokenKind::Keyword | TokenKind::Lifetime => Self::new().with_fg(colors::FADED_AQUA),
+            TokenKind::Keyword => Self::new().with_fg(colors::FADED_RED),
+            TokenKind::Lifetime => Self::new().with_fg(colors::FADED_AQUA),
             TokenKind::String => {
                 Self::new()
                     .with_fg(colors::FADED_GREEN)
