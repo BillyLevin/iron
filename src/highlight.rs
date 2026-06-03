@@ -16,10 +16,10 @@ pub(crate) struct Highlighter<'src> {
 }
 
 impl<'src> Highlighter<'src> {
-    pub(crate) fn new(source: RopeSlice<'src>, language: Language) -> Self {
+    pub(crate) fn new(source: RopeSlice<'src>, start: ByteIndex, language: Language) -> Self {
         Self {
             lexer: match language {
-                Language::Rust => Lexer::Rust(RustLexer::new(source)),
+                Language::Rust => Lexer::Rust(RustLexer::new(source, start)),
                 Language::Toml | Language::Text => Lexer::Default,
             },
         }
@@ -67,6 +67,10 @@ impl Token {
     pub(crate) const fn start(&self) -> ByteIndex {
         self.range.start
     }
+
+    pub(crate) const fn end(&self) -> ByteIndex {
+        self.range.end
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +94,8 @@ struct RustLexer<'src> {
     source: RopeSlice<'src>,
     current_position: ByteIndex,
     current: Option<char>,
+    /// The point we want to start lexing from.
+    start: ByteIndex,
 
     /// If the current token being read could impact the semantics of the next
     /// token, then this map describes the transformation from `[0]` to `[1]` of
@@ -98,13 +104,15 @@ struct RustLexer<'src> {
 }
 
 impl<'src> RustLexer<'src> {
-    fn new(source: RopeSlice<'src>) -> Self {
+    fn new(source: RopeSlice<'src>, start: ByteIndex) -> Self {
+        let source = source.slice(start.value()..);
         let current = source.get_char(0).ok();
 
         Self {
             source,
             current_position: ByteIndex::new(0),
             current,
+            start,
             expected_token_map: None,
         }
     }
@@ -243,7 +251,7 @@ impl<'src> RustLexer<'src> {
 
                 Token {
                     kind,
-                    range: start..self.current_position,
+                    range: self.start + start..self.start + self.current_position,
                 }
             })
     }
@@ -486,7 +494,7 @@ mod tests {
     #[test]
     fn identifiers() {
         let source = Rope::from_str("foo bar");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -516,7 +524,7 @@ mod tests {
     #[test]
     fn keywords() {
         let source = Rope::from_str("use foo impl bar");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -578,7 +586,7 @@ mod tests {
     #[test]
     fn strings() {
         let source = Rope::from_str(r#"foo "hello""#);
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -608,7 +616,7 @@ mod tests {
     #[test]
     fn types() {
         let source = Rope::from_str("struct Foo");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -642,7 +650,7 @@ mod tests {
 // hi
 use foo",
         );
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -708,7 +716,7 @@ use foo",
 /// hi
 use foo",
         );
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -770,7 +778,7 @@ use foo",
     #[test]
     fn block_comments() {
         let source = Rope::from_str("use /* foo */ bar");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -826,7 +834,7 @@ use foo",
         ];
 
         let source = Rope::from_str(&operators.join(" "));
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         let mut position = ByteIndex::new(0);
 
@@ -861,7 +869,7 @@ use foo",
     #[test]
     fn chars() {
         let source = Rope::from_str("'h' 'i'");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -891,7 +899,7 @@ use foo",
     #[test]
     fn long_chars() {
         let source = Rope::from_str("'\\''");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -905,7 +913,7 @@ use foo",
     #[test]
     fn lifetimes() {
         let source = Rope::from_str("impl<'src> Highlighter<'src>");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -983,7 +991,7 @@ use foo",
     #[test]
     fn function_name() {
         let source = Rope::from_str("fn hello");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),
@@ -1013,7 +1021,7 @@ use foo",
     #[test]
     fn brackets() {
         let source = Rope::from_str("{ foo }");
-        let mut lexer = RustLexer::new(source.slice(..));
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
         assert_eq!(
             lexer.next_token(),

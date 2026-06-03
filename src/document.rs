@@ -58,7 +58,6 @@ use crate::{
     highlight::{
         Highlighter,
         Token,
-        TokenKind,
     },
     jujutsu::{
         self,
@@ -1382,8 +1381,12 @@ fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCac
 
                 highlight_response_tx
                     .send(HighlightCache {
-                        tokens: Highlighter::new(request.text.slice(..), request.language)
-                            .collect(),
+                        tokens: Highlighter::new(
+                            request.text.slice(..),
+                            ByteIndex::new(0),
+                            request.language,
+                        )
+                        .collect(),
                     })
                     .expect("highlight response receiver should be alive");
             }
@@ -1406,6 +1409,13 @@ impl Layer for Document {
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
 
         let mut line_index = self.scroll_offset;
+
+        let mut highlighter = Highlighter::new(
+            text,
+            self.highlights.checkpoint_before(start_byte),
+            self.language,
+        );
+        let mut current_highlight = highlighter.next();
 
         for visual_grapheme in GraphemeLayoutIterator::new(
             self.text.slice(start_byte.value()..).graphemes(),
@@ -1452,9 +1462,16 @@ impl Layer for Document {
 
             let grapheme_index = start_byte + visual_grapheme.byte_index();
 
-            let style = self
-                .highlights
-                .token_kind_at(grapheme_index)
+            while current_highlight
+                .as_ref()
+                .is_some_and(|highlight| !highlight.contains(grapheme_index))
+            {
+                current_highlight = highlighter.next();
+            }
+
+            let style = current_highlight
+                .as_ref()
+                .map(Token::kind)
                 .map_or(Style::TEXT, Style::from);
 
             buffer[translated_position]
@@ -1654,14 +1671,26 @@ impl HighlightCache {
         Self { tokens: Vec::new() }
     }
 
-    fn token_kind_at(&self, index: ByteIndex) -> Option<TokenKind> {
-        let candidate_index = self
-            .tokens
-            .partition_point(|token| token.start() <= index)
-            .saturating_sub(1);
+    /// Gets the start byte of the closest token that occurs before the given
+    /// [`ByteIndex`]. This can be used as a start point to re-calculate the
+    /// highlights for a section of the text.
+    fn checkpoint_before(&self, index: ByteIndex) -> ByteIndex {
+        // if the token cache isn't yet populated, we don't want to highlight the whole
+        // text as this could be slow for extremely large files and this method
+        // blocks the renderer. instead, we'll just act as if `index` is a
+        // checkpoint and allow the highlights to potentially be slightly off until the
+        // token cache populates (shouldn't actually be noticeable to the user)
+        if self.tokens.is_empty() {
+            return index;
+        }
 
-        let token = self.tokens.get(candidate_index)?;
-        token.contains(index).then_some(token.kind())
+        self.tokens
+            .get(
+                self.tokens
+                    .partition_point(|token| token.end() < index)
+                    .saturating_sub(1),
+            )
+            .map_or(ByteIndex::new(0), Token::start)
     }
 }
 
