@@ -87,6 +87,7 @@ pub(crate) enum TokenKind {
     Lifetime,
     FunctionName,
     Bracket,
+    Number,
 }
 
 #[derive(Debug)]
@@ -124,6 +125,7 @@ impl<'src> RustLexer<'src> {
             .map(|ch| {
                 match ch {
                     'a'..='z' | '_' => self.read_identifier(),
+                    '0'..='9' => self.read_number(),
                     c if c.is_whitespace() => self.read_whitespace(),
                     '"' => self.read_string(),
                     'A'..='Z' => self.read_type(),
@@ -482,6 +484,18 @@ impl<'src> RustLexer<'src> {
         } else {
             kind
         }
+    }
+
+    fn read_number(&mut self) -> TokenKind {
+        while let Some(ch) = self.current_char()
+        // TODO: obviously not correct but i'll stick with the easy approach until i find
+        // a case where this breaks!
+            && matches!(ch, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9' | '.' )
+        {
+            self.next_char();
+        }
+
+        TokenKind::Number
     }
 }
 
@@ -1060,6 +1074,98 @@ use foo",
             Some(Token {
                 kind: TokenKind::Bracket,
                 range: ByteIndex::new(6)..ByteIndex::new(7)
+            })
+        );
+    }
+
+    #[test]
+    fn ints() {
+        let source = Rope::from_str("123 45 6_usize");
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Number,
+                range: ByteIndex::new(0)..ByteIndex::new(3)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(3)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Number,
+                range: ByteIndex::new(4)..ByteIndex::new(6)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(6)..ByteIndex::new(7)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Number,
+                range: ByteIndex::new(7)..ByteIndex::new(14)
+            })
+        );
+    }
+
+    #[test]
+    fn floats() {
+        let source = Rope::from_str("123.45_f32 45.03 6_700.67_f64");
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Number,
+                range: ByteIndex::new(0)..ByteIndex::new(10)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(10)..ByteIndex::new(11)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Number,
+                range: ByteIndex::new(11)..ByteIndex::new(16)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(16)..ByteIndex::new(17)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Number,
+                range: ByteIndex::new(17)..ByteIndex::new(29)
             })
         );
     }

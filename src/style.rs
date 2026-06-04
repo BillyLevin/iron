@@ -103,7 +103,7 @@ impl From<TokenKind> for Style {
                     .with_attributes(StyleAttributes::Italic)
             }
             TokenKind::Operator | TokenKind::Bracket => Self::new().with_fg(colors::FADED_ORANGE),
-            TokenKind::Character => Self::new().with_fg(colors::FADED_PURPLE),
+            TokenKind::Character | TokenKind::Number => Self::new().with_fg(colors::FADED_PURPLE),
             TokenKind::FunctionName => {
                 Self::new()
                     .with_fg(colors::FADED_GREEN)
