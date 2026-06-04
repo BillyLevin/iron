@@ -88,6 +88,7 @@ pub(crate) enum TokenKind {
     FunctionName,
     Bracket,
     Number,
+    Macro,
 }
 
 #[derive(Debug)]
@@ -124,7 +125,7 @@ impl<'src> RustLexer<'src> {
         self.current_char()
             .map(|ch| {
                 match ch {
-                    'a'..='z' | '_' => self.read_identifier(),
+                    'a'..='z' | '_' => self.read_identifier_or_macro(),
                     '0'..='9' => self.read_number(),
                     c if c.is_whitespace() => self.read_whitespace(),
                     '"' => self.read_string(),
@@ -289,14 +290,19 @@ impl<'src> RustLexer<'src> {
         }
     }
 
-    fn read_identifier(&mut self) -> TokenKind {
+    fn read_identifier_or_macro(&mut self) -> TokenKind {
         while let Some(ch) = self.current_char()
             && matches!(ch, 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')
         {
             self.next_char();
         }
 
-        TokenKind::Identifier
+        if self.current_char() == Some('!') && self.peek_char() != Some('=') {
+            self.next_char();
+            TokenKind::Macro
+        } else {
+            TokenKind::Identifier
+        }
     }
 
     fn read_whitespace(&mut self) -> TokenKind {
@@ -1166,6 +1172,52 @@ use foo",
             Some(Token {
                 kind: TokenKind::Number,
                 range: ByteIndex::new(17)..ByteIndex::new(29)
+            })
+        );
+    }
+
+    #[test]
+    fn macros() {
+        let source = Rope::from_str("foo! foo!=bar");
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Macro,
+                range: ByteIndex::new(0)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(4)..ByteIndex::new(5)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(5)..ByteIndex::new(8)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Operator,
+                range: ByteIndex::new(8)..ByteIndex::new(10)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(10)..ByteIndex::new(13)
             })
         );
     }
