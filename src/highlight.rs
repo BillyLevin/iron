@@ -86,7 +86,7 @@ pub(crate) enum TokenKind {
     Character,
     Lifetime,
     FunctionName,
-    Bracket,
+    Punctuation,
     Number,
     Macro,
 }
@@ -132,9 +132,18 @@ impl<'src> RustLexer<'src> {
                     'A'..='Z' => self.read_type(),
                     '/' => self.read_slash(),
                     '\'' => self.read_single_quote(),
-                    '{' | '}' => {
+                    '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' => {
                         self.next_char();
-                        TokenKind::Bracket
+                        TokenKind::Punctuation
+                    }
+                    ':' => {
+                        self.next_char();
+
+                        if self.current_char() == Some(':') {
+                            self.next_char();
+                        }
+
+                        TokenKind::Punctuation
                     }
                     '@' => {
                         self.next_char();
@@ -164,6 +173,7 @@ impl<'src> RustLexer<'src> {
                         match self.current_char() {
                             Some('=') => {
                                 self.next_char();
+                                TokenKind::Operator
                             }
 
                             Some('<') => {
@@ -172,11 +182,11 @@ impl<'src> RustLexer<'src> {
                                 if self.current_char() == Some('=') {
                                     self.next_char();
                                 }
-                            }
-                            _ => {}
-                        }
 
-                        TokenKind::Operator
+                                TokenKind::Operator
+                            }
+                            _ => TokenKind::Punctuation,
+                        }
                     }
                     '>' => {
                         self.next_char();
@@ -184,6 +194,7 @@ impl<'src> RustLexer<'src> {
                         match self.current_char() {
                             Some('=') => {
                                 self.next_char();
+                                TokenKind::Operator
                             }
 
                             Some('>') => {
@@ -192,11 +203,11 @@ impl<'src> RustLexer<'src> {
                                 if self.current_char() == Some('=') {
                                     self.next_char();
                                 }
-                            }
-                            _ => {}
-                        }
 
-                        TokenKind::Operator
+                                TokenKind::Operator
+                            }
+                            _ => TokenKind::Punctuation,
+                        }
                     }
                     '!' | '%' | '^' | '*' | '+' => {
                         self.next_char();
@@ -237,7 +248,7 @@ impl<'src> RustLexer<'src> {
 
                             TokenKind::Operator
                         } else {
-                            TokenKind::Unknown
+                            TokenKind::Punctuation
                         }
                     }
                     _ => {
@@ -848,7 +859,7 @@ use foo",
               "->", "=>", "<=", "=", "==", "!",
               "!=", "%", "%=", "&", "&=", "&&", "|",
               "|=", "||", "^", "^=", "*", "*=", "-",
-              "-=", "+", "+=", "/", "/=", ">", "<",
+              "-=", "+", "+=", "/", "/=",
               ">=", ">>", "<<", ">>=", "<<=", "@",
               "..", "..=",
         ];
@@ -946,7 +957,7 @@ use foo",
         assert_eq!(
             lexer.next_token(),
             Some(Token {
-                kind: TokenKind::Operator,
+                kind: TokenKind::Punctuation,
                 range: ByteIndex::new(4)..ByteIndex::new(5)
             })
         );
@@ -962,7 +973,7 @@ use foo",
         assert_eq!(
             lexer.next_token(),
             Some(Token {
-                kind: TokenKind::Operator,
+                kind: TokenKind::Punctuation,
                 range: ByteIndex::new(9)..ByteIndex::new(10)
             })
         );
@@ -986,7 +997,7 @@ use foo",
         assert_eq!(
             lexer.next_token(),
             Some(Token {
-                kind: TokenKind::Operator,
+                kind: TokenKind::Punctuation,
                 range: ByteIndex::new(22)..ByteIndex::new(23)
             })
         );
@@ -1002,7 +1013,7 @@ use foo",
         assert_eq!(
             lexer.next_token(),
             Some(Token {
-                kind: TokenKind::Operator,
+                kind: TokenKind::Punctuation,
                 range: ByteIndex::new(27)..ByteIndex::new(28)
             })
         );
@@ -1039,49 +1050,40 @@ use foo",
     }
 
     #[test]
-    fn brackets() {
-        let source = Rope::from_str("{ foo }");
+    fn punctuation() {
+        let punctuation = [
+            "(", ")", "[", "]", "{", "}", "<", ">", "<", ">", "::", ":", ".", ",", ";",
+        ];
+        let source = Rope::from_str(&punctuation.join(" "));
         let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Bracket,
-                range: ByteIndex::new(0)..ByteIndex::new(1)
-            })
-        );
+        let mut position = ByteIndex::new(0);
+        let mut punctuation_iter = punctuation.iter().peekable();
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(1)..ByteIndex::new(2)
-            })
-        );
+        while let Some(symbol) = punctuation_iter.next() {
+            let is_last = punctuation_iter.peek().is_none();
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(2)..ByteIndex::new(5)
-            })
-        );
+            assert_eq!(
+                lexer.next_token(),
+                Some(Token {
+                    kind: TokenKind::Punctuation,
+                    range: position..position + symbol.len()
+                })
+            );
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(5)..ByteIndex::new(6)
-            })
-        );
+            position += symbol.len();
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Bracket,
-                range: ByteIndex::new(6)..ByteIndex::new(7)
-            })
-        );
+            if !is_last {
+                assert_eq!(
+                    lexer.next_token(),
+                    Some(Token {
+                        kind: TokenKind::Whitespace,
+                        range: position..position + 1
+                    })
+                );
+                position += 1;
+            }
+        }
     }
 
     #[test]
