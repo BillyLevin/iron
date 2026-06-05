@@ -88,7 +88,7 @@ impl Style {
 impl From<TokenKind> for Style {
     fn from(kind: TokenKind) -> Self {
         match kind {
-            TokenKind::Identifier => Self::new().with_fg(colors::FADED_BLUE),
+            TokenKind::Identifier | TokenKind::Unknown => Self::TEXT,
             TokenKind::Keyword => Self::new().with_fg(colors::FADED_RED),
             TokenKind::Lifetime | TokenKind::Macro => Self::new().with_fg(colors::FADED_AQUA),
             TokenKind::String => {
@@ -111,7 +111,6 @@ impl From<TokenKind> for Style {
                     .with_fg(colors::FADED_GREEN)
                     .with_attributes(StyleAttributes::Bold)
             }
-            TokenKind::Unknown => Self::TEXT,
             TokenKind::Whitespace => Self::new(),
         }
     }
@@ -476,6 +475,7 @@ mod colors {
         b: 20,
     };
 
+    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const FADED_BLUE: Color = Color::Rgb {
         r: 7,
         g: 102,
