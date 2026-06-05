@@ -96,8 +96,6 @@ struct RustLexer<'src> {
     source: RopeSlice<'src>,
     current_position: ByteIndex,
     current: Option<char>,
-    /// The point we want to start lexing from.
-    start: ByteIndex,
 
     /// If the current token being read could impact the semantics of the next
     /// token, then this map describes the transformation from `[0]` to `[1]` of
@@ -107,14 +105,12 @@ struct RustLexer<'src> {
 
 impl<'src> RustLexer<'src> {
     fn new(source: RopeSlice<'src>, start: ByteIndex) -> Self {
-        let source = source.slice(start.value()..);
-        let current = source.get_char(0).ok();
+        let current = source.get_char(start.value()).ok();
 
         Self {
             source,
-            current_position: ByteIndex::new(0),
+            current_position: start,
             current,
-            start,
             expected_token_map: None,
         }
     }
@@ -265,7 +261,7 @@ impl<'src> RustLexer<'src> {
 
                 Token {
                     kind,
-                    range: self.start + start..self.start + self.current_position,
+                    range: start..self.current_position,
                 }
             })
     }
