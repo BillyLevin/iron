@@ -111,6 +111,7 @@ impl From<TokenKind> for Style {
                     .with_fg(colors::FADED_GREEN)
                     .with_attributes(StyleAttributes::Bold)
             }
+            TokenKind::Property => Self::new().with_fg(colors::FADED_BLUE),
             TokenKind::Whitespace => Self::new(),
         }
     }
@@ -475,7 +476,6 @@ mod colors {
         b: 20,
     };
 
-    #[expect(unused, reason = "unused colours may be useful in future")]
     pub(super) const FADED_BLUE: Color = Color::Rgb {
         r: 7,
         g: 102,

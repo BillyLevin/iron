@@ -89,6 +89,7 @@ pub(crate) enum TokenKind {
     Punctuation,
     Number,
     Macro,
+    Property,
 }
 
 #[derive(Debug)]
@@ -307,6 +308,9 @@ impl<'src> RustLexer<'src> {
         if self.current_char() == Some('!') && self.peek_char() != Some('=') {
             self.next_char();
             TokenKind::Macro
+        } else if self.current_char() == Some(':') && self.peek_char() != Some(':') {
+            self.next_char();
+            TokenKind::Property
         } else {
             TokenKind::Identifier
         }
@@ -1216,6 +1220,68 @@ use foo",
             Some(Token {
                 kind: TokenKind::Identifier,
                 range: ByteIndex::new(10)..ByteIndex::new(13)
+            })
+        );
+    }
+
+    #[test]
+    fn properties() {
+        let source = Rope::from_str("{ foo: bar }");
+        let mut lexer = RustLexer::new(source.slice(..), ByteIndex::new(0));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Punctuation,
+                range: ByteIndex::new(0)..ByteIndex::new(1)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(1)..ByteIndex::new(2)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Property,
+                range: ByteIndex::new(2)..ByteIndex::new(6)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(6)..ByteIndex::new(7)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                range: ByteIndex::new(7)..ByteIndex::new(10)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Whitespace,
+                range: ByteIndex::new(10)..ByteIndex::new(11)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Punctuation,
+                range: ByteIndex::new(11)..ByteIndex::new(12)
             })
         );
     }
