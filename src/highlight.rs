@@ -94,11 +94,6 @@ struct RustLexer {
     source: Rope,
     position: ByteIndex,
     current: Option<char>,
-
-    /// If the current token being read could impact the semantics of the next
-    /// token, then this map describes the transformation from `[0]` to `[1]` of
-    /// the token kind that should take place.
-    expected_token_map: Option<[TokenKind; 2]>,
 }
 
 impl RustLexer {
@@ -109,7 +104,6 @@ impl RustLexer {
             source,
             position: start,
             current,
-            expected_token_map: None,
         }
     }
 
@@ -122,9 +116,9 @@ impl RustLexer {
 
         let kind = match ch {
             c if c.is_whitespace() => self.read_whitespace(),
-            '_' => self.read_underscore(),
-            'a'..='z' => self.read_lowercase_ident(),
-            'A'..='Z' => self.read_uppercase_ident(),
+            '_' => self.read_underscore(start),
+            'a'..='z' => self.read_lowercase_ident(start),
+            'A'..='Z' => self.read_uppercase_ident(start),
             '0'..='9' => self.read_number(),
             '"' => self.read_string(),
             '/' => self.read_slash(),
@@ -153,11 +147,10 @@ impl RustLexer {
             }
         };
 
-        let range = start..self.position;
-        let kind = self.check_expected_mapping(kind);
-        let kind = self.check_keyword(kind, &range);
-
-        Token { kind, range }
+        Token {
+            kind,
+            range: start..self.position,
+        }
     }
 
     fn next_char(&mut self) -> Option<char> {
@@ -199,17 +192,17 @@ impl RustLexer {
         TokenKind::Whitespace
     }
 
-    fn read_underscore(&mut self) -> TokenKind {
+    fn read_underscore(&mut self, start: ByteIndex) -> TokenKind {
         self.eat_while(|ch| matches!(ch, '_' | '0'..='9'));
 
         match self.current {
-            Some(ch) if ch.is_ascii_uppercase() => self.read_uppercase_ident(),
-            Some(_) | None => self.read_lowercase_ident(),
+            Some(ch) if ch.is_ascii_uppercase() => self.read_uppercase_ident(start),
+            Some(_) | None => self.read_lowercase_ident(start),
         }
     }
 
-    fn read_lowercase_ident(&mut self) -> TokenKind {
-        self.eat_while(|ch| matches!(ch, 'a'..='z' | '_' | '0'..='9' ));
+    fn read_lowercase_ident(&mut self, start: ByteIndex) -> TokenKind {
+        self.eat_while(|ch| matches!(ch, 'a'..='z' | '_' | '0'..='9'));
 
         if self.current == Some('!') && self.peek() != Some('=') {
             self.assert('!');
@@ -217,15 +210,23 @@ impl RustLexer {
         } else if self.current == Some(':') && self.peek() != Some(':') {
             self.assert(':');
             TokenKind::Property
+        } else if self.is_keyword(start..self.position) {
+            TokenKind::Keyword
+        } else if self.current == Some('(') {
+            TokenKind::FunctionName
         } else {
             TokenKind::Identifier
         }
     }
 
-    fn read_uppercase_ident(&mut self) -> TokenKind {
+    fn read_uppercase_ident(&mut self, start: ByteIndex) -> TokenKind {
         self.eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_');
 
-        TokenKind::Type
+        if self.is_keyword(start..self.position) {
+            TokenKind::Keyword
+        } else {
+            TokenKind::Type
+        }
     }
 
     fn read_number(&mut self) -> TokenKind {
@@ -461,55 +462,54 @@ impl RustLexer {
         TokenKind::Punctuation
     }
 
-    fn check_keyword(&mut self, kind: TokenKind, range: &Range<ByteIndex>) -> TokenKind {
-        if !matches!(kind, TokenKind::Identifier | TokenKind::Type) {
-            return kind;
-        }
-
-        assert!(
-            self.position >= range.start,
-            "`position` should never decrement"
-        );
+    fn is_keyword(&self, range: Range<ByteIndex>) -> bool {
         let bytes: Vec<u8> = self
             .source
             .bytes_at(range.start.value())
-            .take((self.position - range.start).value())
+            .take((range.end - range.start).value())
             .collect();
 
-        match bytes.as_slice() {
-            b"_" | b"as" | b"async" | b"await" | b"break" | b"const" | b"continue" | b"crate"
-            | b"dyn" | b"else" | b"enum" | b"extern" | b"false" | b"for" | b"if" | b"impl"
-            | b"in" | b"let" | b"loop" | b"match" | b"mod" | b"move" | b"mut" | b"pub" | b"ref"
-            | b"return" | b"self" | b"Self" | b"static" | b"struct" | b"super" | b"trait"
-            | b"true" | b"type" | b"unsafe" | b"use" | b"where" | b"while" => TokenKind::Keyword,
-            b"fn" => {
-                // TODO: probably a better place to do this mutation
-                self.expected_token_map = Some([TokenKind::Identifier, TokenKind::FunctionName]);
-
-                TokenKind::Keyword
-            }
-
-            _ => kind,
-        }
-    }
-
-    /// If the token kind has an expected semantic mapping, then we apply it
-    /// here.
-    fn check_expected_mapping(&mut self, kind: TokenKind) -> TokenKind {
-        // we "skip" whitespace
-        if kind == TokenKind::Whitespace {
-            return kind;
-        }
-
-        let token_map = self.expected_token_map.take();
-
-        if let Some(map) = token_map
-            && map[0] == kind
-        {
-            map[1]
-        } else {
-            kind
-        }
+        matches!(
+            bytes.as_slice(),
+            b"_" | b"as"
+                | b"async"
+                | b"await"
+                | b"break"
+                | b"const"
+                | b"continue"
+                | b"crate"
+                | b"dyn"
+                | b"else"
+                | b"enum"
+                | b"extern"
+                | b"false"
+                | b"fn"
+                | b"for"
+                | b"if"
+                | b"impl"
+                | b"in"
+                | b"let"
+                | b"loop"
+                | b"match"
+                | b"mod"
+                | b"move"
+                | b"mut"
+                | b"pub"
+                | b"ref"
+                | b"return"
+                | b"self"
+                | b"Self"
+                | b"static"
+                | b"struct"
+                | b"super"
+                | b"trait"
+                | b"true"
+                | b"type"
+                | b"unsafe"
+                | b"use"
+                | b"where"
+                | b"while"
+        )
     }
 }
 
@@ -1067,7 +1067,7 @@ use foo",
 
     #[test]
     fn function_name() {
-        let source = Rope::from_str("fn hello");
+        let source = Rope::from_str("fn hello()");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
         assert_eq!(
@@ -1091,6 +1091,22 @@ use foo",
             Some(Token {
                 kind: TokenKind::FunctionName,
                 range: ByteIndex::new(3)..ByteIndex::new(8)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Punctuation,
+                range: ByteIndex::new(8)..ByteIndex::new(9)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Punctuation,
+                range: ByteIndex::new(9)..ByteIndex::new(10)
             })
         );
     }
@@ -1327,6 +1343,36 @@ use foo",
             Some(Token {
                 kind: TokenKind::Punctuation,
                 range: ByteIndex::new(11)..ByteIndex::new(12)
+            })
+        );
+    }
+
+    #[test]
+    fn function_call() {
+        let source = Rope::from_str("foo()");
+        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::FunctionName,
+                range: ByteIndex::new(0)..ByteIndex::new(3)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Punctuation,
+                range: ByteIndex::new(3)..ByteIndex::new(4)
+            })
+        );
+
+        assert_eq!(
+            lexer.next_token(),
+            Some(Token {
+                kind: TokenKind::Punctuation,
+                range: ByteIndex::new(4)..ByteIndex::new(5)
             })
         );
     }
