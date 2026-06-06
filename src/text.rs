@@ -215,6 +215,7 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     derive_more::Add,
     derive_more::AddAssign,
     derive_more::Sum,
+    derive_more::Sub,
 )]
 pub(crate) struct ByteIndex(usize);
 

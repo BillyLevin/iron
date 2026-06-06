@@ -1381,12 +1381,8 @@ fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCac
 
                 highlight_response_tx
                     .send(HighlightCache {
-                        tokens: Highlighter::new(
-                            request.text.slice(..),
-                            ByteIndex::new(0),
-                            request.language,
-                        )
-                        .collect(),
+                        tokens: Highlighter::new(request.text, ByteIndex::new(0), request.language)
+                            .collect(),
                     })
                     .expect("highlight response receiver should be alive");
             }
@@ -1411,7 +1407,7 @@ impl Layer for Document {
         let mut line_index = self.scroll_offset;
 
         let mut highlighter = Highlighter::new(
-            text,
+            self.text.clone(),
             self.highlights.checkpoint_before(start_byte),
             self.language,
         );
