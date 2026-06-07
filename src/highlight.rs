@@ -215,11 +215,7 @@ impl RustLexer {
         if self.current == Some('!') && self.peek() != Some('=') {
             self.assert('!');
             TokenKind::Macro
-        } else if self.current == Some(':') && self.peek() != Some(':') {
-            // TODO: shouldn't skip past it
-            self.assert(':');
-            TokenKind::Property
-        } else if self.maybe_property() && matches!(self.next_non_whitespace(), Some(',' | '}')) {
+        } else if self.is_property() {
             TokenKind::Property
         } else if self.is_keyword(start..self.position) {
             TokenKind::Keyword
@@ -604,6 +600,18 @@ impl RustLexer {
                 SignificantKind::OpenDelimiter(_) | SignificantKind::Other => false,
             }
     }
+
+    fn is_property(&self) -> bool {
+        if !self.maybe_property() {
+            return false;
+        }
+
+        if self.current == Some(':') && self.peek() != Some(':') {
+            return true;
+        }
+
+        matches!(self.next_non_whitespace(), Some(',' | '}'))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -887,7 +895,8 @@ use foo",
             "{ foo: bar }",
             (Punctuation, 0, 1),
             (Whitespace, 1, 2),
-            (Property, 2, 6),
+            (Property, 2, 5),
+            (Punctuation, 5, 6),
             (Whitespace, 6, 7),
             (Identifier, 7, 10),
             (Whitespace, 10, 11),
