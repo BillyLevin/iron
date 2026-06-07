@@ -111,7 +111,9 @@ impl From<TokenKind> for Style {
                     .with_fg(colors::FADED_GREEN)
                     .with_attributes(StyleAttributes::Bold)
             }
-            TokenKind::Property => Self::new().with_fg(colors::FADED_BLUE),
+            TokenKind::Property | TokenKind::PropertyAccess => {
+                Self::new().with_fg(colors::FADED_BLUE)
+            }
             TokenKind::Whitespace => Self::new(),
         }
     }

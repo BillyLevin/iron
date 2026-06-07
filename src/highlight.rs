@@ -87,6 +87,7 @@ pub(crate) enum TokenKind {
     Number,
     Macro,
     Property,
+    PropertyAccess,
 }
 
 #[derive(Debug)]
@@ -221,6 +222,8 @@ impl RustLexer {
             TokenKind::Keyword
         } else if self.current == Some('(') {
             TokenKind::FunctionName
+        } else if self.last_significant == SignificantKind::Dot {
+            TokenKind::PropertyAccess
         } else {
             TokenKind::Identifier
         }
@@ -551,6 +554,9 @@ impl RustLexer {
                     b"," => {
                         self.last_significant = SignificantKind::Comma;
                     }
+                    b"." => {
+                        self.last_significant = SignificantKind::Dot;
+                    }
                     _ => {}
                 }
             }
@@ -565,7 +571,8 @@ impl RustLexer {
             | TokenKind::FunctionName
             | TokenKind::Number
             | TokenKind::Macro
-            | TokenKind::Property => self.last_significant = SignificantKind::Other,
+            | TokenKind::Property
+            | TokenKind::PropertyAccess => self.last_significant = SignificantKind::Other,
 
             TokenKind::Whitespace | TokenKind::Comment => {}
         }
@@ -597,7 +604,9 @@ impl RustLexer {
         self.in_braces()
             && match self.last_significant {
                 SignificantKind::Comma | SignificantKind::OpenDelimiter(Delimiter::Brace) => true,
-                SignificantKind::OpenDelimiter(_) | SignificantKind::Other => false,
+                SignificantKind::OpenDelimiter(_)
+                | SignificantKind::Dot
+                | SignificantKind::Other => false,
             }
     }
 
@@ -624,10 +633,11 @@ enum Delimiter {
     Bracket,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SignificantKind {
     Comma,
     OpenDelimiter(Delimiter),
+    Dot,
     Other,
 }
 
@@ -925,6 +935,22 @@ use foo",
             (FunctionName, 0, 3),
             (Punctuation, 3, 4),
             (Punctuation, 4, 5),
+        );
+    }
+
+    #[test]
+    fn property_access() {
+        assert_tokens!(
+            "self.foo.bar.baz()",
+            (Keyword, 0, 4),
+            (Punctuation, 4, 5),
+            (PropertyAccess, 5, 8),
+            (Punctuation, 8, 9),
+            (PropertyAccess, 9, 12),
+            (Punctuation, 12, 13),
+            (FunctionName, 13, 16),
+            (Punctuation, 16, 17),
+            (Punctuation, 17, 18),
         );
     }
 }
