@@ -88,6 +88,7 @@ pub(crate) enum TokenKind {
     Macro,
     Property,
     PropertyAccess,
+    Constant,
 }
 
 #[derive(Debug)]
@@ -230,10 +231,21 @@ impl RustLexer {
     }
 
     fn read_uppercase_ident(&mut self, start: ByteIndex) -> TokenKind {
-        self.eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+        let mut is_uppercase = true;
+
+        self.eat_while(|ch| {
+            let result = ch.is_ascii_alphanumeric() || ch == '_';
+            if ch.is_ascii_lowercase() {
+                is_uppercase = false;
+            }
+
+            result
+        });
 
         if self.is_keyword(start..self.position) {
             TokenKind::Keyword
+        } else if is_uppercase {
+            TokenKind::Constant
         } else {
             TokenKind::Type
         }
@@ -572,7 +584,8 @@ impl RustLexer {
             | TokenKind::Number
             | TokenKind::Macro
             | TokenKind::Property
-            | TokenKind::PropertyAccess => self.last_significant = SignificantKind::Other,
+            | TokenKind::PropertyAccess
+            | TokenKind::Constant => self.last_significant = SignificantKind::Other,
 
             TokenKind::Whitespace | TokenKind::Comment => {}
         }
@@ -952,5 +965,17 @@ use foo",
             (Punctuation, 16, 17),
             (Punctuation, 17, 18),
         );
+    }
+
+    #[test]
+    fn consts() {
+        assert_tokens!(
+            "const HELLO",
+            (Keyword, 0, 5),
+            (Whitespace, 5, 6),
+            (Constant, 6, 11)
+        );
+
+        assert_tokens!("HELLO", (Constant, 0, 5));
     }
 }
