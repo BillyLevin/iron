@@ -635,259 +635,117 @@ mod tests {
 
     use super::*;
 
+    #[track_caller]
+    fn assert_token(lexer: &mut RustLexer, kind: TokenKind, range: Range<usize>) {
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind,
+            range: ByteIndex::new(range.start)..ByteIndex::new(range.end),
+        });
+    }
+
+    macro_rules! assert_tokens {
+        ($source:expr, $(($kind:ident, $start:expr, $end:expr)), +$(,)?) => {{
+            let source = Rope::from_str($source);
+            let mut lexer = RustLexer::new(source, ByteIndex::new(0));
+            $(assert_token(&mut lexer, TokenKind::$kind, $start..$end);)+
+            assert!(lexer.next_token().is_none());
+        }};
+    }
+
     #[test]
     fn identifiers() {
-        let source = Rope::from_str("foo bar __12baz");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(4)..ByteIndex::new(7)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(7)..ByteIndex::new(8)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(8)..ByteIndex::new(15)
-        });
+        assert_tokens!(
+            "foo bar __12baz",
+            (Identifier, 0, 3),
+            (Whitespace, 3, 4),
+            (Identifier, 4, 7),
+            (Whitespace, 7, 8),
+            (Identifier, 8, 15),
+        );
     }
 
     #[test]
     fn keywords() {
-        let source = Rope::from_str("use foo impl bar");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(4)..ByteIndex::new(7)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(7)..ByteIndex::new(8)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(8)..ByteIndex::new(12)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(12)..ByteIndex::new(13)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(13)..ByteIndex::new(16)
-        });
+        assert_tokens!(
+            "use foo impl bar",
+            (Keyword, 0, 3),
+            (Whitespace, 3, 4),
+            (Identifier, 4, 7),
+            (Whitespace, 7, 8),
+            (Keyword, 8, 12),
+            (Whitespace, 12, 13),
+            (Identifier, 13, 16),
+        );
     }
 
     #[test]
     fn strings() {
-        let source = Rope::from_str(r#"foo "hello" "h\"i""#);
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::String,
-            range: ByteIndex::new(4)..ByteIndex::new(11)
-        });
+        assert_tokens!(
+            r#"foo "hello" "h\"i""#,
+            (Identifier, 0, 3),
+            (Whitespace, 3, 4),
+            (String, 4, 11),
+            (Whitespace, 11, 12),
+            (String, 12, 18),
+        );
     }
 
     #[test]
     fn types() {
-        let source = Rope::from_str("struct Foo struct __12Foo");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(0)..ByteIndex::new(6)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(6)..ByteIndex::new(7)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Type,
-            range: ByteIndex::new(7)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(10)..ByteIndex::new(11)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(11)..ByteIndex::new(17)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(17)..ByteIndex::new(18)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Type,
-            range: ByteIndex::new(18)..ByteIndex::new(25)
-        });
+        assert_tokens!(
+            "struct Foo struct __12Foo",
+            (Keyword, 0, 6),
+            (Whitespace, 6, 7),
+            (Type, 7, 10),
+            (Whitespace, 10, 11),
+            (Keyword, 11, 17),
+            (Whitespace, 17, 18),
+            (Type, 18, 25),
+        );
     }
 
     #[test]
     fn comments() {
-        let source = Rope::from_str(
+        assert_tokens!(
             "// hello
 // hi
 use foo",
+            (Comment, 0, 8),
+            (Whitespace, 8, 9),
+            (Comment, 9, 14),
+            (Whitespace, 14, 15),
+            (Keyword, 15, 18),
+            (Whitespace, 18, 19),
+            (Identifier, 19, 22),
         );
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Comment,
-            range: ByteIndex::new(0)..ByteIndex::new(8)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(8)..ByteIndex::new(9)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Comment,
-            range: ByteIndex::new(9)..ByteIndex::new(14)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(14)..ByteIndex::new(15)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(15)..ByteIndex::new(18)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(18)..ByteIndex::new(19)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(19)..ByteIndex::new(22)
-        });
     }
 
     #[test]
     fn doc_comments() {
-        let source = Rope::from_str(
+        assert_tokens!(
             "/// hello
 /// hi
 use foo",
+            (Comment, 0, 9),
+            (Whitespace, 9, 10),
+            (Comment, 10, 16),
+            (Whitespace, 16, 17),
+            (Keyword, 17, 20),
+            (Whitespace, 20, 21),
+            (Identifier, 21, 24),
         );
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Comment,
-            range: ByteIndex::new(0)..ByteIndex::new(9)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(9)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Comment,
-            range: ByteIndex::new(10)..ByteIndex::new(16)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(16)..ByteIndex::new(17)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(17)..ByteIndex::new(20)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(20)..ByteIndex::new(21)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(21)..ByteIndex::new(24)
-        });
     }
 
     #[test]
     fn block_comments() {
-        let source = Rope::from_str("use /* foo */ bar");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Comment,
-            range: ByteIndex::new(4)..ByteIndex::new(13)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(13)..ByteIndex::new(14)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(14)..ByteIndex::new(17)
-        });
+        assert_tokens!(
+            "use /* foo */ bar",
+            (Keyword, 0, 3),
+            (Whitespace, 3, 4),
+            (Comment, 4, 13),
+            (Whitespace, 13, 14),
+            (Identifier, 14, 17),
+        );
     }
 
     #[test]
@@ -905,29 +763,18 @@ use foo",
         let source = Rope::from_str(&operators.join(" "));
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        let mut position = ByteIndex::new(0);
+        let mut position = 0;
 
-        let mut operators_iter = operators.iter().peekable();
-
-        while let Some(operator) = operators_iter.next() {
-            let is_last = operators_iter.peek().is_none();
-
-            assert_eq!(
-                lexer.next_token().unwrap().0,
-                Token {
-                    kind: TokenKind::Operator,
-                    range: position..position + operator.len()
-                },
-                "operator `{operator}` read incorrectly"
+        for (index, operator) in operators.iter().enumerate() {
+            assert_token(
+                &mut lexer,
+                TokenKind::Operator,
+                position..position + operator.len(),
             );
-
             position += operator.len();
 
-            if !is_last {
-                assert_eq!(lexer.next_token().unwrap().0, Token {
-                    kind: TokenKind::Whitespace,
-                    range: position..position + 1
-                });
+            if index + 1 != operators.len() {
+                assert_token(&mut lexer, TokenKind::Whitespace, position..position + 1);
                 position += 1;
             }
         }
@@ -935,116 +782,45 @@ use foo",
 
     #[test]
     fn chars() {
-        let source = Rope::from_str("'h' 'i'");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Character,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Character,
-            range: ByteIndex::new(4)..ByteIndex::new(7)
-        });
+        assert_tokens!(
+            "'h' 'i'",
+            (Character, 0, 3),
+            (Whitespace, 3, 4),
+            (Character, 4, 7),
+        );
     }
 
     #[test]
     fn long_chars() {
-        let source = Rope::from_str("'\\''");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Character,
-            range: ByteIndex::new(0)..ByteIndex::new(4)
-        });
+        assert_tokens!("'\\''", (Character, 0, 4));
     }
 
     #[test]
     fn lifetimes() {
-        let source = Rope::from_str("impl<'src> Highlighter<'src>");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(0)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Operator,
-            range: ByteIndex::new(4)..ByteIndex::new(5)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Lifetime,
-            range: ByteIndex::new(5)..ByteIndex::new(9)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Operator,
-            range: ByteIndex::new(9)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(10)..ByteIndex::new(11)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Type,
-            range: ByteIndex::new(11)..ByteIndex::new(22)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Operator,
-            range: ByteIndex::new(22)..ByteIndex::new(23)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Lifetime,
-            range: ByteIndex::new(23)..ByteIndex::new(27)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Operator,
-            range: ByteIndex::new(27)..ByteIndex::new(28)
-        });
+        assert_tokens!(
+            "impl<'src> Highlighter<'src>",
+            (Keyword, 0, 4),
+            (Operator, 4, 5),
+            (Lifetime, 5, 9),
+            (Operator, 9, 10),
+            (Whitespace, 10, 11),
+            (Type, 11, 22),
+            (Operator, 22, 23),
+            (Lifetime, 23, 27),
+            (Operator, 27, 28),
+        );
     }
 
     #[test]
     fn function_name() {
-        let source = Rope::from_str("fn hello()");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Keyword,
-            range: ByteIndex::new(0)..ByteIndex::new(2)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(2)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::FunctionName,
-            range: ByteIndex::new(3)..ByteIndex::new(8)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(8)..ByteIndex::new(9)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(9)..ByteIndex::new(10)
-        });
+        assert_tokens!(
+            "fn hello()",
+            (Keyword, 0, 2),
+            (Whitespace, 2, 3),
+            (FunctionName, 3, 8),
+            (Punctuation, 8, 9),
+            (Punctuation, 9, 10),
+        );
     }
 
     #[test]
@@ -1053,28 +829,17 @@ use foo",
         let source = Rope::from_str(&punctuation.join(" "));
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        let mut position = ByteIndex::new(0);
-        let mut punctuation_iter = punctuation.iter().peekable();
-
-        while let Some(symbol) = punctuation_iter.next() {
-            let is_last = punctuation_iter.peek().is_none();
-
-            assert_eq!(
-                lexer.next_token().unwrap().0,
-                Token {
-                    kind: TokenKind::Punctuation,
-                    range: position..position + symbol.len()
-                },
-                "symbol `{symbol}` read incorrectly"
+        let mut position = 0;
+        for (index, symbol) in punctuation.iter().enumerate() {
+            assert_token(
+                &mut lexer,
+                TokenKind::Punctuation,
+                position..position + symbol.len(),
             );
-
             position += symbol.len();
 
-            if !is_last {
-                assert_eq!(lexer.next_token().unwrap().0, Token {
-                    kind: TokenKind::Whitespace,
-                    range: position..position + 1
-                });
+            if index + 1 != punctuation.len() {
+                assert_token(&mut lexer, TokenKind::Whitespace, position..position + 1);
                 position += 1;
             }
         }
@@ -1082,197 +847,75 @@ use foo",
 
     #[test]
     fn ints() {
-        let source = Rope::from_str("123 45 6_usize");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Number,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Number,
-            range: ByteIndex::new(4)..ByteIndex::new(6)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(6)..ByteIndex::new(7)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Number,
-            range: ByteIndex::new(7)..ByteIndex::new(14)
-        });
+        assert_tokens!(
+            "123 45 6_usize",
+            (Number, 0, 3),
+            (Whitespace, 3, 4),
+            (Number, 4, 6),
+            (Whitespace, 6, 7),
+            (Number, 7, 14),
+        );
     }
 
     #[test]
     fn floats() {
-        let source = Rope::from_str("123.45_f32 45.03 6_700.67_f64");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Number,
-            range: ByteIndex::new(0)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(10)..ByteIndex::new(11)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Number,
-            range: ByteIndex::new(11)..ByteIndex::new(16)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(16)..ByteIndex::new(17)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Number,
-            range: ByteIndex::new(17)..ByteIndex::new(29)
-        });
+        assert_tokens!(
+            "123.45_f32 45.03 6_700.67_f64",
+            (Number, 0, 10),
+            (Whitespace, 10, 11),
+            (Number, 11, 16),
+            (Whitespace, 16, 17),
+            (Number, 17, 29),
+        );
     }
 
     #[test]
     fn macros() {
-        let source = Rope::from_str("foo! foo!=bar");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Macro,
-            range: ByteIndex::new(0)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(4)..ByteIndex::new(5)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(5)..ByteIndex::new(8)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Operator,
-            range: ByteIndex::new(8)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(10)..ByteIndex::new(13)
-        });
+        assert_tokens!(
+            "foo! foo!=bar",
+            (Macro, 0, 4),
+            (Whitespace, 4, 5),
+            (Identifier, 5, 8),
+            (Operator, 8, 10),
+            (Identifier, 10, 13),
+        );
     }
 
     #[test]
     fn properties() {
-        let source = Rope::from_str("{ foo: bar }");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(0)..ByteIndex::new(1)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(1)..ByteIndex::new(2)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Property,
-            range: ByteIndex::new(2)..ByteIndex::new(6)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(6)..ByteIndex::new(7)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Identifier,
-            range: ByteIndex::new(7)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(10)..ByteIndex::new(11)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(11)..ByteIndex::new(12)
-        });
+        assert_tokens!(
+            "{ foo: bar }",
+            (Punctuation, 0, 1),
+            (Whitespace, 1, 2),
+            (Property, 2, 6),
+            (Whitespace, 6, 7),
+            (Identifier, 7, 10),
+            (Whitespace, 10, 11),
+            (Punctuation, 11, 12),
+        );
     }
 
     #[test]
     fn shorthand_properties() {
-        let source = Rope::from_str("Foo  { foo }");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Type,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(3)..ByteIndex::new(5)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(5)..ByteIndex::new(6)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(6)..ByteIndex::new(7)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Property,
-            range: ByteIndex::new(7)..ByteIndex::new(10)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Whitespace,
-            range: ByteIndex::new(10)..ByteIndex::new(11)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(11)..ByteIndex::new(12)
-        });
+        assert_tokens!(
+            "Foo  { foo }",
+            (Type, 0, 3),
+            (Whitespace, 3, 5),
+            (Punctuation, 5, 6),
+            (Whitespace, 6, 7),
+            (Property, 7, 10),
+            (Whitespace, 10, 11),
+            (Punctuation, 11, 12),
+        );
     }
 
     #[test]
     fn function_call() {
-        let source = Rope::from_str("foo()");
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::FunctionName,
-            range: ByteIndex::new(0)..ByteIndex::new(3)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(3)..ByteIndex::new(4)
-        });
-
-        assert_eq!(lexer.next_token().unwrap().0, Token {
-            kind: TokenKind::Punctuation,
-            range: ByteIndex::new(4)..ByteIndex::new(5)
-        });
+        assert_tokens!(
+            "foo()",
+            (FunctionName, 0, 3),
+            (Punctuation, 3, 4),
+            (Punctuation, 4, 5),
+        );
     }
 }
