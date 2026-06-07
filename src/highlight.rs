@@ -24,7 +24,7 @@ impl Highlighter {
 }
 
 impl Iterator for Highlighter {
-    type Item = Token;
+    type Item = (Token, Checkpoint);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next_token()
@@ -38,7 +38,7 @@ enum Lexer {
 }
 
 impl Lexer {
-    fn next_token(&mut self) -> Option<Token> {
+    fn next_token(&mut self) -> Option<(Token, Checkpoint)> {
         match *self {
             Self::Rust(ref mut lexer) => lexer.next_token(),
             Self::Default => None,
@@ -94,6 +94,8 @@ struct RustLexer {
     source: Rope,
     position: ByteIndex,
     current: Option<char>,
+    delimiter_stack: Vec<Delimiter>,
+    last_significant: SignificantKind,
 }
 
 impl RustLexer {
@@ -104,14 +106,16 @@ impl RustLexer {
             source,
             position: start,
             current,
+            delimiter_stack: Vec::new(),
+            last_significant: SignificantKind::Other,
         }
     }
 
-    fn next_token(&mut self) -> Option<Token> {
+    fn next_token(&mut self) -> Option<(Token, Checkpoint)> {
         self.current.map(|ch| self.read_token(ch))
     }
 
-    fn read_token(&mut self, ch: char) -> Token {
+    fn read_token(&mut self, ch: char) -> (Token, Checkpoint) {
         let start = self.position;
 
         let kind = match ch {
@@ -147,10 +151,14 @@ impl RustLexer {
             }
         };
 
-        Token {
+        let token = Token {
             kind,
             range: start..self.position,
-        }
+        };
+
+        let checkpoint_outcome = self.update_context(&token);
+
+        (token, checkpoint_outcome)
     }
 
     fn next_char(&mut self) -> Option<char> {
@@ -208,7 +216,10 @@ impl RustLexer {
             self.assert('!');
             TokenKind::Macro
         } else if self.current == Some(':') && self.peek() != Some(':') {
+            // TODO: shouldn't skip past it
             self.assert(':');
+            TokenKind::Property
+        } else if self.maybe_property() && matches!(self.next_non_whitespace(), Some(',' | '}')) {
             TokenKind::Property
         } else if self.is_keyword(start..self.position) {
             TokenKind::Keyword
@@ -511,6 +522,111 @@ impl RustLexer {
                 | b"while"
         )
     }
+
+    fn update_context(&mut self, token: &Token) -> Checkpoint {
+        let mut result = if token.range.start == ByteIndex::new(0) {
+            Checkpoint::Yes
+        } else {
+            Checkpoint::No
+        };
+
+        match token.kind() {
+            TokenKind::Punctuation => {
+                match self.token_bytes(token).as_slice() {
+                    b"{" => {
+                        self.delimiter_stack.push(Delimiter::Brace);
+                        self.last_significant = SignificantKind::OpenDelimiter(Delimiter::Brace);
+                    }
+                    b"[" => {
+                        self.delimiter_stack.push(Delimiter::Bracket);
+                        self.last_significant = SignificantKind::OpenDelimiter(Delimiter::Bracket);
+                    }
+                    b"(" => {
+                        self.delimiter_stack.push(Delimiter::Paren);
+                        self.last_significant = SignificantKind::OpenDelimiter(Delimiter::Paren);
+                    }
+                    b"}" | b"]" | b")" => {
+                        self.delimiter_stack.pop();
+
+                        if self.delimiter_stack.is_empty() {
+                            result = Checkpoint::Yes;
+                        }
+                    }
+                    b"," => {
+                        self.last_significant = SignificantKind::Comma;
+                    }
+                    _ => {}
+                }
+            }
+            TokenKind::Identifier
+            | TokenKind::Keyword
+            | TokenKind::String
+            | TokenKind::Type
+            | TokenKind::Operator
+            | TokenKind::Unknown
+            | TokenKind::Character
+            | TokenKind::Lifetime
+            | TokenKind::FunctionName
+            | TokenKind::Number
+            | TokenKind::Macro
+            | TokenKind::Property => self.last_significant = SignificantKind::Other,
+
+            TokenKind::Whitespace | TokenKind::Comment => {}
+        }
+
+        result
+    }
+
+    fn token_bytes(&self, token: &Token) -> Vec<u8> {
+        let bytes: Vec<u8> = self
+            .source
+            .bytes_at(token.range.start.value())
+            .take((token.range.end - token.range.start).value())
+            .collect();
+
+        bytes
+    }
+
+    fn in_braces(&self) -> bool {
+        self.delimiter_stack.last().copied() == Some(Delimiter::Brace)
+    }
+
+    fn next_non_whitespace(&self) -> Option<char> {
+        self.source
+            .chars_at(self.position.value())
+            .find(|ch| !ch.is_whitespace())
+    }
+
+    fn maybe_property(&self) -> bool {
+        self.in_braces()
+            && match self.last_significant {
+                SignificantKind::Comma | SignificantKind::OpenDelimiter(Delimiter::Brace) => true,
+                SignificantKind::OpenDelimiter(_) | SignificantKind::Other => false,
+            }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Delimiter {
+    /// `(` or `)`.
+    Paren,
+    /// `{` or `}`.
+    Brace,
+    /// `[` or `]`.
+    Bracket,
+}
+
+#[derive(Debug)]
+enum SignificantKind {
+    Comma,
+    OpenDelimiter(Delimiter),
+    Other,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Checkpoint {
+    Yes,
+    No,
 }
 
 #[cfg(test)]
@@ -524,45 +640,30 @@ mod tests {
         let source = Rope::from_str("foo bar __12baz");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(4)..ByteIndex::new(7)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(4)..ByteIndex::new(7)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(7)..ByteIndex::new(8)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(7)..ByteIndex::new(8)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(8)..ByteIndex::new(15)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(8)..ByteIndex::new(15)
+        });
     }
 
     #[test]
@@ -570,61 +671,40 @@ mod tests {
         let source = Rope::from_str("use foo impl bar");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(4)..ByteIndex::new(7)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(4)..ByteIndex::new(7)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(7)..ByteIndex::new(8)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(7)..ByteIndex::new(8)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(8)..ByteIndex::new(12)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(8)..ByteIndex::new(12)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(12)..ByteIndex::new(13)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(12)..ByteIndex::new(13)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(13)..ByteIndex::new(16)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(13)..ByteIndex::new(16)
+        });
     }
 
     #[test]
@@ -632,29 +712,20 @@ mod tests {
         let source = Rope::from_str(r#"foo "hello" "h\"i""#);
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::String,
-                range: ByteIndex::new(4)..ByteIndex::new(11)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::String,
+            range: ByteIndex::new(4)..ByteIndex::new(11)
+        });
     }
 
     #[test]
@@ -662,61 +733,40 @@ mod tests {
         let source = Rope::from_str("struct Foo struct __12Foo");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(0)..ByteIndex::new(6)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(0)..ByteIndex::new(6)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(6)..ByteIndex::new(7)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(6)..ByteIndex::new(7)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Type,
-                range: ByteIndex::new(7)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Type,
+            range: ByteIndex::new(7)..ByteIndex::new(10)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(10)..ByteIndex::new(11)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(10)..ByteIndex::new(11)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(11)..ByteIndex::new(17)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(11)..ByteIndex::new(17)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(17)..ByteIndex::new(18)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(17)..ByteIndex::new(18)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Type,
-                range: ByteIndex::new(18)..ByteIndex::new(25)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Type,
+            range: ByteIndex::new(18)..ByteIndex::new(25)
+        });
     }
 
     #[test]
@@ -728,61 +778,40 @@ use foo",
         );
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Comment,
-                range: ByteIndex::new(0)..ByteIndex::new(8)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Comment,
+            range: ByteIndex::new(0)..ByteIndex::new(8)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(8)..ByteIndex::new(9)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(8)..ByteIndex::new(9)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Comment,
-                range: ByteIndex::new(9)..ByteIndex::new(14)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Comment,
+            range: ByteIndex::new(9)..ByteIndex::new(14)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(14)..ByteIndex::new(15)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(14)..ByteIndex::new(15)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(15)..ByteIndex::new(18)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(15)..ByteIndex::new(18)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(18)..ByteIndex::new(19)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(18)..ByteIndex::new(19)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(19)..ByteIndex::new(22)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(19)..ByteIndex::new(22)
+        });
     }
 
     #[test]
@@ -794,61 +823,40 @@ use foo",
         );
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Comment,
-                range: ByteIndex::new(0)..ByteIndex::new(9)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Comment,
+            range: ByteIndex::new(0)..ByteIndex::new(9)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(9)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(9)..ByteIndex::new(10)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Comment,
-                range: ByteIndex::new(10)..ByteIndex::new(16)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Comment,
+            range: ByteIndex::new(10)..ByteIndex::new(16)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(16)..ByteIndex::new(17)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(16)..ByteIndex::new(17)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(17)..ByteIndex::new(20)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(17)..ByteIndex::new(20)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(20)..ByteIndex::new(21)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(20)..ByteIndex::new(21)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(21)..ByteIndex::new(24)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(21)..ByteIndex::new(24)
+        });
     }
 
     #[test]
@@ -856,45 +864,30 @@ use foo",
         let source = Rope::from_str("use /* foo */ bar");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Comment,
-                range: ByteIndex::new(4)..ByteIndex::new(13)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Comment,
+            range: ByteIndex::new(4)..ByteIndex::new(13)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(13)..ByteIndex::new(14)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(13)..ByteIndex::new(14)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(14)..ByteIndex::new(17)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(14)..ByteIndex::new(17)
+        });
     }
 
     #[test]
@@ -920,24 +913,21 @@ use foo",
             let is_last = operators_iter.peek().is_none();
 
             assert_eq!(
-                lexer.next_token(),
-                Some(Token {
+                lexer.next_token().unwrap().0,
+                Token {
                     kind: TokenKind::Operator,
                     range: position..position + operator.len()
-                }),
+                },
                 "operator `{operator}` read incorrectly"
             );
 
             position += operator.len();
 
             if !is_last {
-                assert_eq!(
-                    lexer.next_token(),
-                    Some(Token {
-                        kind: TokenKind::Whitespace,
-                        range: position..position + 1
-                    })
-                );
+                assert_eq!(lexer.next_token().unwrap().0, Token {
+                    kind: TokenKind::Whitespace,
+                    range: position..position + 1
+                });
                 position += 1;
             }
         }
@@ -948,29 +938,20 @@ use foo",
         let source = Rope::from_str("'h' 'i'");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Character,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Character,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Character,
-                range: ByteIndex::new(4)..ByteIndex::new(7)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Character,
+            range: ByteIndex::new(4)..ByteIndex::new(7)
+        });
     }
 
     #[test]
@@ -978,13 +959,10 @@ use foo",
         let source = Rope::from_str("'\\''");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Character,
-                range: ByteIndex::new(0)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Character,
+            range: ByteIndex::new(0)..ByteIndex::new(4)
+        });
     }
 
     #[test]
@@ -992,77 +970,50 @@ use foo",
         let source = Rope::from_str("impl<'src> Highlighter<'src>");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(0)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(0)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Operator,
-                range: ByteIndex::new(4)..ByteIndex::new(5)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Operator,
+            range: ByteIndex::new(4)..ByteIndex::new(5)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Lifetime,
-                range: ByteIndex::new(5)..ByteIndex::new(9)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Lifetime,
+            range: ByteIndex::new(5)..ByteIndex::new(9)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Operator,
-                range: ByteIndex::new(9)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Operator,
+            range: ByteIndex::new(9)..ByteIndex::new(10)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(10)..ByteIndex::new(11)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(10)..ByteIndex::new(11)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Type,
-                range: ByteIndex::new(11)..ByteIndex::new(22)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Type,
+            range: ByteIndex::new(11)..ByteIndex::new(22)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Operator,
-                range: ByteIndex::new(22)..ByteIndex::new(23)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Operator,
+            range: ByteIndex::new(22)..ByteIndex::new(23)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Lifetime,
-                range: ByteIndex::new(23)..ByteIndex::new(27)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Lifetime,
+            range: ByteIndex::new(23)..ByteIndex::new(27)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Operator,
-                range: ByteIndex::new(27)..ByteIndex::new(28)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Operator,
+            range: ByteIndex::new(27)..ByteIndex::new(28)
+        });
     }
 
     #[test]
@@ -1070,45 +1021,30 @@ use foo",
         let source = Rope::from_str("fn hello()");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Keyword,
-                range: ByteIndex::new(0)..ByteIndex::new(2)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Keyword,
+            range: ByteIndex::new(0)..ByteIndex::new(2)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(2)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(2)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::FunctionName,
-                range: ByteIndex::new(3)..ByteIndex::new(8)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::FunctionName,
+            range: ByteIndex::new(3)..ByteIndex::new(8)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Punctuation,
-                range: ByteIndex::new(8)..ByteIndex::new(9)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(8)..ByteIndex::new(9)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Punctuation,
-                range: ByteIndex::new(9)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(9)..ByteIndex::new(10)
+        });
     }
 
     #[test]
@@ -1124,24 +1060,21 @@ use foo",
             let is_last = punctuation_iter.peek().is_none();
 
             assert_eq!(
-                lexer.next_token(),
-                Some(Token {
+                lexer.next_token().unwrap().0,
+                Token {
                     kind: TokenKind::Punctuation,
                     range: position..position + symbol.len()
-                }),
+                },
                 "symbol `{symbol}` read incorrectly"
             );
 
             position += symbol.len();
 
             if !is_last {
-                assert_eq!(
-                    lexer.next_token(),
-                    Some(Token {
-                        kind: TokenKind::Whitespace,
-                        range: position..position + 1
-                    })
-                );
+                assert_eq!(lexer.next_token().unwrap().0, Token {
+                    kind: TokenKind::Whitespace,
+                    range: position..position + 1
+                });
                 position += 1;
             }
         }
@@ -1152,45 +1085,30 @@ use foo",
         let source = Rope::from_str("123 45 6_usize");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Number,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Number,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Number,
-                range: ByteIndex::new(4)..ByteIndex::new(6)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Number,
+            range: ByteIndex::new(4)..ByteIndex::new(6)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(6)..ByteIndex::new(7)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(6)..ByteIndex::new(7)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Number,
-                range: ByteIndex::new(7)..ByteIndex::new(14)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Number,
+            range: ByteIndex::new(7)..ByteIndex::new(14)
+        });
     }
 
     #[test]
@@ -1198,45 +1116,30 @@ use foo",
         let source = Rope::from_str("123.45_f32 45.03 6_700.67_f64");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Number,
-                range: ByteIndex::new(0)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Number,
+            range: ByteIndex::new(0)..ByteIndex::new(10)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(10)..ByteIndex::new(11)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(10)..ByteIndex::new(11)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Number,
-                range: ByteIndex::new(11)..ByteIndex::new(16)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Number,
+            range: ByteIndex::new(11)..ByteIndex::new(16)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(16)..ByteIndex::new(17)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(16)..ByteIndex::new(17)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Number,
-                range: ByteIndex::new(17)..ByteIndex::new(29)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Number,
+            range: ByteIndex::new(17)..ByteIndex::new(29)
+        });
     }
 
     #[test]
@@ -1244,45 +1147,30 @@ use foo",
         let source = Rope::from_str("foo! foo!=bar");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Macro,
-                range: ByteIndex::new(0)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Macro,
+            range: ByteIndex::new(0)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(4)..ByteIndex::new(5)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(4)..ByteIndex::new(5)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(5)..ByteIndex::new(8)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(5)..ByteIndex::new(8)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Operator,
-                range: ByteIndex::new(8)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Operator,
+            range: ByteIndex::new(8)..ByteIndex::new(10)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(10)..ByteIndex::new(13)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(10)..ByteIndex::new(13)
+        });
     }
 
     #[test]
@@ -1290,61 +1178,81 @@ use foo",
         let source = Rope::from_str("{ foo: bar }");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Punctuation,
-                range: ByteIndex::new(0)..ByteIndex::new(1)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(0)..ByteIndex::new(1)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(1)..ByteIndex::new(2)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(1)..ByteIndex::new(2)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Property,
-                range: ByteIndex::new(2)..ByteIndex::new(6)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Property,
+            range: ByteIndex::new(2)..ByteIndex::new(6)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(6)..ByteIndex::new(7)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(6)..ByteIndex::new(7)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Identifier,
-                range: ByteIndex::new(7)..ByteIndex::new(10)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Identifier,
+            range: ByteIndex::new(7)..ByteIndex::new(10)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Whitespace,
-                range: ByteIndex::new(10)..ByteIndex::new(11)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(10)..ByteIndex::new(11)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Punctuation,
-                range: ByteIndex::new(11)..ByteIndex::new(12)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(11)..ByteIndex::new(12)
+        });
+    }
+
+    #[test]
+    fn shorthand_properties() {
+        let source = Rope::from_str("Foo  { foo }");
+        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Type,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(3)..ByteIndex::new(5)
+        });
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(5)..ByteIndex::new(6)
+        });
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(6)..ByteIndex::new(7)
+        });
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Property,
+            range: ByteIndex::new(7)..ByteIndex::new(10)
+        });
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Whitespace,
+            range: ByteIndex::new(10)..ByteIndex::new(11)
+        });
+
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(11)..ByteIndex::new(12)
+        });
     }
 
     #[test]
@@ -1352,28 +1260,19 @@ use foo",
         let source = Rope::from_str("foo()");
         let mut lexer = RustLexer::new(source, ByteIndex::new(0));
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::FunctionName,
-                range: ByteIndex::new(0)..ByteIndex::new(3)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::FunctionName,
+            range: ByteIndex::new(0)..ByteIndex::new(3)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Punctuation,
-                range: ByteIndex::new(3)..ByteIndex::new(4)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(3)..ByteIndex::new(4)
+        });
 
-        assert_eq!(
-            lexer.next_token(),
-            Some(Token {
-                kind: TokenKind::Punctuation,
-                range: ByteIndex::new(4)..ByteIndex::new(5)
-            })
-        );
+        assert_eq!(lexer.next_token().unwrap().0, Token {
+            kind: TokenKind::Punctuation,
+            range: ByteIndex::new(4)..ByteIndex::new(5)
+        });
     }
 }

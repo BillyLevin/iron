@@ -56,6 +56,7 @@ use crate::{
         WrapBehavior,
     },
     highlight::{
+        Checkpoint,
         Highlighter,
         Token,
     },
@@ -1382,6 +1383,12 @@ fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCac
                 highlight_response_tx
                     .send(HighlightCache {
                         tokens: Highlighter::new(request.text, ByteIndex::new(0), request.language)
+                            .filter_map(|(token, checkpoint)| {
+                                match checkpoint {
+                                    Checkpoint::Yes => Some(token),
+                                    Checkpoint::No => None,
+                                }
+                            })
                             .collect(),
                     })
                     .expect("highlight response receiver should be alive");
@@ -1460,14 +1467,14 @@ impl Layer for Document {
 
             while current_highlight
                 .as_ref()
-                .is_some_and(|highlight| !highlight.contains(grapheme_index))
+                .is_some_and(|&(ref highlight, _checkpoint)| !highlight.contains(grapheme_index))
             {
                 current_highlight = highlighter.next();
             }
 
             let style = current_highlight
                 .as_ref()
-                .map(Token::kind)
+                .map(|&(ref token, _checkpoint)| token.kind())
                 .map_or(Style::TEXT, Style::from);
 
             buffer[translated_position]
