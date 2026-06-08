@@ -556,8 +556,14 @@ impl RustLexer {
                         self.delimiter_stack.push(Delimiter::Paren);
                         self.last_significant = SignificantKind::OpenDelimiter(Delimiter::Paren);
                     }
-                    b"}" | b"]" | b")" => {
+                    delim @ (b"}" | b"]" | b")") => {
                         self.delimiter_stack.pop();
+                        self.last_significant = SignificantKind::CloseDelimiter(match delim {
+                            b"}" => Delimiter::Brace,
+                            b"]" => Delimiter::Bracket,
+                            b")" => Delimiter::Paren,
+                            _ => unreachable!(),
+                        });
 
                         if self.delimiter_stack.is_empty() {
                             result = Checkpoint::Yes;
@@ -568,6 +574,12 @@ impl RustLexer {
                     }
                     b"." => {
                         self.last_significant = SignificantKind::Dot;
+                    }
+                    b":" => {
+                        self.last_significant = SignificantKind::Colon;
+                    }
+                    b";" => {
+                        self.last_significant = SignificantKind::SemiColon;
                     }
                     _ => {}
                 }
@@ -585,9 +597,9 @@ impl RustLexer {
             | TokenKind::Macro
             | TokenKind::Property
             | TokenKind::PropertyAccess
-            | TokenKind::Constant => self.last_significant = SignificantKind::Other,
-
-            TokenKind::Whitespace | TokenKind::Comment => {}
+            | TokenKind::Constant
+            | TokenKind::Whitespace
+            | TokenKind::Comment => {}
         }
 
         result
@@ -616,10 +628,15 @@ impl RustLexer {
     fn maybe_property(&self) -> bool {
         self.in_braces()
             && match self.last_significant {
-                SignificantKind::Comma | SignificantKind::OpenDelimiter(Delimiter::Brace) => true,
+                SignificantKind::Comma
+                | SignificantKind::OpenDelimiter(Delimiter::Brace)
+                | SignificantKind::CloseDelimiter(Delimiter::Paren) => true,
                 SignificantKind::OpenDelimiter(_)
+                | SignificantKind::CloseDelimiter(_)
                 | SignificantKind::Dot
-                | SignificantKind::Other => false,
+                | SignificantKind::Other
+                | SignificantKind::Colon
+                | SignificantKind::SemiColon => false,
             }
     }
 
@@ -650,7 +667,10 @@ enum Delimiter {
 enum SignificantKind {
     Comma,
     OpenDelimiter(Delimiter),
+    CloseDelimiter(Delimiter),
     Dot,
+    Colon,
+    SemiColon,
     Other,
 }
 
@@ -924,6 +944,37 @@ use foo",
             (Identifier, 7, 10),
             (Whitespace, 10, 11),
             (Punctuation, 11, 12),
+        );
+
+        assert_tokens!(
+            "{ pub foo: bar }",
+            (Punctuation, 0, 1),
+            (Whitespace, 1, 2),
+            (Keyword, 2, 5),
+            (Whitespace, 5, 6),
+            (Property, 6, 9),
+            (Punctuation, 9, 10),
+            (Whitespace, 10, 11),
+            (Identifier, 11, 14),
+            (Whitespace, 14, 15),
+            (Punctuation, 15, 16),
+        );
+
+        assert_tokens!(
+            "{ pub(crate) foo: bar }",
+            (Punctuation, 0, 1),
+            (Whitespace, 1, 2),
+            (Keyword, 2, 5),
+            (Punctuation, 5, 6),
+            (Keyword, 6, 11),
+            (Punctuation, 11, 12),
+            (Whitespace, 12, 13),
+            (Property, 13, 16),
+            (Punctuation, 16, 17),
+            (Whitespace, 17, 18),
+            (Identifier, 18, 21),
+            (Whitespace, 21, 22),
+            (Punctuation, 22, 23),
         );
     }
 
