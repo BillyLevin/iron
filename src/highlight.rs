@@ -252,9 +252,17 @@ impl RustLexer {
     }
 
     fn read_number(&mut self) -> TokenKind {
-        // NOTE: not technically correct to allow all letters but i haven't found a case
-        // where this causes anything weird to happen with the highlights
-        self.eat_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.'));
+        // TODO: could create `self.eat_while_with_peek` helper if this comes up again
+        while let Some(ch) = self.current {
+            // NOTE: not technically correct to allow all letters but i haven't found a case
+            // where this causes anything weird to happen with the highlights
+            if !(ch.is_ascii_alphanumeric() || ch == '_' || (ch == '.' && self.peek() != Some('.')))
+            {
+                break;
+            }
+
+            self.next_char();
+        }
 
         TokenKind::Number
     }
@@ -917,6 +925,16 @@ use foo",
             (Number, 11, 16),
             (Whitespace, 16, 17),
             (Number, 17, 29),
+        );
+    }
+
+    #[test]
+    fn range_isnt_number() {
+        assert_tokens!(
+            "0..foo",
+            (Number, 0, 1),
+            (Operator, 1, 3),
+            (Identifier, 3, 6)
         );
     }
 
