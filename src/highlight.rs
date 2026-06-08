@@ -147,6 +147,7 @@ impl RustLexer {
                 self.next_char();
                 TokenKind::Punctuation
             }
+            '#' => self.read_pound(),
             _ => {
                 self.next_char();
                 TokenKind::Unknown
@@ -222,7 +223,11 @@ impl RustLexer {
         } else if self.is_keyword(start..self.position) {
             TokenKind::Keyword
         } else if self.current == Some('(') {
-            TokenKind::FunctionName
+            if self.last_significant == SignificantKind::OpenAttribute {
+                TokenKind::Macro
+            } else {
+                TokenKind::FunctionName
+            }
         } else if self.last_significant == SignificantKind::Dot {
             TokenKind::PropertyAccess
         } else {
@@ -492,6 +497,14 @@ impl RustLexer {
         TokenKind::Punctuation
     }
 
+    fn read_pound(&mut self) -> TokenKind {
+        self.assert('#');
+        // opening an attribute - handled in `update_context`
+        self.eat_if('[');
+
+        TokenKind::Punctuation
+    }
+
     fn is_keyword(&self, range: Range<ByteIndex>) -> bool {
         let bytes: Vec<u8> = self
             .source
@@ -589,6 +602,9 @@ impl RustLexer {
                     b";" => {
                         self.last_significant = SignificantKind::SemiColon;
                     }
+                    b"#[" => {
+                        self.last_significant = SignificantKind::OpenAttribute;
+                    }
                     _ => {}
                 }
             }
@@ -644,7 +660,8 @@ impl RustLexer {
                 | SignificantKind::Dot
                 | SignificantKind::Other
                 | SignificantKind::Colon
-                | SignificantKind::SemiColon => false,
+                | SignificantKind::SemiColon
+                | SignificantKind::OpenAttribute => false,
             }
     }
 
@@ -680,6 +697,7 @@ enum SignificantKind {
     Colon,
     SemiColon,
     Other,
+    OpenAttribute,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1046,5 +1064,25 @@ use foo",
         );
 
         assert_tokens!("HELLO", (Constant, 0, 5));
+    }
+
+    #[test]
+    fn attributes() {
+        assert_tokens!(
+            "#[test]",
+            (Punctuation, 0, 2),
+            (Identifier, 2, 6),
+            (Punctuation, 6, 7),
+        );
+
+        assert_tokens!(
+            "#[cfg(test)]",
+            (Punctuation, 0, 2),
+            (Macro, 2, 5),
+            (Punctuation, 5, 6),
+            (Identifier, 6, 10),
+            (Punctuation, 10, 11),
+            (Punctuation, 11, 12),
+        );
     }
 }
