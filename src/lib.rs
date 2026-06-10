@@ -1,3 +1,5 @@
+#![feature(step_trait)]
+
 pub mod args;
 pub mod buffer;
 pub mod commands;

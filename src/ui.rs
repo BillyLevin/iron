@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    iter,
     ops,
 };
 
@@ -295,6 +296,14 @@ impl Columns {
     pub(crate) const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
     }
+
+    fn checked_add(self, rhs: usize) -> Option<Self> {
+        self.value().checked_add(rhs).map(Self::new)
+    }
+
+    fn checked_sub(self, rhs: usize) -> Option<Self> {
+        self.value().checked_sub(rhs).map(Self::new)
+    }
 }
 
 impl ops::Add<usize> for Columns {
@@ -308,6 +317,25 @@ impl ops::Add<usize> for Columns {
 impl ops::AddAssign<usize> for Columns {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += rhs;
+    }
+}
+
+impl iter::Step for Columns {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        if start <= end {
+            let steps = (*end - *start).value();
+            (steps, Some(steps))
+        } else {
+            (0, None)
+        }
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        start.checked_add(count)
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        start.checked_sub(count)
     }
 }
 
@@ -341,6 +369,33 @@ impl Rows {
     #[must_use = "`saturating_sub` does not mutate the current value, but returns a new value"]
     pub(crate) const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
+    }
+
+    fn checked_add(self, rhs: usize) -> Option<Self> {
+        self.value().checked_add(rhs).map(Self::new)
+    }
+
+    fn checked_sub(self, rhs: usize) -> Option<Self> {
+        self.value().checked_sub(rhs).map(Self::new)
+    }
+}
+
+impl iter::Step for Rows {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        if start <= end {
+            let steps = (*end - *start).value();
+            (steps, Some(steps))
+        } else {
+            (0, None)
+        }
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        start.checked_add(count)
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        start.checked_sub(count)
     }
 }
 
@@ -429,13 +484,11 @@ impl Position {
     /// Creates an iterator over each [`Position`] in the given area, assuming
     /// that `self` is at the top-left of the area.
     pub(crate) fn area_iter(&self, width: Columns, height: Rows) -> impl Iterator<Item = Self> {
-        // TODO: iter::Step for Columns/Rows would make this cleaner but currently
-        // unstable: https://github.com/rust-lang/rust/issues/42168
-        (0..height.value()).flat_map(move |row| {
-            (0..width.value()).map(move |col| {
+        (Rows::new(0)..height).flat_map(move |row| {
+            (Columns::new(0)..width).map(move |col| {
                 Self {
-                    left: self.left + Columns::new(col),
-                    top: self.top + Rows::new(row),
+                    left: self.left + col,
+                    top: self.top + row,
                 }
             })
         })
