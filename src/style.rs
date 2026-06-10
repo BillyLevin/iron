@@ -105,9 +105,10 @@ impl From<TokenKind> for Style {
             TokenKind::Operator | TokenKind::Punctuation => {
                 Self::new().with_fg(colors::FADED_ORANGE)
             }
-            TokenKind::Character | TokenKind::Number | TokenKind::Constant => {
-                Self::new().with_fg(colors::FADED_PURPLE)
-            }
+            TokenKind::Character
+            | TokenKind::Number
+            | TokenKind::Constant
+            | TokenKind::EnumMember => Self::new().with_fg(colors::FADED_PURPLE),
             TokenKind::FunctionName => {
                 Self::new()
                     .with_fg(colors::FADED_GREEN)

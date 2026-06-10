@@ -89,6 +89,7 @@ pub(crate) enum TokenKind {
     Property,
     PropertyAccess,
     Constant,
+    EnumMember,
 }
 
 #[derive(Debug)]
@@ -98,6 +99,7 @@ struct RustLexer {
     current: Option<char>,
     delimiter_stack: Vec<Delimiter>,
     last_significant: SignificantKind,
+    in_use_declaration: bool,
 }
 
 impl RustLexer {
@@ -110,6 +112,7 @@ impl RustLexer {
             current,
             delimiter_stack: Vec::new(),
             last_significant: SignificantKind::Other,
+            in_use_declaration: false,
         }
     }
 
@@ -251,6 +254,8 @@ impl RustLexer {
             TokenKind::Keyword
         } else if is_uppercase {
             TokenKind::Constant
+        } else if self.is_enum_member() {
+            TokenKind::EnumMember
         } else {
             TokenKind::Type
         }
@@ -600,16 +605,26 @@ impl RustLexer {
                         self.last_significant = SignificantKind::Colon;
                     }
                     b";" => {
+                        self.in_use_declaration = false;
                         self.last_significant = SignificantKind::SemiColon;
                     }
                     b"#[" => {
                         self.last_significant = SignificantKind::OpenAttribute;
                     }
+                    b"::" => {
+                        self.last_significant = SignificantKind::PathSeparator;
+                    }
                     _ => {}
                 }
             }
+            TokenKind::Keyword => {
+                if matches!(self.token_bytes(token).as_slice(), b"use") {
+                    self.in_use_declaration = true;
+                }
+
+                self.last_significant = SignificantKind::Keyword;
+            }
             TokenKind::Identifier
-            | TokenKind::Keyword
             | TokenKind::String
             | TokenKind::Type
             | TokenKind::Operator
@@ -623,7 +638,8 @@ impl RustLexer {
             | TokenKind::PropertyAccess
             | TokenKind::Constant
             | TokenKind::Whitespace
-            | TokenKind::Comment => {}
+            | TokenKind::Comment
+            | TokenKind::EnumMember => {}
         }
 
         result
@@ -654,14 +670,16 @@ impl RustLexer {
             && match self.last_significant {
                 SignificantKind::Comma
                 | SignificantKind::OpenDelimiter(Delimiter::Brace)
-                | SignificantKind::CloseDelimiter(Delimiter::Paren) => true,
+                | SignificantKind::CloseDelimiter(Delimiter::Paren)
+                | SignificantKind::Keyword => true,
                 SignificantKind::OpenDelimiter(_)
                 | SignificantKind::CloseDelimiter(_)
                 | SignificantKind::Dot
                 | SignificantKind::Other
                 | SignificantKind::Colon
                 | SignificantKind::SemiColon
-                | SignificantKind::OpenAttribute => false,
+                | SignificantKind::OpenAttribute
+                | SignificantKind::PathSeparator => false,
             }
     }
 
@@ -675,6 +693,32 @@ impl RustLexer {
         }
 
         matches!(self.next_non_whitespace(), Some(',' | '}'))
+    }
+
+    fn is_enum_member(&self) -> bool {
+        if self.in_use_declaration {
+            return false;
+        }
+
+        let next_is_path_separator = self.current == Some(':') && self.peek() == Some(':');
+
+        // last item in a path is probably an enum member, assuming we're not in a use
+        // declaration
+        if self.last_significant == SignificantKind::PathSeparator && !next_is_path_separator {
+            return true;
+        }
+
+        // something like `Foo()`
+        if self.current == Some('(') {
+            return true;
+        }
+
+        self.in_braces()
+            && matches!(
+                self.last_significant,
+                SignificantKind::OpenDelimiter(Delimiter::Brace) | SignificantKind::Comma
+            )
+            && !next_is_path_separator
     }
 }
 
@@ -698,6 +742,8 @@ enum SignificantKind {
     SemiColon,
     Other,
     OpenAttribute,
+    PathSeparator,
+    Keyword,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1083,6 +1129,94 @@ use foo",
             (Identifier, 6, 10),
             (Punctuation, 10, 11),
             (Punctuation, 11, 12),
+        );
+    }
+
+    #[test]
+    fn enum_members() {
+        assert_tokens!(
+            "enum Foo { Bar, Baz }",
+            (Keyword, 0, 4),
+            (Whitespace, 4, 5),
+            (Type, 5, 8),
+            (Whitespace, 8, 9),
+            (Punctuation, 9, 10),
+            (Whitespace, 10, 11),
+            (EnumMember, 11, 14),
+            (Punctuation, 14, 15),
+            (Whitespace, 15, 16),
+            (EnumMember, 16, 19),
+            (Whitespace, 19, 20),
+            (Punctuation, 20, 21),
+        );
+
+        assert_tokens!(
+            "match foo { Some(_) => {}, None => {} }",
+            (Keyword, 0, 5),
+            (Whitespace, 5, 6),
+            (Identifier, 6, 9),
+            (Whitespace, 9, 10),
+            (Punctuation, 10, 11),
+            (Whitespace, 11, 12),
+            (EnumMember, 12, 16),
+            (Punctuation, 16, 17),
+            (Keyword, 17, 18),
+            (Punctuation, 18, 19),
+            (Whitespace, 19, 20),
+            (Operator, 20, 22),
+            (Whitespace, 22, 23),
+            (Punctuation, 23, 24),
+            (Punctuation, 24, 25),
+            (Punctuation, 25, 26),
+            (Whitespace, 26, 27),
+            (EnumMember, 27, 31),
+            (Whitespace, 31, 32),
+            (Operator, 32, 34),
+            (Whitespace, 34, 35),
+            (Punctuation, 35, 36),
+            (Punctuation, 36, 37),
+            (Whitespace, 37, 38),
+            (Punctuation, 38, 39),
+        );
+
+        assert_tokens!(
+            "&Foo::Bar",
+            (Operator, 0, 1),
+            (Type, 1, 4),
+            (Punctuation, 4, 6),
+            (EnumMember, 6, 9),
+        );
+
+        // this is testing that `Foo` is not marked as an `EnumMember`
+        assert_tokens!(
+            "{ type Foo = (Bar, Baz) }",
+            (Punctuation, 0, 1),
+            (Whitespace, 1, 2),
+            (Keyword, 2, 6),
+            (Whitespace, 6, 7),
+            (Type, 7, 10),
+            (Whitespace, 10, 11),
+            (Operator, 11, 12),
+            (Whitespace, 12, 13),
+            (Punctuation, 13, 14),
+            (Type, 14, 17),
+            (Punctuation, 17, 18),
+            (Whitespace, 18, 19),
+            (Type, 19, 22),
+            (Punctuation, 22, 23),
+            (Whitespace, 23, 24),
+            (Punctuation, 24, 25),
+        );
+
+        // this is testing that `Bar` is not marked as an `EnumMember`
+        assert_tokens!(
+            "use foo::Bar;",
+            (Keyword, 0, 3),
+            (Whitespace, 3, 4),
+            (Identifier, 4, 7),
+            (Punctuation, 7, 9),
+            (Type, 9, 12),
+            (Punctuation, 12, 13),
         );
     }
 }
