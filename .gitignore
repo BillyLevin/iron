@@ -8,3 +8,5 @@
 
 !src/
 !src/*.rs
+!src/**/
+!src/**/*.rs
