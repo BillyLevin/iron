@@ -666,7 +666,8 @@ impl RustLexer {
     }
 
     fn maybe_property(&self) -> bool {
-        self.in_braces()
+        !self.in_use_declaration
+            && self.in_braces()
             && match self.last_significant {
                 SignificantKind::Comma
                 | SignificantKind::OpenDelimiter(Delimiter::Brace)
@@ -1057,6 +1058,18 @@ use foo",
             (Identifier, 18, 21),
             (Whitespace, 21, 22),
             (Punctuation, 22, 23),
+        );
+
+        assert_tokens!(
+            "use foo::{bar};",
+            (Keyword, 0, 3),
+            (Whitespace, 3, 4),
+            (Identifier, 4, 7),
+            (Punctuation, 7, 9),
+            (Punctuation, 9, 10),
+            (Identifier, 10, 13),
+            (Punctuation, 13, 14),
+            (Punctuation, 14, 15),
         );
     }
 
