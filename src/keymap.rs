@@ -114,6 +114,10 @@ impl KeyMap {
             &[key!(':')],
             DocumentAction::Behavior(BehaviorAction::OpenCommandList),
         );
+        map.register(
+            &[key!('z'), key!('z')],
+            DocumentAction::Movement(MovementAction::VerticallyCenter),
+        );
 
         map.register(
             &[key!('g'), key!('e')],
@@ -322,6 +326,10 @@ impl KeyMap {
             &[key!(':')],
             DocumentAction::Behavior(BehaviorAction::OpenCommandList),
         );
+        map.register(
+            &[key!('z'), key!('z')],
+            DocumentAction::Movement(MovementAction::VerticallyCenter),
+        );
 
         map
     }
@@ -453,6 +461,7 @@ pub(crate) enum MovementAction {
     MoveWordEnd,
     SelectCurrentWord,
     ReverseSelection,
+    VerticallyCenter,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -565,7 +574,11 @@ impl DocumentAction {
                 | BehaviorAction::OpenCommandList
                 | BehaviorAction::ClearInput,
             )
-            | Self::Movement(MovementAction::MoveDown | MovementAction::MoveUp) => false,
+            | Self::Movement(
+                MovementAction::MoveDown
+                | MovementAction::MoveUp
+                | MovementAction::VerticallyCenter,
+            ) => false,
         }
     }
 
@@ -627,6 +640,7 @@ impl DocumentAction {
             Self::Behavior(BehaviorAction::OpenCommandList) => "Open command list",
             Self::Behavior(BehaviorAction::ClearInput) => "Clear current input",
             Self::Edit(EditAction::InsertTab) => "Insert tab",
+            Self::Movement(MovementAction::VerticallyCenter) => "Center cursor vertically",
         }
     }
 }

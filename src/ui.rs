@@ -353,8 +353,10 @@ impl iter::Step for Columns {
     derive_more::AddAssign,
     derive_more::Div,
     derive_more::Sub,
+    derive_more::Into,
 )]
-#[from(forward)]
+#[from(usize, u16)]
+#[into(usize)]
 pub(crate) struct Rows(usize);
 
 impl Rows {

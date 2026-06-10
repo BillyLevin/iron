@@ -511,6 +511,9 @@ impl Document {
             }
             DocumentAction::Behavior(BehaviorAction::ClearInput) => self.clear_input(),
             DocumentAction::Edit(EditAction::InsertTab) => self.insert_tab(),
+            DocumentAction::Movement(MovementAction::VerticallyCenter) => {
+                self.center_cursor_vertically();
+            }
         }
 
         if matches!(action, DocumentAction::Edit(_)) {
@@ -669,6 +672,14 @@ impl Document {
         }
 
         self.scroll_offset = cmp::min(cursor_line, self.scroll_offset);
+    }
+
+    fn center_cursor_vertically(&mut self) {
+        let text = self.text.slice(..);
+        let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
+        let middle = self.layout_info.text_rect.height() / 2;
+
+        self.scroll_offset = cursor_line.saturating_sub(middle);
     }
 
     /// Gets (or inserts the current cursor column) the desired column to
@@ -2127,6 +2138,42 @@ mod tests {
             // visual position stays the same because we scrolled up, keeping the
             // cursor on the first line
             expected_visual_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn center_cursor_vertically_normal_mode() {
+        let text = "Test\n".repeat(40);
+
+        TestCase {
+            initial_text: &text,
+            initial_cursor: 20 * 5,
+            expected_initial_visual_position: (3, 20),
+
+            keys: vec![key_event!('z'), key_event!('z')],
+
+            expected_text: &text,
+            expected_cursor: 20 * 5,
+            expected_visual_position: (3, 11),
+        }
+        .run();
+    }
+
+    #[test]
+    fn center_cursor_vertically_visual_mode() {
+        let text = "Test\n".repeat(40);
+
+        TestCase {
+            initial_text: &text,
+            initial_cursor: 20 * 5,
+            expected_initial_visual_position: (3, 20),
+
+            keys: vec![key_event!('v'), key_event!('z'), key_event!('z')],
+
+            expected_text: &text,
+            expected_cursor: 20 * 5,
+            expected_visual_position: (3, 11),
         }
         .run();
     }
