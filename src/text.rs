@@ -26,8 +26,7 @@ pub(crate) trait RopeSliceExt<'rope> {
     fn line_idx_containing_byte(&self, byte: ByteIndex) -> LineIndex;
 
     /// Gets the [`ByteIndex`] of the start of the line at the given
-    /// [`LineIndex`]. NOTE: this does NOT allow a one-past-the-end line
-    /// index like [`RopeSlice::line_to_byte_idx`] does.
+    /// [`LineIndex`].
     ///
     /// # Panics
     ///
