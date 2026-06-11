@@ -4040,3 +4040,103 @@ mod tests {
         .run();
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use std::io::Write as _;
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    fn strip_trailing_line_break(line: &str) -> &str {
+        line.strip_suffix("\r\n")
+            .or_else(|| line.strip_suffix('\n'))
+            .unwrap_or(line)
+    }
+
+    fn chars_no_line_break() -> impl Strategy<Value = char> {
+        any::<char>().prop_filter("not a line break", |&ch| ch != '\n' && ch != '\r')
+    }
+
+    fn line_content_strategy(range: Range<usize>) -> impl Strategy<Value = String> {
+        prop::collection::vec(chars_no_line_break(), range)
+            .prop_map(|chars| chars.into_iter().collect())
+    }
+
+    fn terminated_line_strategy() -> impl Strategy<Value = String> {
+        (line_content_strategy(0..80), prop_oneof![
+            Just("\n"),
+            Just("\r\n")
+        ])
+            .prop_map(|(content, ending)| content + ending)
+    }
+
+    fn current_line_strategy() -> impl Strategy<Value = String> {
+        prop_oneof![
+            // if there's no line ending, it needs to have length at least 1, because
+            // otherwise the "line" will just be an empty string, which makes no sense
+            line_content_strategy(1..80),
+            (line_content_strategy(0..80), prop_oneof![
+                Just("\n"),
+                Just("\r\n")
+            ])
+                .prop_map(|(content, ending)| content + ending),
+        ]
+    }
+
+    /// This is a reference implementation for finding the offset from the start
+    /// of a given line.
+    fn oracle_first_non_blank_offset(line: &str) -> usize {
+        let mut offset = 0;
+
+        for char in strip_trailing_line_break(line).chars() {
+            if char.is_whitespace() {
+                offset += char.len_utf8();
+            } else {
+                return offset;
+            }
+        }
+
+        0
+    }
+
+    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
+
+    fn doc(contents: &str) -> Document {
+        let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+        write!(temp_file, "{contents}").unwrap();
+
+        Document::new(temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
+    }
+
+    proptest! {
+        #[test]
+        fn move_cursor_first_non_blank(
+            prefix in prop::collection::vec(terminated_line_strategy(), 0..10),
+            current in current_line_strategy(),
+            postfix in prop::collection::vec(terminated_line_strategy(), 0..10)
+        ) {
+            let prefix_text = prefix.concat();
+            let initial_cursor = prefix_text.len();
+
+            let postfix_text = if current.ends_with('\n') {
+                postfix.concat()
+            } else {
+                String::new()
+            };
+
+            let text = format!("{prefix_text}{current}{postfix_text}");
+            let mut document = doc(&text);
+            document.set_cursor(ByteIndex::new(initial_cursor));
+
+            let _ = document.handle_key_event(KeyEvent::from(KeyCode::Char('^')), &mut EventContext::new());
+
+            prop_assert!(document.text.is_char_boundary(document.selection.cursor.value()));
+
+            let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
+            prop_assert_eq!(document.selection.cursor, expected);
+
+        }
+    }
+}
