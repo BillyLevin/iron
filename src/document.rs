@@ -244,11 +244,10 @@ impl Document {
 
         thread::spawn(move || -> ! {
             loop {
-                tx.send(JJPoll {
+                let _ = tx.send(JJPoll {
                     description: jujutsu::current_change_description(&path),
                     diff: jujutsu::diff_summary(&path),
-                })
-                .expect("jj description receiver should be alive");
+                });
                 thread::sleep(Duration::from_secs(1));
             }
         });
@@ -1360,12 +1359,10 @@ impl Document {
     }
 
     fn request_highlight_refresh(&self) {
-        self.highlight_request_tx
-            .send(HighlightRequest {
-                text: self.text.clone(),
-                language: self.language,
-            })
-            .expect("highlight request receiver should be alive");
+        let _ = self.highlight_request_tx.send(HighlightRequest {
+            text: self.text.clone(),
+            language: self.language,
+        });
     }
 }
 
@@ -1373,26 +1370,22 @@ fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCac
     let (highlight_request_tx, highlight_request_rx) = sync::mpsc::channel::<HighlightRequest>();
     let (highlight_response_tx, highlight_response_rx) = sync::mpsc::channel::<HighlightCache>();
 
-    thread::spawn(move || -> ! {
-        loop {
-            if let Ok(mut request) = highlight_request_rx.recv() {
-                while let Ok(latest_request) = highlight_request_rx.try_recv() {
-                    request = latest_request;
-                }
-
-                highlight_response_tx
-                    .send(HighlightCache {
-                        tokens: Highlighter::new(request.text, ByteIndex::new(0), request.language)
-                            .filter_map(|(token, checkpoint)| {
-                                match checkpoint {
-                                    Checkpoint::Yes => Some(token),
-                                    Checkpoint::No => None,
-                                }
-                            })
-                            .collect(),
-                    })
-                    .expect("highlight response receiver should be alive");
+    thread::spawn(move || {
+        while let Ok(mut request) = highlight_request_rx.recv() {
+            while let Ok(latest_request) = highlight_request_rx.try_recv() {
+                request = latest_request;
             }
+
+            let _ = highlight_response_tx.send(HighlightCache {
+                tokens: Highlighter::new(request.text, ByteIndex::new(0), request.language)
+                    .filter_map(|(token, checkpoint)| {
+                        match checkpoint {
+                            Checkpoint::Yes => Some(token),
+                            Checkpoint::No => None,
+                        }
+                    })
+                    .collect(),
+            });
         }
     });
 
