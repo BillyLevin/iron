@@ -1745,9 +1745,11 @@ mod tests {
                     .expect("document cursor is always `Some`"),
                 self.expected_initial_visual_position,
             );
+            assert_char_boundary(&document);
 
             for event in self.keys {
                 let _ = document.handle_key_event(event, &mut EventContext::new());
+                assert_char_boundary(&document);
             }
 
             assert_eq!(
@@ -1767,6 +1769,7 @@ mod tests {
                     .expect("document cursor is always `Some`"),
                 self.expected_visual_position,
             );
+            assert_char_boundary(&document);
         }
     }
 
@@ -1780,6 +1783,13 @@ mod tests {
             actual.top(),
             Rows::from(expected.1),
             "{label} did not match"
+        );
+    }
+
+    fn assert_char_boundary(doc: &Document) {
+        assert!(
+            doc.text.is_char_boundary(doc.selection.cursor.value()),
+            "cursor isn't a char boundary"
         );
     }
 
