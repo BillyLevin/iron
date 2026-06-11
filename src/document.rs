@@ -2944,6 +2944,22 @@ mod tests {
     }
 
     #[test]
+    fn go_to_nth_or_first_line_with_middle_n() {
+        TestCase {
+            initial_text: "one\ntwo\nthree\nfour",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('2'), key_event!('g'), key_event!('g')],
+
+            expected_text: "one\ntwo\nthree\nfour",
+            expected_cursor: 4,
+            expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_word_from_start() {
         TestCase {
             initial_text: "Hello world",
