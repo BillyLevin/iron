@@ -1,11 +1,15 @@
 mod rust;
+mod toml;
 
 use std::ops::Range;
 
 use ropey::Rope;
 
 use crate::{
-    highlight::rust::RustLexer,
+    highlight::{
+        rust::RustLexer,
+        toml::TomlLexer,
+    },
     language::Language,
     text::ByteIndex,
 };
@@ -20,7 +24,8 @@ impl Highlighter {
         Self {
             lexer: match language {
                 Language::Rust => Lexer::Rust(RustLexer::new(source, start)),
-                Language::Toml | Language::Text => Lexer::Default,
+                Language::Toml => Lexer::Toml(TomlLexer::new(source, start)),
+                Language::Text => Lexer::Default,
             },
         }
     }
@@ -37,6 +42,7 @@ impl Iterator for Highlighter {
 #[derive(Debug)]
 enum Lexer {
     Rust(RustLexer),
+    Toml(TomlLexer),
     Default,
 }
 
@@ -44,6 +50,7 @@ impl Lexer {
     fn next_token(&mut self) -> Option<(Token, Checkpoint)> {
         match *self {
             Self::Rust(ref mut lexer) => lexer.next_token(),
+            Self::Toml(ref mut lexer) => lexer.next_token(),
             Self::Default => None,
         }
     }
