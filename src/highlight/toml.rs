@@ -37,6 +37,7 @@ impl TomlLexer {
         let kind = match ch {
             c if c.is_whitespace() => self.read_whitespace(),
             '#' => self.read_comment(),
+            '"' => self.read_string(),
             _ => {
                 self.next_char();
                 TokenKind::Unknown
@@ -61,6 +62,14 @@ impl TomlLexer {
         self.position += self.current?.len_utf8();
         self.current = self.source.get_char(self.position.value()).ok();
         self.current
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.source.chars_at(self.position.value()).nth(1)
+    }
+
+    fn peek_2(&self) -> Option<char> {
+        self.source.chars_at(self.position.value()).nth(2)
     }
 
     fn eat_while(&mut self, mut condition: impl FnMut(char) -> bool) {
@@ -96,6 +105,53 @@ impl TomlLexer {
 
         TokenKind::Comment
     }
+
+    fn read_string(&mut self) -> TokenKind {
+        self.assert('"');
+
+        if self.current == Some('"') && self.peek() == Some('"') {
+            self.assert('"');
+            self.assert('"');
+            return self.read_until_triple_quotes();
+        }
+
+        let mut is_escaped = false;
+
+        self.eat_while(|ch| {
+            match ch {
+                '"' if !is_escaped => false,
+                '\\' => {
+                    is_escaped = !is_escaped;
+                    true
+                }
+                _ => {
+                    is_escaped = false;
+                    true
+                }
+            }
+        });
+
+        // we don't `self.assert('"')` here because the string may have just never been
+        // closed
+        self.next_char();
+
+        TokenKind::String
+    }
+
+    fn read_until_triple_quotes(&mut self) -> TokenKind {
+        while let Some(ch) = self.current {
+            if ch == '"' && self.peek() == Some('"') && self.peek_2() == Some('"') {
+                self.assert('"');
+                self.assert('"');
+                self.assert('"');
+                break;
+            }
+
+            self.next_char();
+        }
+
+        TokenKind::String
+    }
 }
 
 #[cfg(test)]
@@ -126,5 +182,18 @@ mod tests {
     #[test]
     fn comments() {
         assert_tokens!("# hello comment", (Comment, 0, 15));
+    }
+
+    #[test]
+    fn strings() {
+        assert_tokens!(
+            r#""I'm a string. \"You can quote me\". Name\tJos\xE9\nLocation\tSF.a""#,
+            (String, 0, 67)
+        );
+
+        assert_tokens!(
+            r#""""Here are two quotation marks: "". Simple enough.""""#,
+            (String, 0, 54)
+        );
     }
 }
