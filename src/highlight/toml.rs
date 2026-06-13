@@ -38,6 +38,7 @@ impl TomlLexer {
             c if c.is_whitespace() => self.read_whitespace(),
             '#' => self.read_comment(),
             '"' => self.read_string(),
+            '+' | '-' | '0'..='9' => self.read_number(),
             _ => {
                 self.next_char();
                 TokenKind::Unknown
@@ -152,6 +153,14 @@ impl TomlLexer {
 
         TokenKind::String
     }
+
+    fn read_number(&mut self) -> TokenKind {
+        let _ = self.eat_if('+') || self.eat_if('-');
+
+        self.eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.');
+
+        TokenKind::Number
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +203,24 @@ mod tests {
         assert_tokens!(
             r#""""Here are two quotation marks: "". Simple enough.""""#,
             (String, 0, 54)
+        );
+    }
+
+    #[test]
+    fn numbers() {
+        assert_tokens!(
+            "2 +27 -439 4.56 +34.98 -334.30",
+            (Number, 0, 1),
+            (Whitespace, 1, 2),
+            (Number, 2, 5),
+            (Whitespace, 5, 6),
+            (Number, 6, 10),
+            (Whitespace, 10, 11),
+            (Number, 11, 15),
+            (Whitespace, 15, 16),
+            (Number, 16, 22),
+            (Whitespace, 22, 23),
+            (Number, 23, 30),
         );
     }
 }
