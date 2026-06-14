@@ -558,7 +558,8 @@ impl RustLexer {
             | TokenKind::Constant
             | TokenKind::Whitespace
             | TokenKind::Comment
-            | TokenKind::EnumMember => {}
+            | TokenKind::EnumMember
+            | TokenKind::Title => {}
         }
 
         result

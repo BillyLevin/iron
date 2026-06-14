@@ -100,6 +100,7 @@ pub(crate) enum TokenKind {
     PropertyAccess,
     Constant,
     EnumMember,
+    Title,
 }
 
 #[derive(Debug, Clone, Copy)]

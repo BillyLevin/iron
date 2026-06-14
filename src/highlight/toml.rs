@@ -39,6 +39,7 @@ impl TomlLexer {
             '#' => self.read_comment(),
             '"' => self.read_string(),
             '+' | '-' | '0'..='9' => self.read_number(),
+            '[' => self.read_table_header(),
             _ => {
                 self.next_char();
                 TokenKind::Unknown
@@ -161,6 +162,34 @@ impl TomlLexer {
 
         TokenKind::Number
     }
+
+    fn read_table_header(&mut self) -> TokenKind {
+        self.assert('[');
+
+        let mut delim_count = 0_usize;
+
+        self.eat_while(|ch| {
+            match ch {
+                '[' => {
+                    delim_count += 1;
+                    true
+                }
+                ']' => {
+                    if delim_count == 0 {
+                        false
+                    } else {
+                        delim_count -= 1;
+                        true
+                    }
+                }
+                _ => true,
+            }
+        });
+
+        self.eat_if(']');
+
+        TokenKind::Title
+    }
 }
 
 #[cfg(test)]
@@ -222,5 +251,10 @@ mod tests {
             (Whitespace, 22, 23),
             (Number, 23, 30),
         );
+    }
+
+    #[test]
+    fn tables() {
+        assert_tokens!("[hello-123]", (Title, 0, 11));
     }
 }
