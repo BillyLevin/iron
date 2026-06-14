@@ -14,6 +14,7 @@ pub(super) struct TomlLexer {
     source: Rope,
     position: ByteIndex,
     current: Option<char>,
+    context: Context,
 }
 
 impl TomlLexer {
@@ -24,6 +25,7 @@ impl TomlLexer {
             source,
             position: start,
             current,
+            context: Context::Key,
         }
     }
 
@@ -37,14 +39,32 @@ impl TomlLexer {
         let kind = match ch {
             c if c.is_whitespace() => self.read_whitespace(),
             '#' => self.read_comment(),
-            '"' => self.read_string(),
-            '+' | '-' | '0'..='9' => self.read_number(),
-            '[' => self.read_table_header(),
+            '"' => {
+                let result = self.read_string();
+                if self.context == Context::Key {
+                    TokenKind::Property
+                } else {
+                    result
+                }
+            }
+            '+' | '-' | '0'..='9' if matches!(self.context, Context::Value | Context::Array) => {
+                self.read_number()
+            }
+            c if is_bare_key_part(c) && self.context == Context::Key => self.read_bare_key(),
+            '[' => self.read_open_bracket(),
+            ']' => self.read_close_bracket(),
+            '{' => self.read_open_brace(),
+            '}' => self.read_close_brace(),
+            '=' => self.read_equals(),
             _ => {
                 self.next_char();
                 TokenKind::Unknown
             }
         };
+
+        if self.is_value(kind) {
+            self.context = Context::Key;
+        }
 
         let token = Token {
             kind,
@@ -163,6 +183,23 @@ impl TomlLexer {
         TokenKind::Number
     }
 
+    fn read_open_bracket(&mut self) -> TokenKind {
+        match self.context {
+            Context::Key => self.read_table_header(),
+            Context::Value | Context::Array => {
+                self.assert('[');
+                self.context = Context::Array;
+                TokenKind::Punctuation
+            }
+        }
+    }
+
+    fn read_close_bracket(&mut self) -> TokenKind {
+        self.assert(']');
+        self.context = Context::Key;
+        TokenKind::Punctuation
+    }
+
     fn read_table_header(&mut self) -> TokenKind {
         self.assert('[');
 
@@ -190,6 +227,67 @@ impl TomlLexer {
 
         TokenKind::Title
     }
+
+    fn read_equals(&mut self) -> TokenKind {
+        self.assert('=');
+        self.context = Context::Value;
+
+        TokenKind::Operator
+    }
+
+    fn read_bare_key(&mut self) -> TokenKind {
+        self.eat_while(is_bare_key_part);
+
+        TokenKind::Property
+    }
+
+    fn read_open_brace(&mut self) -> TokenKind {
+        self.assert('{');
+        self.context = Context::Key;
+
+        TokenKind::Punctuation
+    }
+
+    fn read_close_brace(&mut self) -> TokenKind {
+        self.assert('}');
+        self.context = Context::Key;
+
+        TokenKind::Punctuation
+    }
+
+    fn is_value(&self, kind: TokenKind) -> bool {
+        self.context == Context::Value
+            && match kind {
+                TokenKind::Keyword | TokenKind::String | TokenKind::Number => true,
+                TokenKind::Identifier
+                | TokenKind::Whitespace
+                | TokenKind::Type
+                | TokenKind::Comment
+                | TokenKind::Operator
+                | TokenKind::Unknown
+                | TokenKind::Character
+                | TokenKind::Lifetime
+                | TokenKind::FunctionName
+                | TokenKind::Punctuation
+                | TokenKind::Macro
+                | TokenKind::Property
+                | TokenKind::PropertyAccess
+                | TokenKind::Constant
+                | TokenKind::EnumMember
+                | TokenKind::Title => false,
+            }
+    }
+}
+
+const fn is_bare_key_part(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Context {
+    Key,
+    Value,
+    Array,
 }
 
 #[cfg(test)]
@@ -225,36 +323,102 @@ mod tests {
     #[test]
     fn strings() {
         assert_tokens!(
-            r#""I'm a string. \"You can quote me\". Name\tJos\xE9\nLocation\tSF.a""#,
-            (String, 0, 67)
+            r#"key = "I'm a string. \"You can quote me\". Name\tJos\xE9\nLocation\tSF.a""#,
+            (Property, 0, 3),
+            (Whitespace, 3, 4),
+            (Operator, 4, 5),
+            (Whitespace, 5, 6),
+            (String, 6, 73)
         );
 
         assert_tokens!(
-            r#""""Here are two quotation marks: "". Simple enough.""""#,
-            (String, 0, 54)
+            r#"key = """Here are two quotation marks: "". Simple enough.""""#,
+            (Property, 0, 3),
+            (Whitespace, 3, 4),
+            (Operator, 4, 5),
+            (Whitespace, 5, 6),
+            (String, 6, 60)
         );
     }
 
     #[test]
     fn numbers() {
-        assert_tokens!(
-            "2 +27 -439 4.56 +34.98 -334.30",
-            (Number, 0, 1),
-            (Whitespace, 1, 2),
-            (Number, 2, 5),
-            (Whitespace, 5, 6),
-            (Number, 6, 10),
-            (Whitespace, 10, 11),
-            (Number, 11, 15),
-            (Whitespace, 15, 16),
-            (Number, 16, 22),
-            (Whitespace, 22, 23),
-            (Number, 23, 30),
-        );
+        for num in ["2", "+27", "-439", "4.56", "+34.98", "-334.30"] {
+            assert_tokens!(
+                &format!("key = {num}"),
+                (Property, 0, 3),
+                (Whitespace, 3, 4),
+                (Operator, 4, 5),
+                (Whitespace, 5, 6),
+                (Number, 6, 6 + num.len())
+            );
+        }
     }
 
     #[test]
     fn tables() {
-        assert_tokens!("[hello-123]", (Title, 0, 11));
+        assert_tokens!(
+            r#"[hello-123]
+hello = "world"
+"#,
+            (Title, 0, 11),
+            (Whitespace, 11, 12),
+            (Property, 12, 17),
+            (Whitespace, 17, 18),
+            (Operator, 18, 19),
+            (Whitespace, 19, 20),
+            (String, 20, 27),
+            (Whitespace, 27, 28),
+        );
+
+        assert_tokens!(
+            r#"[[package]]
+name = "anstream"
+dependencies = [
+ "anstyle",
+ "anstyle-parse",
+ "anstyle-query",
+ "anstyle-wincon",
+ "colorchoice",
+ "is_terminal_polyfill",
+ "utf8parse",
+]"#,
+            (Title, 0, 11),
+            (Whitespace, 11, 12),
+            (Property, 12, 16),
+            (Whitespace, 16, 17),
+            (Operator, 17, 18),
+            (Whitespace, 18, 19),
+            (String, 19, 29),
+            (Whitespace, 29, 30),
+            (Property, 30, 42),
+            (Whitespace, 42, 43),
+            (Operator, 43, 44),
+            (Whitespace, 44, 45),
+            (Punctuation, 45, 46),
+            (Whitespace, 46, 48),
+            (String, 48, 57),
+            (Unknown, 57, 58),
+            (Whitespace, 58, 60),
+            (String, 60, 75),
+            (Unknown, 75, 76),
+            (Whitespace, 76, 78),
+            (String, 78, 93),
+            (Unknown, 93, 94),
+            (Whitespace, 94, 96),
+            (String, 96, 112),
+            (Unknown, 112, 113),
+            (Whitespace, 113, 115),
+            (String, 115, 128),
+            (Unknown, 128, 129),
+            (Whitespace, 129, 131),
+            (String, 131, 153),
+            (Unknown, 153, 154),
+            (Whitespace, 154, 156),
+            (String, 156, 167),
+            (Unknown, 167, 168),
+            (Whitespace, 168, 169),
+            (Punctuation, 169, 170),
+        );
     }
 }
