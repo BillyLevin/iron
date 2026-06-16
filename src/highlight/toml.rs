@@ -35,6 +35,11 @@ impl TomlLexer {
 
     fn read_token(&mut self, ch: char) -> (Token, Checkpoint) {
         let start = self.position;
+        let checkpoint = if self.context == Context::Key {
+            Checkpoint::Yes
+        } else {
+            Checkpoint::No
+        };
 
         let kind = match ch {
             c if c.is_whitespace() => self.read_whitespace(),
@@ -71,13 +76,7 @@ impl TomlLexer {
             range: start..self.position,
         };
 
-        let checkpoint_outcome = if token.range.start == ByteIndex::new(0) {
-            Checkpoint::Yes
-        } else {
-            Checkpoint::No
-        };
-
-        (token, checkpoint_outcome)
+        (token, checkpoint)
     }
 
     fn next_char(&mut self) -> Option<char> {
