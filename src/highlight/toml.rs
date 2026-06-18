@@ -1,40 +1,30 @@
-use ropey::Rope;
-
-use crate::{
-    highlight::{
-        Checkpoint,
-        Token,
-        TokenKind,
-    },
-    text::ByteIndex,
+use crate::highlight::{
+    Checkpoint,
+    Source,
+    Token,
+    TokenKind,
 };
 
 #[derive(Debug)]
 pub(super) struct TomlLexer {
-    source: Rope,
-    position: ByteIndex,
-    current: Option<char>,
+    source: Source,
     context: Context,
 }
 
 impl TomlLexer {
-    pub(super) fn new(source: Rope, start: ByteIndex) -> Self {
-        let current = source.get_char(start.value()).ok();
-
+    pub(super) const fn new(source: Source) -> Self {
         Self {
             source,
-            position: start,
-            current,
             context: Context::Key,
         }
     }
 
     pub(super) fn next_token(&mut self) -> Option<(Token, Checkpoint)> {
-        self.current.map(|ch| self.read_token(ch))
+        self.source.current.map(|ch| self.read_token(ch))
     }
 
     fn read_token(&mut self, ch: char) -> (Token, Checkpoint) {
-        let start = self.position;
+        let start = self.source.position;
         let checkpoint = if self.context == Context::Key {
             Checkpoint::Yes
         } else {
@@ -62,7 +52,7 @@ impl TomlLexer {
             '}' => self.read_close_brace(),
             '=' => self.read_equals(),
             _ => {
-                self.next_char();
+                self.source.next_char();
                 TokenKind::Unknown
             }
         };
@@ -73,72 +63,36 @@ impl TomlLexer {
 
         let token = Token {
             kind,
-            range: start..self.position,
+            range: start..self.source.position,
         };
 
         (token, checkpoint)
     }
 
-    fn next_char(&mut self) -> Option<char> {
-        self.position += self.current?.len_utf8();
-        self.current = self.source.get_char(self.position.value()).ok();
-        self.current
-    }
-
-    fn peek(&self) -> Option<char> {
-        self.source.chars_at(self.position.value()).nth(1)
-    }
-
-    fn peek_2(&self) -> Option<char> {
-        self.source.chars_at(self.position.value()).nth(2)
-    }
-
-    fn eat_while(&mut self, mut condition: impl FnMut(char) -> bool) {
-        while self.current.is_some_and(&mut condition) {
-            self.next_char();
-        }
-    }
-
-    /// Assert that the current character is `ch`, and advances to the next
-    /// character. This should only be called if the condition is guaranteed
-    /// to be true.
-    fn assert(&mut self, ch: char) {
-        assert!(self.eat_if(ch), "`current` must be '{ch}'");
-    }
-
-    fn eat_if(&mut self, ch: char) -> bool {
-        if self.current.is_some_and(|c| c == ch) {
-            self.next_char();
-            true
-        } else {
-            false
-        }
-    }
-
     fn read_whitespace(&mut self) -> TokenKind {
-        self.eat_while(char::is_whitespace);
+        self.source.eat_while(char::is_whitespace);
         TokenKind::Whitespace
     }
 
     fn read_comment(&mut self) -> TokenKind {
-        self.assert('#');
-        self.eat_while(|ch| ch != '\n');
+        self.source.assert('#');
+        self.source.eat_while(|ch| ch != '\n');
 
         TokenKind::Comment
     }
 
     fn read_string(&mut self) -> TokenKind {
-        self.assert('"');
+        self.source.assert('"');
 
-        if self.current == Some('"') && self.peek() == Some('"') {
-            self.assert('"');
-            self.assert('"');
+        if self.source.current == Some('"') && self.source.peek() == Some('"') {
+            self.source.assert('"');
+            self.source.assert('"');
             return self.read_until_triple_quotes();
         }
 
         let mut is_escaped = false;
 
-        self.eat_while(|ch| {
+        self.source.eat_while(|ch| {
             match ch {
                 '"' if !is_escaped => false,
                 '\\' => {
@@ -154,30 +108,31 @@ impl TomlLexer {
 
         // we don't `self.assert('"')` here because the string may have just never been
         // closed
-        self.next_char();
+        self.source.next_char();
 
         TokenKind::String
     }
 
     fn read_until_triple_quotes(&mut self) -> TokenKind {
-        while let Some(ch) = self.current {
-            if ch == '"' && self.peek() == Some('"') && self.peek_2() == Some('"') {
-                self.assert('"');
-                self.assert('"');
-                self.assert('"');
+        while let Some(ch) = self.source.current {
+            if ch == '"' && self.source.peek() == Some('"') && self.source.peek_2() == Some('"') {
+                self.source.assert('"');
+                self.source.assert('"');
+                self.source.assert('"');
                 break;
             }
 
-            self.next_char();
+            self.source.next_char();
         }
 
         TokenKind::String
     }
 
     fn read_number(&mut self) -> TokenKind {
-        let _ = self.eat_if('+') || self.eat_if('-');
+        let _ = self.source.eat_if('+') || self.source.eat_if('-');
 
-        self.eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.');
+        self.source
+            .eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '.');
 
         TokenKind::Number
     }
@@ -186,7 +141,7 @@ impl TomlLexer {
         match self.context {
             Context::Key => self.read_table_header(),
             Context::Value | Context::Array => {
-                self.assert('[');
+                self.source.assert('[');
                 self.context = Context::Array;
                 TokenKind::Punctuation
             }
@@ -194,17 +149,17 @@ impl TomlLexer {
     }
 
     fn read_close_bracket(&mut self) -> TokenKind {
-        self.assert(']');
+        self.source.assert(']');
         self.context = Context::Key;
         TokenKind::Punctuation
     }
 
     fn read_table_header(&mut self) -> TokenKind {
-        self.assert('[');
+        self.source.assert('[');
 
         let mut delim_count = 0_usize;
 
-        self.eat_while(|ch| {
+        self.source.eat_while(|ch| {
             match ch {
                 '[' => {
                     delim_count += 1;
@@ -222,33 +177,33 @@ impl TomlLexer {
             }
         });
 
-        self.eat_if(']');
+        self.source.eat_if(']');
 
         TokenKind::Title
     }
 
     fn read_equals(&mut self) -> TokenKind {
-        self.assert('=');
+        self.source.assert('=');
         self.context = Context::Value;
 
         TokenKind::Operator
     }
 
     fn read_bare_key(&mut self) -> TokenKind {
-        self.eat_while(is_bare_key_part);
+        self.source.eat_while(is_bare_key_part);
 
         TokenKind::Property
     }
 
     fn read_open_brace(&mut self) -> TokenKind {
-        self.assert('{');
+        self.source.assert('{');
         self.context = Context::Key;
 
         TokenKind::Punctuation
     }
 
     fn read_close_brace(&mut self) -> TokenKind {
-        self.assert('}');
+        self.source.assert('}');
         self.context = Context::Key;
 
         TokenKind::Punctuation
@@ -296,6 +251,7 @@ mod tests {
     use ropey::Rope;
 
     use super::*;
+    use crate::text::ByteIndex;
 
     #[track_caller]
     fn assert_token(lexer: &mut TomlLexer, kind: TokenKind, range: Range<usize>) {
@@ -307,8 +263,8 @@ mod tests {
 
     macro_rules! assert_tokens {
         ($source:expr, $(($kind:ident, $start:expr, $end:expr)), +$(,)?) => {{
-            let source = Rope::from_str($source);
-            let mut lexer = TomlLexer::new(source, ByteIndex::new(0));
+            let source = Source::new(Rope::from_str($source), ByteIndex::new(0));
+            let mut lexer = TomlLexer::new(source);
             $(assert_token(&mut lexer, TokenKind::$kind, $start..$end);)+
             assert!(lexer.next_token().is_none());
         }};

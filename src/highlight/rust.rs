@@ -1,10 +1,9 @@
 use std::ops::Range;
 
-use ropey::Rope;
-
 use crate::{
     highlight::{
         Checkpoint,
+        Source,
         Token,
         TokenKind,
     },
@@ -13,22 +12,16 @@ use crate::{
 
 #[derive(Debug)]
 pub(super) struct RustLexer {
-    source: Rope,
-    position: ByteIndex,
-    current: Option<char>,
+    source: Source,
     delimiter_stack: Vec<Delimiter>,
     last_significant: SignificantKind,
     in_use_declaration: bool,
 }
 
 impl RustLexer {
-    pub(super) fn new(source: Rope, start: ByteIndex) -> Self {
-        let current = source.get_char(start.value()).ok();
-
+    pub(super) const fn new(source: Source) -> Self {
         Self {
             source,
-            position: start,
-            current,
             delimiter_stack: Vec::new(),
             last_significant: SignificantKind::Other,
             in_use_declaration: false,
@@ -36,11 +29,11 @@ impl RustLexer {
     }
 
     pub(super) fn next_token(&mut self) -> Option<(Token, Checkpoint)> {
-        self.current.map(|ch| self.read_token(ch))
+        self.source.current.map(|ch| self.read_token(ch))
     }
 
     fn read_token(&mut self, ch: char) -> (Token, Checkpoint) {
-        let start = self.position;
+        let start = self.source.position;
 
         let kind = match ch {
             c if c.is_whitespace() => self.read_whitespace(),
@@ -66,19 +59,19 @@ impl RustLexer {
             '\'' => self.read_apostrophe(),
             ':' => self.read_colon(),
             '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';' => {
-                self.next_char();
+                self.source.next_char();
                 TokenKind::Punctuation
             }
             '#' => self.read_pound(),
             _ => {
-                self.next_char();
+                self.source.next_char();
                 TokenKind::Unknown
             }
         };
 
         let token = Token {
             kind,
-            range: start..self.position,
+            range: start..self.source.position,
         };
 
         let checkpoint_outcome = self.update_context(&token);
@@ -86,65 +79,32 @@ impl RustLexer {
         (token, checkpoint_outcome)
     }
 
-    fn next_char(&mut self) -> Option<char> {
-        self.position += self.current?.len_utf8();
-        self.current = self.source.get_char(self.position.value()).ok();
-        self.current
-    }
-
-    fn peek(&self) -> Option<char> {
-        self.source
-            .get_char((self.position + self.current?.len_utf8()).value())
-            .ok()
-    }
-
-    fn eat_while(&mut self, mut condition: impl FnMut(char) -> bool) {
-        while self.current.is_some_and(&mut condition) {
-            self.next_char();
-        }
-    }
-
-    /// Assert that the current character is `ch`, and advances to the next
-    /// character. This should only be called if the condition is guaranteed
-    /// to be true.
-    fn assert(&mut self, ch: char) {
-        assert!(self.eat_if(ch), "`current` must be '{ch}'");
-    }
-
-    fn eat_if(&mut self, ch: char) -> bool {
-        if self.current.is_some_and(|c| c == ch) {
-            self.next_char();
-            true
-        } else {
-            false
-        }
-    }
-
     fn read_whitespace(&mut self) -> TokenKind {
-        self.eat_while(char::is_whitespace);
+        self.source.eat_while(char::is_whitespace);
         TokenKind::Whitespace
     }
 
     fn read_underscore(&mut self, start: ByteIndex) -> TokenKind {
-        self.eat_while(|ch| matches!(ch, '_' | '0'..='9'));
+        self.source.eat_while(|ch| matches!(ch, '_' | '0'..='9'));
 
-        match self.current {
+        match self.source.current {
             Some(ch) if ch.is_ascii_uppercase() => self.read_uppercase_ident(start),
             Some(_) | None => self.read_lowercase_ident(start),
         }
     }
 
     fn read_lowercase_ident(&mut self, start: ByteIndex) -> TokenKind {
-        self.eat_while(|ch| matches!(ch, 'a'..='z' | '_' | '0'..='9'));
+        self.source
+            .eat_while(|ch| matches!(ch, 'a'..='z' | '_' | '0'..='9'));
 
-        if self.current == Some('!') && self.peek() != Some('=') {
-            self.assert('!');
+        if self.source.current == Some('!') && self.source.peek() != Some('=') {
+            self.source.assert('!');
             TokenKind::Macro
         } else if self.is_property() {
             TokenKind::Property
-        } else if self.is_keyword(start..self.position) {
+        } else if self.is_keyword(start..self.source.position) {
             TokenKind::Keyword
-        } else if self.current == Some('(') {
+        } else if self.source.current == Some('(') {
             if self.last_significant == SignificantKind::OpenAttribute {
                 TokenKind::Macro
             } else {
@@ -160,7 +120,7 @@ impl RustLexer {
     fn read_uppercase_ident(&mut self, start: ByteIndex) -> TokenKind {
         let mut is_uppercase = true;
 
-        self.eat_while(|ch| {
+        self.source.eat_while(|ch| {
             let result = ch.is_ascii_alphanumeric() || ch == '_';
             if ch.is_ascii_lowercase() {
                 is_uppercase = false;
@@ -169,7 +129,7 @@ impl RustLexer {
             result
         });
 
-        if self.is_keyword(start..self.position) {
+        if self.is_keyword(start..self.source.position) {
             TokenKind::Keyword
         } else if is_uppercase {
             TokenKind::Constant
@@ -182,25 +142,27 @@ impl RustLexer {
 
     fn read_number(&mut self) -> TokenKind {
         // TODO: could create `self.eat_while_with_peek` helper if this comes up again
-        while let Some(ch) = self.current {
+        while let Some(ch) = self.source.current {
             // NOTE: not technically correct to allow all letters but i haven't found a case
             // where this causes anything weird to happen with the highlights
-            if !(ch.is_ascii_alphanumeric() || ch == '_' || (ch == '.' && self.peek() != Some('.')))
+            if !(ch.is_ascii_alphanumeric()
+                || ch == '_'
+                || (ch == '.' && self.source.peek() != Some('.')))
             {
                 break;
             }
 
-            self.next_char();
+            self.source.next_char();
         }
 
         TokenKind::Number
     }
 
     fn read_string(&mut self) -> TokenKind {
-        self.assert('"');
+        self.source.assert('"');
 
         let mut is_escaped = false;
-        self.eat_while(|ch| {
+        self.source.eat_while(|ch| {
             match ch {
                 '"' if !is_escaped => false,
                 '\\' => {
@@ -214,31 +176,31 @@ impl RustLexer {
             }
         });
 
-        // we don't `self.assert('"')` here because the string may have just never been
-        // closed
-        self.next_char();
+        // we don't `self.source.assert('"')` here because the string may have just
+        // never been closed
+        self.source.next_char();
 
         TokenKind::String
     }
 
     fn read_slash(&mut self) -> TokenKind {
-        self.assert('/');
+        self.source.assert('/');
 
-        match self.current {
+        match self.source.current {
             // line/doc comment
             Some('/') => {
-                self.eat_while(|ch| ch != '\n');
+                self.source.eat_while(|ch| ch != '\n');
                 TokenKind::Comment
             }
             // block comment
             Some('*') => {
-                self.assert('*');
+                self.source.assert('*');
 
-                while let Some(ch) = self.current {
-                    let next = self.next_char();
+                while let Some(ch) = self.source.current {
+                    let next = self.source.next_char();
 
                     if ch == '*' && matches!(next, Some('/')) {
-                        self.assert('/');
+                        self.source.assert('/');
                         break;
                     }
                 }
@@ -248,7 +210,7 @@ impl RustLexer {
 
             // division assignment
             Some('=') => {
-                self.assert('=');
+                self.source.assert('=');
                 TokenKind::Operator
             }
 
@@ -257,33 +219,33 @@ impl RustLexer {
     }
 
     fn read_dash(&mut self) -> TokenKind {
-        self.assert('-');
+        self.source.assert('-');
 
-        if let Some(ch @ ('>' | '=')) = self.current {
-            self.assert(ch);
+        if let Some(ch @ ('>' | '=')) = self.source.current {
+            self.source.assert(ch);
         }
 
         TokenKind::Operator
     }
 
     fn read_equals(&mut self) -> TokenKind {
-        self.assert('=');
+        self.source.assert('=');
 
-        if let Some(ch @ ('>' | '=')) = self.current {
-            self.assert(ch);
+        if let Some(ch @ ('>' | '=')) = self.source.current {
+            self.source.assert(ch);
         }
 
         TokenKind::Operator
     }
 
     fn read_less_than(&mut self) -> TokenKind {
-        self.assert('<');
+        self.source.assert('<');
 
-        match self.current {
-            Some('=') => self.assert('='),
+        match self.source.current {
+            Some('=') => self.source.assert('='),
             Some('<') => {
-                self.assert('<');
-                self.eat_if('=');
+                self.source.assert('<');
+                self.source.eat_if('=');
             }
             Some(_) | None => {}
         }
@@ -292,13 +254,13 @@ impl RustLexer {
     }
 
     fn read_greater_than(&mut self) -> TokenKind {
-        self.assert('>');
+        self.source.assert('>');
 
-        match self.current {
-            Some('=') => self.assert('='),
+        match self.source.current {
+            Some('=') => self.source.assert('='),
             Some('>') => {
-                self.assert('>');
-                self.eat_if('=');
+                self.source.assert('>');
+                self.source.eat_if('=');
             }
             Some(_) | None => {}
         }
@@ -307,71 +269,71 @@ impl RustLexer {
     }
 
     fn read_bang(&mut self) -> TokenKind {
-        self.assert('!');
-        self.eat_if('=');
+        self.source.assert('!');
+        self.source.eat_if('=');
 
         TokenKind::Operator
     }
 
     fn read_percent(&mut self) -> TokenKind {
-        self.assert('%');
-        self.eat_if('=');
+        self.source.assert('%');
+        self.source.eat_if('=');
 
         TokenKind::Operator
     }
 
     fn read_and(&mut self) -> TokenKind {
-        self.assert('&');
+        self.source.assert('&');
 
-        if let Some(ch @ ('&' | '=')) = self.current {
-            self.assert(ch);
+        if let Some(ch @ ('&' | '=')) = self.source.current {
+            self.source.assert(ch);
         }
 
         TokenKind::Operator
     }
 
     fn read_or(&mut self) -> TokenKind {
-        self.assert('|');
+        self.source.assert('|');
 
-        if let Some(ch @ ('|' | '=')) = self.current {
-            self.assert(ch);
+        if let Some(ch @ ('|' | '=')) = self.source.current {
+            self.source.assert(ch);
         }
 
         TokenKind::Operator
     }
 
     fn read_caret(&mut self) -> TokenKind {
-        self.assert('^');
-        self.eat_if('=');
+        self.source.assert('^');
+        self.source.eat_if('=');
 
         TokenKind::Operator
     }
 
     fn read_star(&mut self) -> TokenKind {
-        self.assert('*');
-        self.eat_if('=');
+        self.source.assert('*');
+        self.source.eat_if('=');
 
         TokenKind::Operator
     }
 
     fn read_plus(&mut self) -> TokenKind {
-        self.assert('+');
-        self.eat_if('=');
+        self.source.assert('+');
+        self.source.eat_if('=');
 
         TokenKind::Operator
     }
 
     fn read_at(&mut self) -> TokenKind {
-        self.assert('@');
+        self.source.assert('@');
 
         TokenKind::Operator
     }
 
     fn read_dot(&mut self) -> TokenKind {
-        self.assert('.');
+        self.source.assert('.');
 
-        if self.eat_if('.') {
-            self.eat_if('=');
+        if self.source.eat_if('.') {
+            self.source.eat_if('=');
             TokenKind::Operator
         } else {
             TokenKind::Punctuation
@@ -379,28 +341,28 @@ impl RustLexer {
     }
 
     fn read_apostrophe(&mut self) -> TokenKind {
-        self.assert('\'');
+        self.source.assert('\'');
 
-        let is_maybe_lifetime = if self.peek() == Some('\'') {
+        let is_maybe_lifetime = if self.source.peek() == Some('\'') {
             false
         } else {
-            matches!(self.current, Some('a'..='z' | '_'))
+            matches!(self.source.current, Some('a'..='z' | '_'))
         };
 
         if !is_maybe_lifetime {
-            while let Some(ch) = self.current {
+            while let Some(ch) = self.source.current {
                 match ch {
                     '\'' => {
-                        self.next_char();
+                        self.source.next_char();
                         return TokenKind::Character;
                     }
                     // escaping something; let's skip the slash and the next char
                     '\\' => {
-                        self.next_char();
-                        self.next_char();
+                        self.source.next_char();
+                        self.source.next_char();
                     }
                     _ => {
-                        self.next_char();
+                        self.source.next_char();
                     }
                 }
             }
@@ -409,22 +371,23 @@ impl RustLexer {
         // we'll assume it's a lifetime
         // TODO: it could also be intended as a string but they accidentally put it in
         // single quotes: do we want to highlight that differently?
-        self.eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+        self.source
+            .eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_');
 
         TokenKind::Lifetime
     }
 
     fn read_colon(&mut self) -> TokenKind {
-        self.assert(':');
-        self.eat_if(':');
+        self.source.assert(':');
+        self.source.eat_if(':');
 
         TokenKind::Punctuation
     }
 
     fn read_pound(&mut self) -> TokenKind {
-        self.assert('#');
+        self.source.assert('#');
         // opening an attribute - handled in `update_context`
-        self.eat_if('[');
+        self.source.eat_if('[');
 
         TokenKind::Punctuation
     }
@@ -432,7 +395,7 @@ impl RustLexer {
     fn is_keyword(&self, range: Range<ByteIndex>) -> bool {
         let bytes: Vec<u8> = self
             .source
-            .bytes_at(range.start.value())
+            .bytes_at(range.start)
             .take((range.end - range.start).value())
             .collect();
 
@@ -568,7 +531,7 @@ impl RustLexer {
     fn token_bytes(&self, token: &Token) -> Vec<u8> {
         let bytes: Vec<u8> = self
             .source
-            .bytes_at(token.range.start.value())
+            .bytes_at(token.range.start)
             .take((token.range.end - token.range.start).value())
             .collect();
 
@@ -581,7 +544,7 @@ impl RustLexer {
 
     fn next_non_whitespace(&self) -> Option<char> {
         self.source
-            .chars_at(self.position.value())
+            .chars_at(self.source.position)
             .find(|ch| !ch.is_whitespace())
     }
 
@@ -609,7 +572,7 @@ impl RustLexer {
             return false;
         }
 
-        if self.current == Some(':') && self.peek() != Some(':') {
+        if self.source.current == Some(':') && self.source.peek() != Some(':') {
             return true;
         }
 
@@ -621,7 +584,8 @@ impl RustLexer {
             return false;
         }
 
-        let next_is_path_separator = self.current == Some(':') && self.peek() == Some(':');
+        let next_is_path_separator =
+            self.source.current == Some(':') && self.source.peek() == Some(':');
 
         // last item in a path is probably an enum member, assuming we're not in a use
         // declaration
@@ -630,7 +594,7 @@ impl RustLexer {
         }
 
         // something like `Foo()`
-        if self.current == Some('(') {
+        if self.source.current == Some('(') {
             return true;
         }
 
@@ -683,8 +647,8 @@ mod tests {
 
     macro_rules! assert_tokens {
         ($source:expr, $(($kind:ident, $start:expr, $end:expr)), +$(,)?) => {{
-            let source = Rope::from_str($source);
-            let mut lexer = RustLexer::new(source, ByteIndex::new(0));
+            let source = Source::new(Rope::from_str($source), ByteIndex::new(0));
+            let mut lexer = RustLexer::new(source);
             $(assert_token(&mut lexer, TokenKind::$kind, $start..$end);)+
             assert!(lexer.next_token().is_none());
         }};
@@ -798,8 +762,8 @@ use foo",
               "..", "..=",
         ];
 
-        let source = Rope::from_str(&operators.join(" "));
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
+        let source = Source::new(Rope::from_str(&operators.join(" ")), ByteIndex::new(0));
+        let mut lexer = RustLexer::new(source);
 
         let mut position = 0;
 
@@ -864,8 +828,8 @@ use foo",
     #[test]
     fn punctuation() {
         let punctuation = ["(", ")", "[", "]", "{", "}", "::", ":", ".", ",", ";"];
-        let source = Rope::from_str(&punctuation.join(" "));
-        let mut lexer = RustLexer::new(source, ByteIndex::new(0));
+        let source = Source::new(Rope::from_str(&punctuation.join(" ")), ByteIndex::new(0));
+        let mut lexer = RustLexer::new(source);
 
         let mut position = 0;
         for (index, symbol) in punctuation.iter().enumerate() {
