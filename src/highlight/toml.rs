@@ -228,7 +228,8 @@ impl TomlLexer {
                 | TokenKind::PropertyAccess
                 | TokenKind::Constant
                 | TokenKind::EnumMember
-                | TokenKind::Title => false,
+                | TokenKind::Title
+                | TokenKind::Marker => false,
             }
     }
 }

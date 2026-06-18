@@ -1,7 +1,10 @@
 mod rust;
 mod toml;
 
-use std::ops::Range;
+use std::{
+    collections::VecDeque,
+    ops::Range,
+};
 
 use ropey::Rope;
 
@@ -17,16 +20,22 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct Highlighter {
     lexer: Lexer,
+    pending: VecDeque<(Token, Checkpoint)>,
+    text: Rope,
 }
 
 impl Highlighter {
     pub(crate) fn new(source: Rope, start: ByteIndex, language: Language) -> Self {
+        let text = source.clone();
+
         Self {
             lexer: match language {
                 Language::Rust => Lexer::Rust(RustLexer::new(Source::new(source, start))),
                 Language::Toml => Lexer::Toml(TomlLexer::new(Source::new(source, start))),
                 Language::Text => Lexer::Default,
             },
+            text,
+            pending: VecDeque::new(),
         }
     }
 }
@@ -35,8 +44,125 @@ impl Iterator for Highlighter {
     type Item = (Token, Checkpoint);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.lexer.next_token()
+        if let Some(token) = self.pending.pop_front() {
+            return Some(token);
+        }
+
+        let (token, checkpoint) = self.lexer.next_token()?;
+
+        if matches!(token.kind(), TokenKind::Comment) {
+            self.pending = split_comment(self.text.clone(), &token, checkpoint);
+            self.pending.pop_front()
+        } else {
+            Some((token, checkpoint))
+        }
     }
+}
+
+/// Splits a `Comment` token into potentially multiple `Comment` and `Marker`
+/// tokens if the comment contains any content that needs to be highlighted.
+/// The first split token inherits the original token's checkpoint.
+fn split_comment(
+    text: Rope,
+    token: &Token,
+    checkpoint: Checkpoint,
+) -> VecDeque<(Token, Checkpoint)> {
+    assert_eq!(
+        token.kind(),
+        TokenKind::Comment,
+        "`split_comment` must only be called with comment tokens"
+    );
+
+    let mut result = VecDeque::new();
+
+    let mut source = Source::new(text, token.start());
+
+    let mut comment_start = source.position;
+    let mut next_checkpoint = checkpoint;
+
+    while let Some(ch) = source.next_char()
+        && source.position < token.end()
+    {
+        match ch {
+            'T' => {
+                let start = source.position;
+
+                source.assert('T');
+                if source.eat_if('O')
+                    && source.eat_if('D')
+                    && source.eat_if('O')
+                    && source.eat_if(':')
+                {
+                    if comment_start < start {
+                        result.push_back((
+                            Token {
+                                kind: TokenKind::Comment,
+                                range: comment_start..start,
+                            },
+                            next_checkpoint,
+                        ));
+                        next_checkpoint = Checkpoint::No;
+                    }
+
+                    result.push_back((
+                        Token {
+                            kind: TokenKind::Marker,
+                            range: start..source.position,
+                        },
+                        next_checkpoint,
+                    ));
+                    next_checkpoint = Checkpoint::No;
+
+                    comment_start = source.position;
+                }
+            }
+            'N' => {
+                let start = source.position;
+
+                source.assert('N');
+                if source.eat_if('O')
+                    && source.eat_if('T')
+                    && source.eat_if('E')
+                    && source.eat_if(':')
+                {
+                    if comment_start < start {
+                        result.push_back((
+                            Token {
+                                kind: TokenKind::Comment,
+                                range: comment_start..start,
+                            },
+                            next_checkpoint,
+                        ));
+                        next_checkpoint = Checkpoint::No;
+                    }
+
+                    result.push_back((
+                        Token {
+                            kind: TokenKind::Marker,
+                            range: start..source.position,
+                        },
+                        next_checkpoint,
+                    ));
+                    next_checkpoint = Checkpoint::No;
+
+                    comment_start = source.position;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if comment_start < source.position {
+        result.push_back((
+            Token {
+                kind: TokenKind::Comment,
+                range: comment_start..source.position,
+            },
+            next_checkpoint,
+        ));
+    }
+
+    result
 }
 
 #[derive(Debug)]
@@ -101,9 +227,10 @@ pub(crate) enum TokenKind {
     Constant,
     EnumMember,
     Title,
+    Marker,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Checkpoint {
     Yes,
     No,
@@ -169,5 +296,58 @@ impl Source {
 
     fn chars_at(&self, index: ByteIndex) -> ropey::iter::Chars<'_> {
         self.text.chars_at(index.value())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_comment_works() {
+        let source = Rope::from_str("// TODO: hello, NOTE: hi");
+
+        let expected = Vec::from([
+            (
+                Token {
+                    kind: TokenKind::Comment,
+                    range: ByteIndex::new(0)..ByteIndex::new(3),
+                },
+                Checkpoint::Yes,
+            ),
+            (
+                Token {
+                    kind: TokenKind::Marker,
+                    range: ByteIndex::new(3)..ByteIndex::new(8),
+                },
+                Checkpoint::No,
+            ),
+            (
+                Token {
+                    kind: TokenKind::Comment,
+                    range: ByteIndex::new(8)..ByteIndex::new(16),
+                },
+                Checkpoint::No,
+            ),
+            (
+                Token {
+                    kind: TokenKind::Marker,
+                    range: ByteIndex::new(16)..ByteIndex::new(21),
+                },
+                Checkpoint::No,
+            ),
+            (
+                Token {
+                    kind: TokenKind::Comment,
+                    range: ByteIndex::new(21)..ByteIndex::new(24),
+                },
+                Checkpoint::No,
+            ),
+        ]);
+
+        assert_eq!(
+            Highlighter::new(source, ByteIndex::new(0), Language::Rust).collect::<Vec<_>>(),
+            expected
+        );
     }
 }
