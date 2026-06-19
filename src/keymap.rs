@@ -207,6 +207,11 @@ impl KeyMap {
         );
 
         map.register(
+            &[key!(' '), key!('p')],
+            DocumentAction::Behavior(BehaviorAction::OpenFilePicker),
+        );
+
+        map.register(
             &[key!(Esc)],
             DocumentAction::Behavior(BehaviorAction::ClearInput),
         );
@@ -503,6 +508,7 @@ pub(crate) enum BehaviorAction {
     SwitchToVisualMode,
     OpenCommandList,
     ClearInput,
+    OpenFilePicker,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -572,7 +578,8 @@ impl DocumentAction {
                 | BehaviorAction::SwitchToNormalMode
                 | BehaviorAction::SwitchToVisualMode
                 | BehaviorAction::OpenCommandList
-                | BehaviorAction::ClearInput,
+                | BehaviorAction::ClearInput
+                | BehaviorAction::OpenFilePicker,
             )
             | Self::Movement(
                 MovementAction::MoveDown
@@ -641,6 +648,7 @@ impl DocumentAction {
             Self::Behavior(BehaviorAction::ClearInput) => "Clear current input",
             Self::Edit(EditAction::InsertTab) => "Insert tab",
             Self::Movement(MovementAction::VerticallyCenter) => "Center cursor vertically",
+            Self::Behavior(BehaviorAction::OpenFilePicker) => "Open file picker",
         }
     }
 }

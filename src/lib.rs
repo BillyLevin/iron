@@ -5,6 +5,7 @@ pub mod buffer;
 pub mod commands;
 pub mod document;
 pub mod editor;
+pub mod file_picker;
 pub mod grapheme_layout;
 pub mod highlight;
 pub mod jujutsu;

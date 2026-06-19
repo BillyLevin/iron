@@ -6,6 +6,10 @@ use crate::{
     buffer::Buffer,
     commands::CommandList,
     document::Document,
+    file_picker::{
+        FileIndex,
+        FilePicker,
+    },
     ui::{
         Layer,
         LayerKind,
@@ -16,6 +20,7 @@ use crate::{
 pub(crate) struct Editor {
     document: Document,
     layers: Vec<Box<dyn Layer>>,
+    file_index: FileIndex,
 }
 
 impl Editor {
@@ -23,6 +28,7 @@ impl Editor {
         Self {
             document,
             layers: vec![],
+            file_index: FileIndex::new(),
         }
     }
 
@@ -98,6 +104,10 @@ impl Editor {
                     match layer {
                         LayerKind::CommandList => {
                             self.layers.push(Box::new(CommandList::new()));
+                        }
+                        LayerKind::FilePicker => {
+                            self.layers
+                                .push(Box::new(FilePicker::new(self.file_index.picker())));
                         }
                     }
                 }

@@ -514,6 +514,9 @@ impl Document {
             DocumentAction::Movement(MovementAction::VerticallyCenter) => {
                 self.center_cursor_vertically();
             }
+            DocumentAction::Behavior(BehaviorAction::OpenFilePicker) => {
+                Self::open_file_picker(event_context);
+            }
         }
 
         if matches!(action, DocumentAction::Edit(_)) {
@@ -1322,6 +1325,10 @@ impl Document {
 
     fn open_command_list(event_context: &mut EventContext) {
         event_context.push_action(EditorAction::AddLayer(LayerKind::CommandList));
+    }
+
+    fn open_file_picker(event_context: &mut EventContext) {
+        event_context.push_action(EditorAction::AddLayer(LayerKind::FilePicker));
     }
 
     fn visual_cursor_position_impl(&self) -> Position {

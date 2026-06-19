@@ -49,6 +49,7 @@ pub(crate) trait Layer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LayerKind {
     CommandList,
+    FilePicker,
 }
 
 /// A structure representing (unsurprisingly) a rectangular region of the
@@ -275,6 +276,7 @@ impl Dimensions {
     derive_more::Sum,
     derive_more::Sub,
     derive_more::Div,
+    derive_more::Mul,
 )]
 #[from(forward)]
 pub(crate) struct Columns(usize);
@@ -354,6 +356,7 @@ impl iter::Step for Columns {
     derive_more::Div,
     derive_more::Sub,
     derive_more::Into,
+    derive_more::Mul,
 )]
 #[from(usize, u16)]
 #[into(usize)]
