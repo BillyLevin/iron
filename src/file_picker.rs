@@ -19,6 +19,7 @@ use unicode_segmentation::UnicodeSegmentation as _;
 use crate::{
     buffer::Buffer,
     editor::{
+        EditorAction,
         EventContext,
         EventOutcome,
     },
@@ -91,7 +92,7 @@ impl FilePicker {
         this
     }
 
-    fn apply_action(&mut self, action: Action) {
+    fn apply_action(&mut self, action: Action, context: &mut EventContext) {
         match action {
             Action::InsertChar(ch) => {
                 self.search_term.push(ch);
@@ -100,6 +101,9 @@ impl FilePicker {
             Action::RemoveChar => {
                 self.search_term.pop();
                 self.update_files();
+            }
+            Action::Close => {
+                context.push_action(EditorAction::RemoveLayer(LayerKind::FilePicker));
             }
         }
     }
@@ -184,7 +188,7 @@ impl Layer for FilePicker {
         )));
     }
 
-    fn handle_event(&mut self, event: &Event, _event_context: &mut EventContext) -> EventOutcome {
+    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
         match *event {
             Event::Key(key_event) => {
                 let key_binding = KeyBinding::from(key_event);
@@ -192,11 +196,12 @@ impl Layer for FilePicker {
                 let action = match (key_binding.code(), key_binding.modifiers()) {
                     (KeyCode::Char(ch), KeyModifiers::NONE) => Some(Action::InsertChar(ch)),
                     (KeyCode::Backspace, KeyModifiers::NONE) => Some(Action::RemoveChar),
+                    (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::Close),
                     _ => None,
                 };
 
                 action.map_or(EventOutcome::Unhandled, |a| {
-                    self.apply_action(a);
+                    self.apply_action(a, event_context);
                     EventOutcome::Handled
                 })
             }
@@ -226,4 +231,5 @@ impl Layer for FilePicker {
 enum Action {
     InsertChar(char),
     RemoveChar,
+    Close,
 }
