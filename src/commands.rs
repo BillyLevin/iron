@@ -130,7 +130,7 @@ impl CommandList {
             CommandListAction::ExecuteCommand => {
                 if let Some(i) = self.visible_commands.get(self.selected_index) {
                     let cmd = &COMMANDS[*i];
-                    context.push_action(cmd.action);
+                    context.push_action(cmd.action.clone());
                     context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
                 }
             }

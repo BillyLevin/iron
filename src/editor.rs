@@ -1,4 +1,7 @@
-use std::iter;
+use std::{
+    iter,
+    path::PathBuf,
+};
 
 use crossterm::event::Event;
 
@@ -11,6 +14,7 @@ use crate::{
         FilePicker,
     },
     ui::{
+        Dimensions,
         Layer,
         LayerKind,
         Position,
@@ -21,14 +25,16 @@ pub(crate) struct Editor {
     document: Document,
     layers: Vec<Box<dyn Layer>>,
     file_index: FileIndex,
+    dimensions: Dimensions,
 }
 
 impl Editor {
-    pub(crate) fn new(document: Document) -> Self {
+    pub(crate) fn new(document: Document, dimensions: Dimensions) -> Self {
         Self {
             document,
             layers: vec![],
             file_index: FileIndex::new(),
+            dimensions,
         }
     }
 
@@ -139,10 +145,22 @@ impl Editor {
 
                     return EventOutcome::CloseApp;
                 }
+                EditorAction::OpenFile(path) => {
+                    let new_doc = Document::new(path, self.dimensions);
+
+                    match new_doc {
+                        Ok(doc) => self.document = doc,
+                        Err(err) => self.document.set_error(format!("{err:#}")),
+                    }
+                }
             }
         }
 
         EventOutcome::Handled
+    }
+
+    pub(crate) const fn resize(&mut self, dimensions: Dimensions) {
+        self.dimensions = dimensions;
     }
 }
 
@@ -176,11 +194,12 @@ impl EventContext {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) enum EditorAction {
     AddLayer(LayerKind),
     RemoveLayer(LayerKind),
     Quit,
     Write,
     WriteQuit,
+    OpenFile(PathBuf),
 }

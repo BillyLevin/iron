@@ -1,4 +1,10 @@
-use std::cmp;
+use std::{
+    cmp,
+    path::{
+        Path,
+        PathBuf,
+    },
+};
 
 use crossterm::event::{
     Event,
@@ -75,7 +81,7 @@ pub(crate) struct FilePicker {
     picker: SharedFilePicker,
     search_term: String,
     cursor_position: Option<Position>,
-    files: Vec<String>,
+    files: Vec<RelativeFilePath>,
     /// The index of [`files`](Self::files) that is
     /// currently selected.
     selected_index: usize,
@@ -124,6 +130,16 @@ impl FilePicker {
                     .checked_sub(1)
                     .unwrap_or_else(|| self.files.len().saturating_sub(1));
             }
+            Action::OpenFile => {
+                if let Some(path) = self
+                    .files
+                    .get(self.selected_index)
+                    .map(|path| PathBuf::from(path.value.clone()))
+                {
+                    context.push_action(EditorAction::OpenFile(path));
+                    context.push_action(EditorAction::RemoveLayer(LayerKind::FilePicker));
+                }
+            }
         }
     }
 
@@ -145,7 +161,7 @@ impl FilePicker {
             )
             .items
             .iter()
-            .map(|item| item.relative_path(picker))
+            .filter_map(|item| RelativeFilePath::new(item.relative_path(picker)))
             .collect();
     }
 
@@ -165,15 +181,17 @@ impl FilePicker {
 
     /// Highlight substring matches in the file name for the current
     /// [`search_term`](Self::search_term).
-    fn decorate_file_name<'file>(
+    fn decorate_file_path<'file>(
         &self,
-        file_name: &'file str,
+        file_path: &'file RelativeFilePath,
         base_style: Style,
     ) -> Vec<Span<'file>> {
-        file_name.find(&self.search_term).map_or_else(
-            || vec![Span::new(file_name).with_style(base_style)],
+        let file_path = &file_path.value;
+
+        file_path.find(&self.search_term).map_or_else(
+            || vec![Span::new(file_path).with_style(base_style)],
             |index| {
-                let (prefix, rest) = file_name.split_at(index);
+                let (prefix, rest) = file_path.split_at(index);
                 let (matched, suffix) = rest.split_at(self.search_term.len());
 
                 [
@@ -249,7 +267,7 @@ impl Layer for FilePicker {
                 .enumerate()
                 .skip(self.scroll_offset.value())
                 .map(|(i, file_name)| {
-                    Line::new(self.decorate_file_name(
+                    Line::new(self.decorate_file_path(
                         file_name,
                         if i == self.selected_index {
                             Style::COMMAND_LIST_ITEM_SELECTED
@@ -274,6 +292,7 @@ impl Layer for FilePicker {
                     (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::Close),
                     (KeyCode::Down, KeyModifiers::NONE) => Some(Action::GoToNextItem),
                     (KeyCode::Up, KeyModifiers::NONE) => Some(Action::GoToPrevItem),
+                    (KeyCode::Enter, _any_modifiers) => Some(Action::OpenFile),
                     _ => None,
                 };
 
@@ -304,6 +323,19 @@ impl Layer for FilePicker {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RelativeFilePath {
+    value: String,
+}
+
+impl RelativeFilePath {
+    fn new(path: String) -> Option<Self> {
+        Path::new(&path)
+            .is_relative()
+            .then_some(Self { value: path })
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Action {
     InsertChar(char),
@@ -311,4 +343,5 @@ enum Action {
     Close,
     GoToNextItem,
     GoToPrevItem,
+    OpenFile,
 }

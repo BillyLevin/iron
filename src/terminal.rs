@@ -85,7 +85,10 @@ impl Terminal {
     }
 
     fn run_event_loop(&mut self, args: Args) -> io::Result<()> {
-        let mut editor = Editor::new(Document::new(args.file_path, self.buffer.dimensions())?);
+        let mut editor = Editor::new(
+            Document::new(args.file_path, self.buffer.dimensions())?,
+            self.buffer.dimensions(),
+        );
         editor.render(&mut self.buffer);
         self.draw(editor.visual_cursor_position())?;
 
@@ -103,8 +106,9 @@ impl Terminal {
 
                 match terminal_event {
                     Event::Resize(columns, rows) => {
-                        self.buffer
-                            .resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
+                        let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
+                        self.buffer.resize(dimensions);
+                        editor.resize(dimensions);
                         rerender = true;
                     }
                     Event::FocusGained
