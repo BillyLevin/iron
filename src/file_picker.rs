@@ -79,6 +79,7 @@ pub(crate) struct FilePicker {
     /// The index of [`files`](Self::files) that is
     /// currently selected.
     selected_index: usize,
+    scroll_offset: Rows,
 }
 
 impl FilePicker {
@@ -89,6 +90,7 @@ impl FilePicker {
             cursor_position: None,
             files: Vec::new(),
             selected_index: 0,
+            scroll_offset: Rows::new(0),
         };
 
         this.update_files();
@@ -186,6 +188,23 @@ impl FilePicker {
             },
         )
     }
+
+    fn recalculate_scroll(&mut self, file_list_rectangle: &Rectangle) {
+        let current_row = Rows::new(self.selected_index);
+        let height = file_list_rectangle.height();
+
+        if current_row < self.scroll_offset {
+            // upwards scroll
+            self.scroll_offset = current_row;
+        } else if current_row >= self.scroll_offset + height {
+            // downwards scroll
+            self.scroll_offset = current_row.saturating_sub(height.saturating_sub(Rows::new(1)));
+        } else {
+            // no scroll
+        }
+
+        self.scroll_offset = cmp::min(current_row, self.scroll_offset);
+    }
 }
 
 impl Layer for FilePicker {
@@ -203,24 +222,32 @@ impl Layer for FilePicker {
 
         let input_rectangle = buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
 
-        let text = self
+        let search_text = self
             .search_term
             .get(self.horizontal_scroll(&input_rectangle).value()..)
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
-            &Span::new(text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
+            &Span::new(search_text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
             &input_rectangle.offset(),
             &input_rectangle,
         );
 
+        self.cursor_position = Some(input_rectangle.offset().col_offset(cmp::min(
+            text_width(search_text),
+            input_rectangle.width() - Columns::new(1),
+        )));
+
         let file_list_rectangle =
             buffer.draw_border(&file_list_rectangle, Style::COMMAND_LIST_BORDER);
+
+        self.recalculate_scroll(&file_list_rectangle);
 
         buffer.render_lines(
             self.files
                 .iter()
                 .enumerate()
+                .skip(self.scroll_offset.value())
                 .map(|(i, file_name)| {
                     Line::new(self.decorate_file_name(
                         file_name,
@@ -234,11 +261,6 @@ impl Layer for FilePicker {
                 .collect(),
             &file_list_rectangle,
         );
-
-        self.cursor_position = Some(input_rectangle.offset().col_offset(cmp::min(
-            text_width(text),
-            input_rectangle.width() - Columns::new(1),
-        )));
     }
 
     fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
