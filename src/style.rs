@@ -20,6 +20,9 @@ impl Style {
         Self::new().with_fg(colors::LIGHT0).with_bg(colors::DARK1);
     pub(crate) const DIFF_ADDED: Self = Self::new().with_fg(colors::FADED_GREEN);
     pub(crate) const DIFF_REMOVED: Self = Self::new().with_fg(colors::FADED_RED);
+    pub(crate) const FILTER_MATCH: Self = Self::new()
+        .with_fg(colors::LIGHT0)
+        .with_bg(colors::FADED_BLUE);
     pub(crate) const GUTTER: Self = Self::new().with_fg(colors::LIGHT4).with_bg(colors::LIGHT0);
     pub(crate) const GUTTER_SELECTED: Self = Self::new()
         .with_fg(colors::FADED_YELLOW)

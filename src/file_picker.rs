@@ -143,6 +143,28 @@ impl FilePicker {
 
         scroll
     }
+
+    /// Highlight substring matches in the file name for the current
+    /// [`search_term`](Self::search_term).
+    fn decorate_file_name<'file>(&self, file_name: &'file str) -> Vec<Span<'file>> {
+        file_name.find(&self.search_term).map_or_else(
+            || vec![Span::new(file_name)],
+            |index| {
+                let (prefix, rest) = file_name.split_at(index);
+                let (matched, suffix) = rest.split_at(self.search_term.len());
+
+                [
+                    (prefix, Style::new()),
+                    (matched, Style::FILTER_MATCH),
+                    (suffix, Style::new()),
+                ]
+                .into_iter()
+                .filter(|&(chunk, _)| !chunk.is_empty())
+                .map(|(chunk, style)| Span::new(chunk).with_style(style))
+                .collect()
+            },
+        )
+    }
 }
 
 impl Layer for FilePicker {
@@ -177,7 +199,7 @@ impl Layer for FilePicker {
         buffer.render_lines(
             self.files
                 .iter()
-                .map(|file| Line::new(vec![Span::new(file)]))
+                .map(|file_name| Line::new(self.decorate_file_name(file_name)))
                 .collect(),
             &file_list_rectangle,
         );
