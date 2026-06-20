@@ -76,6 +76,9 @@ pub(crate) struct FilePicker {
     search_term: String,
     cursor_position: Option<Position>,
     files: Vec<String>,
+    /// The index of [`files`](Self::files) that is
+    /// currently selected.
+    selected_index: usize,
 }
 
 impl FilePicker {
@@ -85,6 +88,7 @@ impl FilePicker {
             search_term: String::new(),
             cursor_position: None,
             files: Vec::new(),
+            selected_index: 0,
         };
 
         this.update_files();
@@ -97,13 +101,26 @@ impl FilePicker {
             Action::InsertChar(ch) => {
                 self.search_term.push(ch);
                 self.update_files();
+                self.selected_index = 0;
             }
             Action::RemoveChar => {
                 self.search_term.pop();
                 self.update_files();
+                self.selected_index = 0;
             }
             Action::Close => {
                 context.push_action(EditorAction::RemoveLayer(LayerKind::FilePicker));
+            }
+            Action::GoToNextItem => {
+                self.selected_index = (self.selected_index + 1)
+                    .checked_rem_euclid(self.files.len())
+                    .unwrap_or(0);
+            }
+            Action::GoToPrevItem => {
+                self.selected_index = self
+                    .selected_index
+                    .checked_sub(1)
+                    .unwrap_or_else(|| self.files.len().saturating_sub(1));
             }
         }
     }
@@ -146,17 +163,21 @@ impl FilePicker {
 
     /// Highlight substring matches in the file name for the current
     /// [`search_term`](Self::search_term).
-    fn decorate_file_name<'file>(&self, file_name: &'file str) -> Vec<Span<'file>> {
+    fn decorate_file_name<'file>(
+        &self,
+        file_name: &'file str,
+        base_style: Style,
+    ) -> Vec<Span<'file>> {
         file_name.find(&self.search_term).map_or_else(
-            || vec![Span::new(file_name)],
+            || vec![Span::new(file_name).with_style(base_style)],
             |index| {
                 let (prefix, rest) = file_name.split_at(index);
                 let (matched, suffix) = rest.split_at(self.search_term.len());
 
                 [
-                    (prefix, Style::new()),
-                    (matched, Style::FILTER_MATCH),
-                    (suffix, Style::new()),
+                    (prefix, base_style),
+                    (matched, base_style.merge(Style::FILTER_MATCH)),
+                    (suffix, base_style),
                 ]
                 .into_iter()
                 .filter(|&(chunk, _)| !chunk.is_empty())
@@ -199,7 +220,17 @@ impl Layer for FilePicker {
         buffer.render_lines(
             self.files
                 .iter()
-                .map(|file_name| Line::new(self.decorate_file_name(file_name)))
+                .enumerate()
+                .map(|(i, file_name)| {
+                    Line::new(self.decorate_file_name(
+                        file_name,
+                        if i == self.selected_index {
+                            Style::COMMAND_LIST_ITEM_SELECTED
+                        } else {
+                            Style::COMMAND_LIST_ITEM
+                        },
+                    ))
+                })
                 .collect(),
             &file_list_rectangle,
         );
@@ -219,6 +250,8 @@ impl Layer for FilePicker {
                     (KeyCode::Char(ch), KeyModifiers::NONE) => Some(Action::InsertChar(ch)),
                     (KeyCode::Backspace, KeyModifiers::NONE) => Some(Action::RemoveChar),
                     (KeyCode::Esc, KeyModifiers::NONE) => Some(Action::Close),
+                    (KeyCode::Down, KeyModifiers::NONE) => Some(Action::GoToNextItem),
+                    (KeyCode::Up, KeyModifiers::NONE) => Some(Action::GoToPrevItem),
                     _ => None,
                 };
 
@@ -254,4 +287,6 @@ enum Action {
     InsertChar(char),
     RemoveChar,
     Close,
+    GoToNextItem,
+    GoToPrevItem,
 }
