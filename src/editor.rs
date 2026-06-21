@@ -194,7 +194,7 @@ impl EventContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum EditorAction {
     AddLayer(LayerKind),
     RemoveLayer(LayerKind),

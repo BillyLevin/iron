@@ -45,22 +45,22 @@ use crate::{
 const COMMANDS: &[Command] = &[
     Command {
         name: "quit",
-        action: EditorAction::Quit,
+        action: || EditorAction::Quit,
     },
     Command {
         name: "write",
-        action: EditorAction::Write,
+        action: || EditorAction::Write,
     },
     Command {
         name: "write-quit",
-        action: EditorAction::WriteQuit,
+        action: || EditorAction::WriteQuit,
     },
 ];
 
 #[derive(Debug)]
 struct Command {
     name: &'static str,
-    action: EditorAction,
+    action: fn() -> EditorAction,
 }
 
 #[derive(Debug)]
@@ -130,7 +130,7 @@ impl CommandList {
             CommandListAction::ExecuteCommand => {
                 if let Some(i) = self.visible_commands.get(self.selected_index) {
                     let cmd = &COMMANDS[*i];
-                    context.push_action(cmd.action.clone());
+                    context.push_action((cmd.action)());
                     context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
                 }
             }
