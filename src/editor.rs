@@ -1,4 +1,5 @@
 use std::{
+    io,
     iter,
     path::PathBuf,
 };
@@ -14,10 +15,12 @@ use crate::{
         FilePicker,
     },
     ui::{
+        Columns,
         Dimensions,
         Layer,
         LayerKind,
         Position,
+        Rows,
     },
 };
 
@@ -29,13 +32,15 @@ pub(crate) struct Editor {
 }
 
 impl Editor {
-    pub(crate) fn new(document: Document, dimensions: Dimensions) -> Self {
-        Self {
-            document,
-            layers: vec![],
-            file_index: FileIndex::new(),
-            dimensions,
-        }
+    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
+        Document::new(file_path, dimensions).map(|document| {
+            Self {
+                document,
+                layers: vec![],
+                file_index: FileIndex::new(),
+                dimensions,
+            }
+        })
     }
 
     pub(crate) fn visual_cursor_position(&self) -> Position {
@@ -54,6 +59,12 @@ impl Editor {
         let mut result = EventOutcome::Unhandled;
 
         let mut event_context = EventContext::new();
+
+        if let Event::Resize(columns, rows) = *event {
+            let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
+            self.resize(dimensions);
+            result = EventOutcome::Handled;
+        }
 
         for layer in self.layers_mut().rev() {
             match layer.handle_event(event, &mut event_context) {
