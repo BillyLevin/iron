@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::{
         Path,
         PathBuf,
@@ -7,18 +6,10 @@ use std::{
     process::Command,
 };
 
-use anyhow::Context as _;
-
-/// Attempts to get the root of the jj workspace that the given `file` belongs
-/// to.
-pub(crate) fn workspace_root(file: &Path) -> anyhow::Result<PathBuf> {
-    let canonical_path = fs::canonicalize(file)?;
-    let current_dir = canonical_path
-        .parent()
-        .context("could not get parent directory")?;
-
+/// Attempts to get the root of the jj workspace for the current working
+/// directory.
+pub(crate) fn workspace_root() -> anyhow::Result<PathBuf> {
     let output = Command::new("jj")
-        .current_dir(current_dir)
         .arg("root")
         .arg("--ignore-working-copy")
         .arg("--no-integrate-operation")
@@ -36,10 +27,9 @@ pub(crate) fn workspace_root(file: &Path) -> anyhow::Result<PathBuf> {
 
 /// Attempts to get the description of the current jj change in the workspace
 /// that the given `file` belongs to.
-pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<Option<String>> {
-    let root = workspace_root(file)?;
+pub(crate) fn current_change_description() -> anyhow::Result<Option<String>> {
     let output = Command::new("jj")
-        .current_dir(root)
+        .current_dir(workspace_root()?)
         .arg("log")
         .arg("--ignore-working-copy")
         .arg("--no-integrate-operation")
@@ -65,7 +55,7 @@ pub(crate) fn current_change_description(file: &Path) -> anyhow::Result<Option<S
 
 /// Attempts to get the diff stats for the given `file`.
 pub(crate) fn diff_summary(file: &Path) -> anyhow::Result<Option<DiffSummary>> {
-    let root = workspace_root(file)?;
+    let root = workspace_root()?;
 
     let relative_path = file
         .strip_prefix(&root)

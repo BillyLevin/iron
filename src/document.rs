@@ -245,7 +245,7 @@ impl Document {
         thread::spawn(move || -> ! {
             loop {
                 let _ = tx.send(JJPoll {
-                    description: jujutsu::current_change_description(&path),
+                    description: jujutsu::current_change_description(),
                     diff: jujutsu::diff_summary(&path),
                 });
                 thread::sleep(Duration::from_secs(1));
