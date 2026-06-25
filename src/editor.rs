@@ -14,6 +14,7 @@ use crate::{
         FileIndex,
         FilePicker,
     },
+    jujutsu::JJPoller,
     ui::{
         Columns,
         Dimensions,
@@ -29,16 +30,18 @@ pub(crate) struct Editor {
     layers: Vec<Box<dyn Layer>>,
     file_index: FileIndex,
     dimensions: Dimensions,
+    jj_poller: JJPoller,
 }
 
 impl Editor {
     pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
-        Document::new(file_path, dimensions).map(|document| {
+        Document::new(file_path.clone(), dimensions).map(|document| {
             Self {
                 document,
                 layers: vec![],
                 file_index: FileIndex::new(),
                 dimensions,
+                jj_poller: JJPoller::new(file_path),
             }
         })
     }
@@ -92,7 +95,12 @@ impl Editor {
     }
 
     pub(crate) fn handle_layer_events(&mut self) -> EventOutcome {
-        let mut result = EventOutcome::Unhandled;
+        let mut result = if let Some(status) = self.jj_poller.refresh() {
+            self.document.set_jj_info(status);
+            EventOutcome::Handled
+        } else {
+            EventOutcome::Unhandled
+        };
 
         for layer in self.layers_mut() {
             match layer.handle_internal_events() {
@@ -157,10 +165,13 @@ impl Editor {
                     return EventOutcome::CloseApp;
                 }
                 EditorAction::OpenFile(path) => {
-                    let new_doc = Document::new(path, self.dimensions);
+                    let new_doc = Document::new(path.clone(), self.dimensions);
 
                     match new_doc {
-                        Ok(doc) => self.document = doc,
+                        Ok(doc) => {
+                            self.document = doc;
+                            self.jj_poller.update_path(path);
+                        }
                         Err(err) => self.document.set_error(format!("{err:#}")),
                     }
                 }

@@ -26,7 +26,6 @@ use std::{
         },
     },
     thread,
-    time::Duration,
 };
 
 use anyhow::Context as _;
@@ -60,10 +59,7 @@ use crate::{
         Highlighter,
         Token,
     },
-    jujutsu::{
-        self,
-        DiffSummary,
-    },
+    jujutsu::JJInfo,
     keymap::{
         BehaviorAction,
         DocumentAction,
@@ -133,14 +129,7 @@ pub(crate) struct Document {
     /// rather than the contents of the file.
     language: Language,
 
-    /// The description of the current jj change (if it exists).
-    jj_change_description: Option<String>,
-
-    /// The diff summary for the current file (if there are any).
-    jj_diff_summary: Option<DiffSummary>,
-
-    jj_poll_rx: Receiver<JJPoll>,
-    jj_poll_tx: Option<Sender<JJPoll>>,
+    jj_info: JJInfo,
 
     error: Option<String>,
 
@@ -152,8 +141,6 @@ pub(crate) struct Document {
 
 impl Document {
     pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
-        let (jj_desc_tx, jj_desc_rx) = sync::mpsc::channel();
-
         let (highlight_request_tx, highlight_response_rx) = spawn_highlights_thread();
 
         let this = Self {
@@ -168,10 +155,7 @@ impl Document {
             language: Language::new(&file_path),
             file_path,
             layout_info: LayoutInfo::new(dimensions),
-            jj_change_description: None,
-            jj_diff_summary: None,
-            jj_poll_rx: jj_desc_rx,
-            jj_poll_tx: Some(jj_desc_tx),
+            jj_info: JJInfo::default(),
             error: None,
             highlights: HighlightCache::new(),
             highlight_request_tx,
@@ -230,35 +214,6 @@ impl Document {
     pub(crate) fn resize(&mut self, dimensions: Dimensions) {
         self.layout_info = LayoutInfo::new(dimensions);
         self.recalculate_scroll();
-    }
-
-    pub(crate) fn poll_jj(&mut self) {
-        // TODO: this is a bad implementation. it won't work once we implement the
-        // ability to change the file path of the document. this should all be
-        // event-based so that it plays nicer with the main event loop.
-        let path = self.file_path.clone();
-
-        let Some(tx) = self.jj_poll_tx.take() else {
-            return;
-        };
-
-        thread::spawn(move || -> ! {
-            loop {
-                let _ = tx.send(JJPoll {
-                    description: jujutsu::current_change_description(),
-                    diff: jujutsu::diff_summary(&path),
-                });
-                thread::sleep(Duration::from_secs(1));
-            }
-        });
-    }
-
-    fn set_jj_change_description(&mut self, desc: Option<String>) {
-        self.jj_change_description = desc;
-    }
-
-    const fn set_jj_diff_summary(&mut self, diff: Option<DiffSummary>) {
-        self.jj_diff_summary = diff;
     }
 
     /// Displays the keybindings (if any) that are currently possible for the
@@ -346,13 +301,13 @@ impl Document {
             .map(|name| Span::new(format!(" {name} ")).with_style(Style::STATUS_LINE_TEXT));
 
         let jj_desc_span = self
-            .jj_change_description
-            .as_ref()
+            .jj_info
+            .description()
             .map(|desc| Span::new(format!(r#" "{desc}" "#)).with_style(Style::STATUS_LINE_TEXT));
 
         let (jj_diff_added_span, jj_diff_removed_span) = self
-            .jj_diff_summary
-            .as_ref()
+            .jj_info
+            .diff()
             .map(|diff| {
                 (
                     Span::new(format!(" +{}", diff.added())).with_style(Style::DIFF_ADDED),
@@ -1382,6 +1337,10 @@ impl Document {
             language: self.language,
         });
     }
+
+    pub(crate) fn set_jj_info(&mut self, info: JJInfo) {
+        self.jj_info = info;
+    }
 }
 
 fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCache>) {
@@ -1525,22 +1484,6 @@ impl Layer for Document {
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
-        self.poll_jj();
-
-        let outcome = if let Ok(poll_outcome) = self.jj_poll_rx.try_recv() {
-            if let Ok(desc) = poll_outcome.description {
-                self.set_jj_change_description(desc);
-            }
-
-            if let Ok(diff) = poll_outcome.diff {
-                self.set_jj_diff_summary(diff);
-            }
-
-            EventOutcome::Handled
-        } else {
-            EventOutcome::Unhandled
-        };
-
         if let Ok(mut highlights) = self.highlight_response_rx.try_recv() {
             while let Ok(latest) = self.highlight_response_rx.try_recv() {
                 highlights = latest;
@@ -1549,7 +1492,7 @@ impl Layer for Document {
             self.highlights = highlights;
             EventOutcome::Handled
         } else {
-            outcome
+            EventOutcome::Unhandled
         }
     }
 
@@ -1667,12 +1610,6 @@ impl fmt::Display for Mode {
             Self::Visual => "VISUAL",
         })
     }
-}
-
-#[derive(Debug)]
-struct JJPoll {
-    description: anyhow::Result<Option<String>>,
-    diff: anyhow::Result<Option<DiffSummary>>,
 }
 
 #[derive(Debug)]

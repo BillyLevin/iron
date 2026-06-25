@@ -4,10 +4,111 @@ use std::{
         PathBuf,
     },
     process::Command,
+    sync::{
+        self,
+        mpsc::{
+            Receiver,
+            Sender,
+        },
+    },
+    thread,
+    time::Duration,
 };
+
+/// Sets up a worker thread that polls for information in the current jujutsu
+/// workspace.
+#[derive(Debug)]
+pub(crate) struct JJPoller {
+    worker_tx: Sender<PathBuf>,
+    result_rx: Receiver<anyhow::Result<JJInfo>>,
+}
+
+impl JJPoller {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        let (worker_tx, worker_rx) = sync::mpsc::channel();
+        let (result_tx, result_rx) = sync::mpsc::channel();
+
+        spawn_worker(path, worker_rx, result_tx);
+
+        Self {
+            worker_tx,
+            result_rx,
+        }
+    }
+
+    pub(crate) fn refresh(&self) -> Option<JJInfo> {
+        if let Ok(mut info) = self.result_rx.try_recv() {
+            while let Ok(latest) = self.result_rx.try_recv() {
+                info = latest;
+            }
+
+            // TODO: is there even any reason to use `Result`? i suppose will be useful
+            // for logging if i ever get around to implementing that...
+            info.ok()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn update_path(&self, path: PathBuf) {
+        let _ = self.worker_tx.send(path);
+    }
+}
+
+fn spawn_worker(
+    initial_path: PathBuf,
+    worker_rx: Receiver<PathBuf>,
+    result_tx: Sender<anyhow::Result<JJInfo>>,
+) {
+    thread::spawn(move || {
+        let mut path = initial_path;
+
+        loop {
+            if let Some(new_path) = worker_rx.try_iter().last() {
+                path = new_path;
+            }
+
+            if result_tx.send(JJInfo::new(&path)).is_err() {
+                break;
+            }
+
+            // TODO: get rid of the sleep and use `recv_timeout` so that we can handle file
+            // switches instantly
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct JJInfo {
+    /// Description of the current jujutsu change in the workspace that the CWD
+    /// belongs to.
+    description: Option<String>,
+    /// Diff stats for the currently opened file if that file is part of the
+    /// same workspace that the CWD belongs to.
+    diff: Option<DiffSummary>,
+}
+
+impl JJInfo {
+    fn new(file: &Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            description: current_change_description()?,
+            diff: diff_summary(file)?,
+        })
+    }
+
+    pub(crate) const fn description(&self) -> Option<&String> {
+        self.description.as_ref()
+    }
+
+    pub(crate) const fn diff(&self) -> Option<&DiffSummary> {
+        self.diff.as_ref()
+    }
+}
 
 /// Attempts to get the root of the jj workspace for the current working
 /// directory.
+// TODO: newtype and pass in to any helpers that need it to avoid duplication
 pub(crate) fn workspace_root() -> anyhow::Result<PathBuf> {
     let output = Command::new("jj")
         .arg("root")
