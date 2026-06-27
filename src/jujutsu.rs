@@ -8,6 +8,7 @@ use std::{
         self,
         mpsc::{
             Receiver,
+            RecvTimeoutError,
             Sender,
         },
     },
@@ -64,17 +65,17 @@ fn spawn_worker(
         let mut path = initial_path;
 
         loop {
-            if let Some(new_path) = worker_rx.try_iter().last() {
-                path = new_path;
-            }
-
             if result_tx.send(JJInfo::new(&path)).is_err() {
                 break;
             }
 
-            // TODO: get rid of the sleep and use `recv_timeout` so that we can handle file
-            // switches instantly
-            thread::sleep(Duration::from_secs(1));
+            match worker_rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(new_path) => {
+                    path = worker_rx.try_iter().last().unwrap_or(new_path);
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
         }
     });
 }
