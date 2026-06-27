@@ -1348,10 +1348,8 @@ fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCac
     let (highlight_response_tx, highlight_response_rx) = sync::mpsc::channel::<HighlightCache>();
 
     thread::spawn(move || {
-        while let Ok(mut request) = highlight_request_rx.recv() {
-            while let Ok(latest_request) = highlight_request_rx.try_recv() {
-                request = latest_request;
-            }
+        while let Ok(request) = highlight_request_rx.recv() {
+            let request = highlight_request_rx.try_iter().last().unwrap_or(request);
 
             let _ = highlight_response_tx.send(HighlightCache {
                 tokens: Highlighter::new(request.text, ByteIndex::new(0), request.language)
@@ -1484,15 +1482,12 @@ impl Layer for Document {
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
-        if let Ok(mut highlights) = self.highlight_response_rx.try_recv() {
-            while let Ok(latest) = self.highlight_response_rx.try_recv() {
-                highlights = latest;
+        match self.highlight_response_rx.try_iter().last() {
+            Some(highlights) => {
+                self.highlights = highlights;
+                EventOutcome::Handled
             }
-
-            self.highlights = highlights;
-            EventOutcome::Handled
-        } else {
-            EventOutcome::Unhandled
+            None => EventOutcome::Unhandled,
         }
     }
 
