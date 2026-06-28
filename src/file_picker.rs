@@ -1,5 +1,11 @@
 use std::{
     cmp,
+    fs::File,
+    io::{
+        self,
+        BufRead as _,
+        BufReader,
+    },
     path::{
         Path,
         PathBuf,
@@ -236,7 +242,7 @@ impl Layer for FilePicker {
 
         buffer.clear_and_style_rectangle(&rectangle, Style::COMMAND_LIST);
 
-        let (input_rectangle, file_list_rectangle) = rectangle.split_at_row(Rows::new(3));
+        let (input_rectangle, list_rectangle) = rectangle.split_at_row(Rows::new(3));
 
         let input_rectangle = buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
 
@@ -256,10 +262,12 @@ impl Layer for FilePicker {
             input_rectangle.width() - Columns::new(1),
         )));
 
-        let file_list_rectangle =
-            buffer.draw_border(&file_list_rectangle, Style::COMMAND_LIST_BORDER);
+        let (list_rectangle, preview_rectangle) =
+            list_rectangle.split_at_column(list_rectangle.width() / 2);
 
-        self.recalculate_scroll(&file_list_rectangle);
+        let list_rectangle = buffer.draw_border(&list_rectangle, Style::COMMAND_LIST_BORDER);
+
+        self.recalculate_scroll(&list_rectangle);
 
         buffer.render_lines(
             self.files
@@ -277,7 +285,27 @@ impl Layer for FilePicker {
                     ))
                 })
                 .collect(),
-            &file_list_rectangle,
+            &list_rectangle,
+        );
+
+        let preview_rectangle = buffer.draw_border(&preview_rectangle, Style::COMMAND_LIST_BORDER);
+
+        buffer.render_lines(
+            self.files
+                .get(self.selected_index)
+                .map_or_else(
+                    || Ok(vec![Line::new(vec![Span::new("No file selected")])]),
+                    |path| {
+                        File::open(&path.value)
+                            .map(BufReader::new)?
+                            .lines()
+                            .take(preview_rectangle.height().value())
+                            .map(|line| line.map(|text| Line::new(vec![Span::new(text)])))
+                            .collect::<io::Result<Vec<Line>>>()
+                    },
+                )
+                .unwrap_or_else(|_| vec![Line::new(vec![Span::new("Could not display preview")])]),
+            &preview_rectangle,
         );
     }
 
