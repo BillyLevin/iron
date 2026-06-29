@@ -46,6 +46,9 @@ impl TomlLexer {
                 self.read_number()
             }
             c if is_bare_key_part(c) && self.context == Context::Key => self.read_bare_key(),
+            c if is_bare_key_part(c) && matches!(self.context, Context::Value | Context::Array) => {
+                self.read_bare_value()
+            }
             '[' => self.read_open_bracket(),
             ']' => self.read_close_bracket(),
             '{' => self.read_open_brace(),
@@ -195,6 +198,13 @@ impl TomlLexer {
         TokenKind::Property
     }
 
+    fn read_bare_value(&mut self) -> TokenKind {
+        self.source.eat_while(is_bare_key_part);
+
+        // we'll just assume anything written here is a keyword
+        TokenKind::Keyword
+    }
+
     fn read_open_brace(&mut self) -> TokenKind {
         self.source.assert('{');
         self.context = Context::Key;
@@ -316,7 +326,7 @@ mod tests {
         assert_tokens!(
             r#"[hello-123]
 hello = "world"
-"#,
+thing = true"#,
             (Title, 0, 11),
             (Whitespace, 11, 12),
             (Property, 12, 17),
@@ -325,6 +335,11 @@ hello = "world"
             (Whitespace, 19, 20),
             (String, 20, 27),
             (Whitespace, 27, 28),
+            (Property, 28, 33),
+            (Whitespace, 33, 34),
+            (Operator, 34, 35),
+            (Whitespace, 35, 36),
+            (Keyword, 36, 40),
         );
 
         assert_tokens!(
