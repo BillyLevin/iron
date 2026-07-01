@@ -216,6 +216,11 @@ impl KeyMap {
             DocumentAction::Behavior(BehaviorAction::ClearInput),
         );
 
+        map.register(
+            &[key!('%')],
+            DocumentAction::Movement(MovementAction::GoToPairMatch),
+        );
+
         map
     }
 
@@ -334,6 +339,11 @@ impl KeyMap {
         map.register(
             &[key!('z'), key!('z')],
             DocumentAction::Movement(MovementAction::VerticallyCenter),
+        );
+
+        map.register(
+            &[key!('%')],
+            DocumentAction::Movement(MovementAction::GoToPairMatch),
         );
 
         map
@@ -467,6 +477,7 @@ pub(crate) enum MovementAction {
     SelectCurrentWord,
     ReverseSelection,
     VerticallyCenter,
+    GoToPairMatch,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -540,7 +551,8 @@ impl DocumentAction {
                 | MovementAction::GoToNthOrFirstLine
                 | MovementAction::MoveWordEnd
                 | MovementAction::ReverseSelection
-                | MovementAction::SelectCurrentWord,
+                | MovementAction::SelectCurrentWord
+                | MovementAction::GoToPairMatch,
             )
             | Self::Edit(
                 EditAction::InsertChar(_)
@@ -649,6 +661,7 @@ impl DocumentAction {
             Self::Edit(EditAction::InsertTab) => "Insert tab",
             Self::Movement(MovementAction::VerticallyCenter) => "Center cursor vertically",
             Self::Behavior(BehaviorAction::OpenFilePicker) => "Open file picker",
+            Self::Movement(MovementAction::GoToPairMatch) => "Go to pair match",
         }
     }
 }

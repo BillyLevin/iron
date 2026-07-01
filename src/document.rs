@@ -472,6 +472,9 @@ impl Document {
             DocumentAction::Behavior(BehaviorAction::OpenFilePicker) => {
                 Self::open_file_picker(event_context);
             }
+            DocumentAction::Movement(MovementAction::GoToPairMatch) => {
+                self.go_to_pair_match();
+            }
         }
 
         if matches!(action, DocumentAction::Edit(_)) {
@@ -1341,6 +1344,51 @@ impl Document {
     pub(crate) fn set_jj_info(&mut self, info: JJInfo) {
         self.jj_info = info;
     }
+
+    fn go_to_pair_match(&mut self) {
+        let cursor = self.selection.cursor.value();
+
+        let Some(pair) = self.text.get_byte(cursor).and_then(PairItem::new) else {
+            return;
+        };
+
+        let current = pair.as_byte();
+        let opposite = pair.opposite_as_byte();
+
+        assert_ne!(current, opposite, "current should never be opposite!");
+
+        let bytes = match pair.position {
+            PairPosition::Start => self.text.bytes_at(cursor + 1),
+            PairPosition::End => self.text.bytes_at(cursor).reversed(),
+        };
+
+        let Some(offset) = bytes
+            .enumerate()
+            .try_fold(1_u64, |depth, (offset, byte)| {
+                let next_depth = if byte == current {
+                    depth + 1
+                } else if byte == opposite {
+                    depth - 1
+                } else {
+                    depth
+                };
+
+                if next_depth == 0 {
+                    ControlFlow::Break(ByteIndex::new(offset + 1))
+                } else {
+                    ControlFlow::Continue(next_depth)
+                }
+            })
+            .break_value()
+        else {
+            return;
+        };
+
+        self.set_cursor(match pair.position {
+            PairPosition::Start => self.selection.cursor + offset,
+            PairPosition::End => self.selection.cursor - offset,
+        });
+    }
 }
 
 fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCache>) {
@@ -1644,6 +1692,104 @@ impl HighlightCache {
 struct HighlightRequest {
     text: Rope,
     language: Language,
+}
+
+#[derive(Debug)]
+struct PairItem {
+    kind: PairKind,
+    position: PairPosition,
+}
+
+impl PairItem {
+    const fn new(value: u8) -> Option<Self> {
+        match value {
+            b'(' => {
+                Some(Self {
+                    kind: PairKind::Paren,
+                    position: PairPosition::Start,
+                })
+            }
+            b')' => {
+                Some(Self {
+                    kind: PairKind::Paren,
+                    position: PairPosition::End,
+                })
+            }
+            b'{' => {
+                Some(Self {
+                    kind: PairKind::Brace,
+                    position: PairPosition::Start,
+                })
+            }
+            b'}' => {
+                Some(Self {
+                    kind: PairKind::Brace,
+                    position: PairPosition::End,
+                })
+            }
+            b'[' => {
+                Some(Self {
+                    kind: PairKind::Bracket,
+                    position: PairPosition::Start,
+                })
+            }
+            b']' => {
+                Some(Self {
+                    kind: PairKind::Bracket,
+                    position: PairPosition::End,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    const fn as_byte(&self) -> u8 {
+        match self.position {
+            PairPosition::Start => self.kind.start_byte(),
+            PairPosition::End => self.kind.end_byte(),
+        }
+    }
+
+    const fn opposite_as_byte(&self) -> u8 {
+        match self.position {
+            PairPosition::Start => self.kind.end_byte(),
+            PairPosition::End => self.kind.start_byte(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PairKind {
+    /// `(` or `)`.
+    Paren,
+    /// `{` or `}`.
+    Brace,
+    /// `[` or `]`.
+    Bracket,
+}
+
+impl PairKind {
+    const fn start_byte(self) -> u8 {
+        match self {
+            Self::Paren => b'(',
+            Self::Brace => b'{',
+            Self::Bracket => b'[',
+        }
+    }
+
+    const fn end_byte(self) -> u8 {
+        match self {
+            Self::Paren => b')',
+            Self::Brace => b'}',
+            Self::Bracket => b']',
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PairPosition {
+    Start,
+    End,
 }
 
 #[cfg(test)]
@@ -4022,6 +4168,54 @@ mod tests {
             expected_text: "Hello there\nAnother line\nAnd another\nAnd one more",
             expected_cursor: 12,
             expected_visual_position: (3, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn match_pairs_braces() {
+        TestCase {
+            initial_text: "{Hello }",
+            initial_cursor: 0,
+            expected_initial_visual_position: (3, 0),
+
+            keys: vec![key_event!('%')],
+
+            expected_text: "{Hello }",
+            expected_cursor: 7,
+            expected_visual_position: (10, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn match_pairs_brackets() {
+        TestCase {
+            initial_text: "H[ello]",
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: vec![key_event!('%')],
+
+            expected_text: "H[ello]",
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn match_pairs_parens() {
+        TestCase {
+            initial_text: "He()llo",
+            initial_cursor: 2,
+            expected_initial_visual_position: (5, 0),
+
+            keys: vec![key_event!('%')],
+
+            expected_text: "He()llo",
+            expected_cursor: 3,
+            expected_visual_position: (6, 0),
         }
         .run();
     }
