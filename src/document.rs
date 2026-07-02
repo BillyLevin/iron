@@ -716,12 +716,16 @@ impl Document {
         self.insert_char('\n');
     }
 
+    /// Moves to the cursor to the last non-linebreak grapheme on the current
+    /// line.
     fn move_cursor_line_end(&mut self) {
         let text = self.text.slice(..);
-
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
 
-        self.set_cursor(text.line_break(line_index).position);
+        self.set_cursor(cmp::max(
+            text.line_start_byte(line_index),
+            text.previous_grapheme_position(text.line_break(line_index).position),
+        ));
     }
 
     fn move_cursor_line_start(&mut self) {
@@ -2832,8 +2836,8 @@ mod tests {
             keys: vec![key_event!('$')],
 
             expected_text: "Hello!!\nNext line",
-            expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
         }
         .run();
     }
@@ -2848,8 +2852,8 @@ mod tests {
             keys: vec![key_event!('$')],
 
             expected_text: "Hello!!\r\nNext line",
-            expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_cursor: 6,
+            expected_visual_position: (9, 0),
         }
         .run();
     }
@@ -4216,6 +4220,22 @@ mod tests {
             expected_text: "He()llo",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn match_pairs_after_line_end() {
+        TestCase {
+            initial_text: "hello {\nworld } test",
+            initial_cursor: 1,
+            expected_initial_visual_position: (4, 0),
+
+            keys: vec![key_event!('$'), key_event!('%')],
+
+            expected_text: "hello {\nworld } test",
+            expected_cursor: 14,
+            expected_visual_position: (9, 1),
         }
         .run();
     }
