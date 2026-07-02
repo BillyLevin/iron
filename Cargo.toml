@@ -12,8 +12,12 @@ bitflags = "2.11.1"
 clap = { version = "4.5.60", features = ["derive"] }
 crossterm = "0.29.0"
 derive_more = { version = "2.1.1", features = ["full"] }
+directories = "6.0.0"
+fern = "0.7.1"
 fff-search = "0.9.5"
+humantime = "2.4.0"
 itertools = "0.14.0"
+log = "0.4.33"
 nucleo-matcher = "0.3.1"
 puffin = "0.20.0"
 puffin_http = { version = "0.17.0", optional = true }
