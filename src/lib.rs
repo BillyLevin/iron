@@ -11,6 +11,7 @@ pub mod highlight;
 pub mod jujutsu;
 pub mod keymap;
 pub mod language;
+pub mod lsp;
 pub mod style;
 pub mod terminal;
 pub mod text;

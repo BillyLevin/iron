@@ -956,6 +956,7 @@ dependencies = [
  "puffin",
  "puffin_http",
  "ropey",
+ "serde_json",
  "tempfile",
  "unicode-segmentation",
  "unicode-width",
