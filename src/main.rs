@@ -53,7 +53,8 @@ fn init_logging(level: LogLevel) -> anyhow::Result<()> {
                 message
             ));
         })
-        .level(log::LevelFilter::from(level))
+        .level_for("iron", log::LevelFilter::from(level))
+        .level(log::LevelFilter::Error)
         .chain(fern::log_file(&log_file)?)
         .apply()
         .context("failed to init logging")
