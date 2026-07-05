@@ -1,5 +1,4 @@
 use std::{
-    io,
     iter,
     path::PathBuf,
 };
@@ -15,6 +14,11 @@ use crate::{
         FilePicker,
     },
     jujutsu::JJPoller,
+    lsp::{
+        LspClient,
+        LspEvent,
+        LspTextEdit,
+    },
     ui::{
         Columns,
         Dimensions,
@@ -31,18 +35,27 @@ pub(crate) struct Editor {
     file_index: FileIndex,
     dimensions: Dimensions,
     jj_poller: JJPoller,
+    lsp: Option<LspClient>,
 }
 
 impl Editor {
-    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
-        Document::new(file_path.clone(), dimensions).map(|document| {
-            Self {
-                document,
-                layers: vec![],
-                file_index: FileIndex::new(),
-                dimensions,
-                jj_poller: JJPoller::new(file_path),
-            }
+    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> anyhow::Result<Self> {
+        let document = Document::new(file_path.clone(), dimensions)?;
+        let lsp = LspClient::new()
+            .inspect_err(|err| log::error!("failed to start LSP client: {err}"))
+            .ok();
+
+        if let Some(ref client) = lsp {
+            client.document_opened(document.lsp_snapshot());
+        }
+
+        Ok(Self {
+            document,
+            layers: vec![],
+            file_index: FileIndex::new(),
+            dimensions,
+            jj_poller: JJPoller::new(file_path),
+            lsp,
         })
     }
 
@@ -102,6 +115,30 @@ impl Editor {
             EventOutcome::Unhandled
         };
 
+        if let Some(ref lsp) = self.lsp {
+            for event in lsp.events() {
+                match event {
+                    LspEvent::PublishDiagnostics {
+                        params,
+                        position_encoding,
+                    } => {
+                        // TODO: when we support multiple open documents, match up
+                        // `params.uri` with the correct doc
+                        if self.document.url() == &params.uri
+                            && params
+                                .version
+                                .is_none_or(|version| version == self.document.version().value())
+                        {
+                            self.document
+                                .publish_diagnostics(&params, position_encoding);
+
+                            result = EventOutcome::Handled;
+                        }
+                    }
+                }
+            }
+        }
+
         for layer in self.layers_mut() {
             match layer.handle_internal_events() {
                 EventOutcome::Handled => result = EventOutcome::Handled,
@@ -151,28 +188,26 @@ impl Editor {
                 }
                 EditorAction::Quit => return EventOutcome::CloseApp,
                 EditorAction::Write => {
-                    match self.document.save() {
+                    match self.save_document() {
                         Ok(()) => {}
                         Err(err) => self.document.set_error(format!("{err:#}")),
                     }
                 }
                 EditorAction::WriteQuit => {
-                    match self.document.save() {
+                    match self.save_document() {
+                        Ok(()) => return EventOutcome::CloseApp,
+                        Err(err) => self.document.set_error(format!("{err:#}")),
+                    }
+                }
+                EditorAction::OpenFile(path) => {
+                    match self.replace_document(path) {
                         Ok(()) => {}
                         Err(err) => self.document.set_error(format!("{err:#}")),
                     }
-
-                    return EventOutcome::CloseApp;
                 }
-                EditorAction::OpenFile(path) => {
-                    let new_doc = Document::new(path.clone(), self.dimensions);
-
-                    match new_doc {
-                        Ok(doc) => {
-                            self.document = doc;
-                            self.jj_poller.update_path(path);
-                        }
-                        Err(err) => self.document.set_error(format!("{err:#}")),
+                EditorAction::DocumentChanged(edit) => {
+                    if let Some(ref lsp) = self.lsp {
+                        lsp.document_changed(self.document.lsp_snapshot(), edit);
                     }
                 }
             }
@@ -183,6 +218,30 @@ impl Editor {
 
     pub(crate) const fn resize(&mut self, dimensions: Dimensions) {
         self.dimensions = dimensions;
+    }
+
+    fn save_document(&self) -> anyhow::Result<()> {
+        self.document.save()?;
+        if let Some(ref lsp) = self.lsp {
+            lsp.document_saved(self.document.lsp_snapshot());
+        }
+
+        Ok(())
+    }
+
+    fn replace_document(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        let new_doc = Document::new(path.clone(), self.dimensions)?;
+
+        if let Some(ref lsp) = self.lsp {
+            let old_doc_id = self.document.lsp_id();
+            lsp.document_closed(old_doc_id.clone());
+            lsp.document_opened(new_doc.lsp_snapshot());
+        }
+
+        self.document = new_doc;
+        self.jj_poller.update_path(path);
+
+        Ok(())
     }
 }
 
@@ -224,4 +283,5 @@ pub(crate) enum EditorAction {
     Write,
     WriteQuit,
     OpenFile(PathBuf),
+    DocumentChanged(LspTextEdit),
 }

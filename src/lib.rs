@@ -1,4 +1,5 @@
 #![feature(step_trait)]
+#![feature(try_entry)]
 
 pub mod args;
 pub mod buffer;

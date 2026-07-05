@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use crossterm::style::Color;
+use gen_lsp_types::DiagnosticSeverity;
 
 use crate::highlight::TokenKind;
 
@@ -7,6 +8,7 @@ use crate::highlight::TokenKind;
 pub(crate) struct Style {
     foreground: Option<Color>,
     background: Option<Color>,
+    underline_color: Option<Color>,
     attributes: StyleAttributes,
 }
 
@@ -42,6 +44,7 @@ impl Style {
         Self {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         }
     }
@@ -64,12 +67,24 @@ impl Style {
         Self { attributes, ..self }
     }
 
+    pub(crate) const fn with_undercurl(self, color: Color) -> Self {
+        Self {
+            underline_color: Some(color),
+            attributes: self.attributes.union(StyleAttributes::Undercurled),
+            ..self
+        }
+    }
+
     pub(crate) const fn foreground(self) -> Option<Color> {
         self.foreground
     }
 
     pub(crate) const fn background(self) -> Option<Color> {
         self.background
+    }
+
+    pub(crate) const fn underline_color(self) -> Option<Color> {
+        self.underline_color
     }
 
     pub(crate) const fn attributes(&self) -> StyleAttributes {
@@ -83,8 +98,20 @@ impl Style {
         Self {
             foreground: other.foreground.or(self.foreground),
             background: other.background.or(self.background),
+            underline_color: other.underline_color.or(self.underline_color),
             attributes: self.attributes | other.attributes,
         }
+    }
+
+    pub(crate) const fn diagnostic(severity: DiagnosticSeverity) -> Self {
+        let color = match severity {
+            DiagnosticSeverity::Error => colors::FADED_RED,
+            DiagnosticSeverity::Warning => colors::FADED_YELLOW,
+            DiagnosticSeverity::Information => colors::FADED_BLUE,
+            DiagnosticSeverity::Hint => colors::FADED_GREEN,
+        };
+
+        Self::new().with_undercurl(color)
     }
 }
 
@@ -141,6 +168,7 @@ bitflags! {
         const Bold =  0b0000_0001;
         const Italic = 0b0000_0010;
         const Underlined = 0b0000_0100;
+        const Undercurled = 0b0000_1000;
     }
 }
 
@@ -153,12 +181,14 @@ mod tests {
         let base = Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::Bold,
         };
 
         let other = Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         };
 
@@ -167,6 +197,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::Bold,
         });
     }
@@ -176,12 +207,14 @@ mod tests {
         let base = Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::Italic,
         };
 
         let other = Style {
             foreground: Some(Color::Blue),
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         };
 
@@ -190,6 +223,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Blue),
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::Italic,
         });
     }
@@ -199,12 +233,14 @@ mod tests {
         let base = Style {
             foreground: Some(Color::White),
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::Underlined,
         };
 
         let other = Style {
             foreground: None,
             background: Some(Color::Green),
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         };
 
@@ -213,22 +249,25 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::White),
             background: Some(Color::Green),
+            underline_color: None,
             attributes: StyleAttributes::Underlined
         });
     }
 
     #[test]
-    fn merge_overwrites_both_fields_when_present() {
+    fn merge_overwrites_all_colors_when_present() {
         let base = Style {
             foreground: Some(Color::Red),
             background: Some(Color::Black),
-            attributes: StyleAttributes::Bold,
+            underline_color: Some(Color::Yellow),
+            attributes: StyleAttributes::Bold | StyleAttributes::Undercurled,
         };
 
         let other = Style {
             foreground: Some(Color::Blue),
             background: Some(Color::White),
-            attributes: StyleAttributes::Italic,
+            underline_color: Some(Color::Green),
+            attributes: StyleAttributes::Italic | StyleAttributes::Undercurled,
         };
 
         let merged = base.merge(other);
@@ -236,7 +275,10 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Blue),
             background: Some(Color::White),
-            attributes: StyleAttributes::Bold | StyleAttributes::Italic,
+            underline_color: Some(Color::Green),
+            attributes: StyleAttributes::Bold
+                | StyleAttributes::Italic
+                | StyleAttributes::Undercurled,
         });
     }
 
@@ -245,12 +287,14 @@ mod tests {
         let base = Style {
             foreground: None,
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         };
 
         let other = Style {
             foreground: Some(Color::Green),
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::Bold,
         };
 
@@ -259,6 +303,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: Some(Color::Green),
             background: Some(Color::Black),
+            underline_color: None,
             attributes: StyleAttributes::Bold,
         });
     }
@@ -268,12 +313,14 @@ mod tests {
         let base = Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         };
 
         let other = Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         };
 
@@ -282,6 +329,7 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::empty(),
         });
     }
@@ -291,12 +339,14 @@ mod tests {
         let base = Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::Bold,
         };
 
         let other = Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::Italic | StyleAttributes::Underlined,
         };
 
@@ -305,10 +355,24 @@ mod tests {
         assert_eq!(merged, Style {
             foreground: None,
             background: None,
+            underline_color: None,
             attributes: StyleAttributes::Bold
                 | StyleAttributes::Italic
                 | StyleAttributes::Underlined
         });
+    }
+
+    #[test]
+    fn with_undercurl_sets_color_and_attribute() {
+        let style = Style::new()
+            .with_attributes(StyleAttributes::Bold)
+            .with_undercurl(Color::Red);
+
+        assert_eq!(style.underline_color(), Some(Color::Red));
+        assert_eq!(
+            style.attributes(),
+            StyleAttributes::Bold | StyleAttributes::Undercurled
+        );
     }
 }
 

@@ -43,7 +43,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub fn run(args: Args) -> io::Result<()> {
+    pub fn run(args: Args) -> anyhow::Result<()> {
         let (columns, rows) = crossterm::terminal::size()?;
 
         let mut terminal = Self {
@@ -83,7 +83,7 @@ impl Terminal {
         Ok(())
     }
 
-    fn run_event_loop(&mut self, args: Args) -> io::Result<()> {
+    fn run_event_loop(&mut self, args: Args) -> anyhow::Result<()> {
         let mut editor = Editor::new(args.file_path, self.buffer.dimensions())?;
         editor.render(&mut self.buffer);
         self.draw(editor.visual_cursor_position())?;
@@ -145,6 +145,7 @@ impl Terminal {
 
         let mut fg = Color::Reset;
         let mut bg = Color::Reset;
+        let mut underline_color = Color::Reset;
         let mut attributes = StyleAttributes::empty();
 
         while buffer_index < cells.len() {
@@ -162,6 +163,13 @@ impl Terminal {
             {
                 bg = new_bg;
                 crossterm::queue!(self.out, style::SetBackgroundColor(bg))?;
+            }
+
+            if let new_underline_color = cell.underline_color()
+                && new_underline_color != underline_color
+            {
+                underline_color = new_underline_color;
+                crossterm::queue!(self.out, style::SetUnderlineColor(underline_color))?;
             }
 
             if let new_attributes = cell.attributes()
@@ -203,7 +211,7 @@ fn attributes_diff(current: StyleAttributes, next: StyleAttributes) -> Attribute
         let opposite = match attribute {
             StyleAttributes::Bold => Attribute::NormalIntensity,
             StyleAttributes::Italic => Attribute::NoItalic,
-            StyleAttributes::Underlined => Attribute::NoUnderline,
+            StyleAttributes::Underlined | StyleAttributes::Undercurled => Attribute::NoUnderline,
             _ => unreachable!(),
         };
 
@@ -216,6 +224,7 @@ fn attributes_diff(current: StyleAttributes, next: StyleAttributes) -> Attribute
             StyleAttributes::Bold => Attribute::Bold,
             StyleAttributes::Italic => Attribute::Italic,
             StyleAttributes::Underlined => Attribute::Underlined,
+            StyleAttributes::Undercurled => Attribute::Undercurled,
             _ => unreachable!(),
         });
     }

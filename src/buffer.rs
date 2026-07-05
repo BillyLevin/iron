@@ -215,6 +215,7 @@ pub(crate) struct Cell {
     content: String,
     foreground: Color,
     background: Color,
+    underline_color: Color,
     attributes: StyleAttributes,
 }
 
@@ -224,6 +225,7 @@ impl Cell {
             content: String::from(content),
             foreground: Color::Reset,
             background: Color::Reset,
+            underline_color: Color::Reset,
             attributes: StyleAttributes::empty(),
         }
     }
@@ -238,6 +240,10 @@ impl Cell {
 
     pub(crate) const fn background(&self) -> Color {
         self.background
+    }
+
+    pub(crate) const fn underline_color(&self) -> Color {
+        self.underline_color
     }
 
     pub(crate) const fn attributes(&self) -> StyleAttributes {
@@ -257,6 +263,10 @@ impl Cell {
 
         if let Some(background) = style.background() {
             self.background = background;
+        }
+
+        if let Some(underline_color) = style.underline_color() {
+            self.underline_color = underline_color;
         }
 
         self.attributes = style.attributes();

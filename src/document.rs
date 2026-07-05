@@ -3,7 +3,6 @@ use std::{
     fmt,
     fs::File,
     io::{
-        self,
         BufReader,
         BufWriter,
     },
@@ -35,6 +34,10 @@ use crossterm::event::{
     KeyEvent,
     KeyModifiers,
 };
+use gen_lsp_types::{
+    DiagnosticSeverity,
+    PublishDiagnosticsParams,
+};
 use itertools::Itertools as _;
 use ropey::{
     LineType,
@@ -42,6 +45,7 @@ use ropey::{
     RopeSlice,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
+use url::Url;
 
 use crate::{
     buffer::Buffer,
@@ -70,6 +74,13 @@ use crate::{
         MovementAction,
     },
     language::Language,
+    lsp::{
+        DocumentLspId,
+        DocumentSnapshot,
+        DocumentVersion,
+        LspTextEdit,
+        PositionEncoding,
+    },
     style::Style,
     text::{
         ByteIndex,
@@ -123,6 +134,8 @@ pub(crate) struct Document {
 
     file_path: PathBuf,
 
+    lsp_id: DocumentLspId,
+
     layout_info: LayoutInfo,
 
     /// The detected language of the document - this is based on the extension
@@ -137,14 +150,23 @@ pub(crate) struct Document {
 
     highlight_request_tx: Sender<HighlightRequest>,
     highlight_response_rx: Receiver<HighlightCache>,
+
+    version: DocumentVersion,
+
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl Document {
-    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> io::Result<Self> {
+    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> anyhow::Result<Self> {
+        let text = Rope::from_reader(BufReader::new(File::open(&file_path)?))?;
+
+        let language = Language::new(&file_path);
+        let lsp_id = DocumentLspId::new(&file_path, language)?;
+
         let (highlight_request_tx, highlight_response_rx) = spawn_highlights_thread();
 
         let this = Self {
-            text: Rope::from_reader(BufReader::new(File::open(&file_path)?))?,
+            text,
             selection: Selection::default(),
             normal_keymap: KeyMap::normal(),
             insert_keymap: KeyMap::insert(),
@@ -152,14 +174,17 @@ impl Document {
             scroll_offset: LineIndex::default(),
             desired_cursor_column: None,
             key_sequence: KeySequence::new(Mode::Normal),
-            language: Language::new(&file_path),
+            language,
             file_path,
+            lsp_id,
             layout_info: LayoutInfo::new(dimensions),
             jj_info: JJInfo::default(),
             error: None,
             highlights: HighlightCache::new(),
             highlight_request_tx,
             highlight_response_rx,
+            version: DocumentVersion::default(),
+            diagnostics: Vec::new(),
         };
 
         this.request_highlight_refresh();
@@ -434,7 +459,7 @@ impl Document {
             DocumentAction::Behavior(BehaviorAction::AppendText) => self.append_text(),
 
             DocumentAction::Edit(edit_action) => {
-                self.handle_edit_action(edit_action, action_count);
+                self.handle_edit_action(edit_action, action_count, event_context);
             }
         }
 
@@ -443,7 +468,7 @@ impl Document {
         }
     }
 
-    fn handle_edit_action(&mut self, action: EditAction, count: usize) {
+    fn handle_edit_action(&mut self, action: EditAction, count: usize, context: &mut EventContext) {
         let (transaction, mode) = match action {
             EditAction::InsertChar(ch) => (self.insert_char(ch), None),
             EditAction::DeleteGrapheme => (self.delete_grapheme(), None),
@@ -478,7 +503,7 @@ impl Document {
             EditAction::InsertTab => (self.insert_tab(), None),
         };
 
-        self.apply_transaction(transaction);
+        self.apply_transaction(transaction, context);
 
         match mode {
             Some(Mode::Normal) => self.normal_mode(),
@@ -488,12 +513,13 @@ impl Document {
         }
     }
 
-    fn apply_transaction(&mut self, transaction: Transaction) {
+    fn apply_transaction(&mut self, transaction: Transaction, context: &mut EventContext) {
         if let Some(edit) = transaction.edit
             && !edit.is_noop()
         {
+            let initial_text = self.text.clone();
             self.apply_edit(&edit);
-            self.request_highlight_refresh();
+            self.on_edit(edit, initial_text, context);
         }
 
         self.selection = transaction.selection;
@@ -508,6 +534,17 @@ impl Document {
             .remove(edit.range.start.value()..edit.range.end.value());
         self.text
             .insert(edit.range.start.value(), &edit.replacement);
+    }
+
+    fn on_edit(&mut self, edit: TextEdit, initial_text: Rope, context: &mut EventContext) {
+        self.diagnostics.clear();
+        self.version = self.version.next();
+        self.request_highlight_refresh();
+
+        context.push_action(EditorAction::DocumentChanged(LspTextEdit::new(
+            initial_text,
+            edit,
+        )));
     }
 
     fn move_cursor_down(&mut self, count: usize) {
@@ -1381,6 +1418,42 @@ impl Document {
             PairPosition::End => self.selection.cursor - offset,
         });
     }
+
+    /// Creates a snapshot of relevant data from the document to be used in
+    /// requests made to language server(s).
+    pub(crate) fn lsp_snapshot(&self) -> DocumentSnapshot {
+        DocumentSnapshot::new(self.lsp_id.clone(), self.text.clone(), self.version)
+    }
+
+    pub(crate) const fn url(&self) -> &Url {
+        self.lsp_id.url()
+    }
+
+    pub(crate) fn publish_diagnostics(
+        &mut self,
+        params: &PublishDiagnosticsParams,
+        position_encoding: PositionEncoding,
+    ) {
+        let text = self.text.slice(..);
+
+        self.diagnostics = params
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| {
+                Diagnostic::new(diagnostic, position_encoding, text)
+                    .inspect_err(|err| log::warn!("invalid diagnostic: {err}"))
+                    .ok()
+            })
+            .collect();
+    }
+
+    pub(crate) const fn version(&self) -> DocumentVersion {
+        self.version
+    }
+
+    pub(crate) const fn lsp_id(&self) -> &DocumentLspId {
+        &self.lsp_id
+    }
 }
 
 fn spawn_highlights_thread() -> (Sender<HighlightRequest>, Receiver<HighlightCache>) {
@@ -1483,7 +1556,23 @@ impl Layer for Document {
             let style = current_highlight
                 .as_ref()
                 .map(|&(ref token, _checkpoint)| token.kind())
-                .map_or(Style::TEXT, Style::from);
+                .map_or(Style::TEXT, Style::from)
+                .merge(
+                    self.diagnostics
+                        .iter()
+                        .find(|diagnostic| {
+                            // some syntax errors come back as an empty range, so we handle those
+                            // explicitly.
+                            if diagnostic.range.is_empty() {
+                                diagnostic.range.start == grapheme_index
+                            } else {
+                                diagnostic.range.contains(&grapheme_index)
+                            }
+                        })
+                        .map_or_else(Style::new, |diagnostic| {
+                            Style::diagnostic(diagnostic.severity)
+                        }),
+                );
 
             buffer[translated_position]
                 .set_content(grapheme.as_str())
@@ -1803,7 +1892,7 @@ impl Transaction {
 }
 
 #[derive(Debug)]
-struct TextEdit {
+pub(crate) struct TextEdit {
     range: Range<ByteIndex>,
     replacement: String,
 }
@@ -1826,9 +1915,64 @@ impl TextEdit {
         }
     }
 
+    pub(crate) fn into_parts(self) -> (Range<ByteIndex>, String) {
+        (self.range, self.replacement)
+    }
+
     fn is_noop(&self) -> bool {
         self.range.is_empty() && self.replacement.is_empty()
     }
+}
+
+#[derive(Debug)]
+struct Diagnostic {
+    severity: DiagnosticSeverity,
+    range: Range<ByteIndex>,
+}
+
+impl Diagnostic {
+    fn new(
+        diagnostic: &gen_lsp_types::Diagnostic,
+        position_encoding: PositionEncoding,
+        text: RopeSlice<'_>,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            severity: diagnostic.severity.unwrap_or(DiagnosticSeverity::Error),
+            range: lsp_to_byte_range(diagnostic.range, position_encoding, text)?,
+        })
+    }
+}
+
+fn lsp_to_byte_range(
+    range: gen_lsp_types::Range,
+    position_encoding: PositionEncoding,
+    text: RopeSlice<'_>,
+) -> anyhow::Result<Range<ByteIndex>> {
+    let translate_position = |position: gen_lsp_types::Position| -> anyhow::Result<ByteIndex> {
+        let line_index = LineIndex::try_from(position.line).context("line index is too large")?;
+
+        let line = text
+            .get_line_at(line_index)
+            .context("invalid line index for this document")?;
+        let character =
+            usize::try_from(position.character).context("character offset is too large")?;
+
+        let byte_offset = match position_encoding {
+            PositionEncoding::UTF8 => character,
+            // TODO: use non-panicking versions when <https://github.com/cessen/ropey/pull/118> is
+            // done.
+            PositionEncoding::UTF16 => line.utf16_to_byte_idx(character),
+            PositionEncoding::UTF32 => line.char_to_byte_idx(character),
+        };
+
+        Ok(text.line_start_byte(line_index) + byte_offset)
+    };
+    let start = translate_position(range.start)?;
+    let end = translate_position(range.end)?;
+
+    anyhow::ensure!(start <= end, "diagnostic range is invalid: end > start");
+
+    Ok(start..end)
 }
 
 #[cfg(test)]

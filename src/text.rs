@@ -1,7 +1,10 @@
-use std::ops::{
-    self,
-    Range,
-    RangeInclusive,
+use std::{
+    num,
+    ops::{
+        self,
+        Range,
+        RangeInclusive,
+    },
 };
 
 use ropey::{
@@ -41,6 +44,9 @@ pub(crate) trait RopeSliceExt<'rope> {
     fn get_line_start_byte(&self, line: LineIndex) -> Option<ByteIndex>;
 
     fn line_at(&self, line_index: LineIndex) -> RopeSlice<'rope>;
+
+    /// Non-panicking version of [`RopeSliceExt::line_at`].
+    fn get_line_at(&self, line_index: LineIndex) -> Option<RopeSlice<'rope>>;
 
     /// Gets the byte index of the first byte of the previous grapheme from the
     /// given byte index.
@@ -95,6 +101,10 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
 
     fn line_at(&self, line_index: LineIndex) -> Self {
         self.line(line_index.value(), LINE_TYPE)
+    }
+
+    fn get_line_at(&self, line_index: LineIndex) -> Option<Self> {
+        self.get_line(line_index.value(), LINE_TYPE)
     }
 
     fn previous_grapheme_position(&self, from: ByteIndex) -> ByteIndex {
@@ -317,6 +327,14 @@ impl ops::Add<usize> for LineIndex {
 
     fn add(self, rhs: usize) -> Self::Output {
         Self(self.0 + rhs)
+    }
+}
+
+impl TryFrom<u32> for LineIndex {
+    type Error = num::TryFromIntError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        usize::try_from(value).map(Self)
     }
 }
 

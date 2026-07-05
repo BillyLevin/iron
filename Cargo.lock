@@ -634,6 +634,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gen-lsp-types"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cd635c5206acd03ea024d6b5902539e5c903de3afa220fdb5c94b583af77f4f"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -948,6 +959,7 @@ dependencies = [
  "directories",
  "fern",
  "fff-search",
+ "gen-lsp-types",
  "humantime",
  "itertools",
  "log",
@@ -956,10 +968,12 @@ dependencies = [
  "puffin",
  "puffin_http",
  "ropey",
+ "serde",
  "serde_json",
  "tempfile",
  "unicode-segmentation",
  "unicode-width",
+ "url",
 ]
 
 [[package]]
@@ -1751,9 +1765,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.149"
+version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
  "itoa",
  "memchr",
@@ -2101,6 +2115,7 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]
