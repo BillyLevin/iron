@@ -93,7 +93,10 @@ impl KeyMap {
             &[key!('{')],
             DocumentAction::Movement(MovementAction::MovePrevParagraph),
         );
-        map.register(&[key!('a')], DocumentAction::Edit(EditAction::AppendText));
+        map.register(
+            &[key!('a')],
+            DocumentAction::Behavior(BehaviorAction::AppendText),
+        );
         map.register(
             &[key!('A')],
             DocumentAction::Edit(EditAction::AppendTextLineEnd),
@@ -494,7 +497,6 @@ pub(crate) enum EditAction {
     DeleteLine,
     DeleteWholeWord,
     DeleteToPrevWordStart,
-    AppendText,
     AppendTextLineEnd,
     DeleteToWordEnd,
     ChangeToLineStart,
@@ -520,6 +522,7 @@ pub(crate) enum BehaviorAction {
     OpenCommandList,
     ClearInput,
     OpenFilePicker,
+    AppendText,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -567,7 +570,6 @@ impl DocumentAction {
                 | EditAction::DeleteLine
                 | EditAction::DeleteWholeWord
                 | EditAction::DeleteToPrevWordStart
-                | EditAction::AppendText
                 | EditAction::AppendTextLineEnd
                 | EditAction::DeleteToWordEnd
                 | EditAction::ChangeToLineStart
@@ -583,7 +585,8 @@ impl DocumentAction {
                 | EditAction::DeleteDown
                 | EditAction::DeleteUp
                 | EditAction::InsertTab,
-            ) => true,
+            )
+            | Self::Behavior(BehaviorAction::AppendText) => true,
 
             Self::Behavior(
                 BehaviorAction::SwitchToInsertMode
@@ -636,7 +639,7 @@ impl DocumentAction {
             Self::Edit(EditAction::DeleteLine) => "Delete line",
             Self::Edit(EditAction::DeleteWholeWord) => "Delete whole word",
             Self::Edit(EditAction::DeleteToPrevWordStart) => "Delete to previous word start",
-            Self::Edit(EditAction::AppendText) => "Append text",
+            Self::Behavior(BehaviorAction::AppendText) => "Append text",
             Self::Edit(EditAction::AppendTextLineEnd) => "Append text at end of line",
             Self::Movement(MovementAction::MoveWordEnd) => "Move to end of word",
             Self::Edit(EditAction::DeleteToWordEnd) => "Delete to end of word",

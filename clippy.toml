@@ -1,0 +1,8 @@
+disallowed-methods = [
+  { path = "ropey::Rope::insert", reason = "apply document text changes through Document::apply_edit" },
+  { path = "ropey::Rope::try_insert", reason = "apply document text changes through Document::apply_edit" },
+  { path = "ropey::Rope::insert_char", reason = "apply document text changes through Document::apply_edit" },
+  { path = "ropey::Rope::try_insert_char", reason = "apply document text changes through Document::apply_edit" },
+  { path = "ropey::Rope::remove", reason = "apply document text changes through Document::apply_edit" },
+  { path = "ropey::Rope::try_remove", reason = "apply document text changes through Document::apply_edit" },
+]

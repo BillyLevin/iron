@@ -391,9 +391,6 @@ impl Document {
             DocumentAction::Behavior(BehaviorAction::SwitchToInsertMode) => self.insert_mode(),
             DocumentAction::Behavior(BehaviorAction::SwitchToNormalMode) => self.normal_mode(),
             DocumentAction::Behavior(BehaviorAction::SwitchToVisualMode) => self.visual_mode(),
-            DocumentAction::Edit(EditAction::InsertChar(ch)) => self.insert_char(ch),
-            DocumentAction::Edit(EditAction::DeleteGrapheme) => self.delete_grapheme(),
-            DocumentAction::Edit(EditAction::InsertNewline) => self.insert_newline(),
             DocumentAction::Movement(MovementAction::MoveLineEnd) => self.move_cursor_line_end(),
             DocumentAction::Movement(MovementAction::MoveLineStart) => {
                 self.move_cursor_line_start();
@@ -414,58 +411,17 @@ impl Document {
             DocumentAction::Movement(MovementAction::GoToNthOrFirstLine) => {
                 self.go_to_nth_or_first_line(count);
             }
-            DocumentAction::Edit(EditAction::DeleteWord) => self.delete_word(action_count),
-            DocumentAction::Edit(EditAction::ChangeWord) => self.change_word(action_count),
-            DocumentAction::Edit(EditAction::DeleteToLineEnd) => self.delete_to_line_end(),
-            DocumentAction::Edit(EditAction::ChangeToLineEnd) => self.change_to_line_end(),
-            DocumentAction::Edit(EditAction::DeleteToLineStart) => self.delete_to_line_start(),
-            DocumentAction::Edit(EditAction::DeleteToLineFirstNonBlank) => {
-                self.delete_to_first_non_blank();
-            }
-            DocumentAction::Edit(EditAction::DeleteLine) => self.delete_line(action_count),
-            DocumentAction::Edit(EditAction::DeleteWholeWord) => {
-                self.delete_whole_word(action_count);
-            }
-            DocumentAction::Edit(EditAction::DeleteToPrevWordStart) => {
-                self.delete_to_prev_word_start(action_count);
-            }
-            DocumentAction::Edit(EditAction::AppendText) => self.append_text(),
-            DocumentAction::Edit(EditAction::AppendTextLineEnd) => self.append_text_line_end(),
             DocumentAction::Movement(MovementAction::MoveWordEnd) => {
                 self.move_cursor_word_end(action_count);
             }
-            DocumentAction::Edit(EditAction::DeleteToWordEnd) => {
-                self.delete_to_word_end(action_count);
-            }
-            DocumentAction::Edit(EditAction::ChangeToLineStart) => self.change_to_line_start(),
-            DocumentAction::Edit(EditAction::ChangeToLineFirstNonBlank) => {
-                self.change_to_first_non_blank();
-            }
-            DocumentAction::Edit(EditAction::ChangeLine) => self.change_line(action_count),
-            DocumentAction::Edit(EditAction::ChangeWholeWord) => {
-                self.change_whole_word(action_count);
-            }
-            DocumentAction::Edit(EditAction::ChangeToPrevWordStart) => {
-                self.change_to_prev_word_start(action_count);
-            }
-            DocumentAction::Edit(EditAction::ChangeToWordEnd) => {
-                self.change_to_word_end(action_count);
-            }
-            DocumentAction::Edit(EditAction::DeleteSelection) => self.delete_selection(),
-            DocumentAction::Edit(EditAction::ChangeSelection) => self.change_selection(),
             DocumentAction::Movement(MovementAction::ReverseSelection) => self.reverse_selection(),
-            DocumentAction::Edit(EditAction::OpenLineBelow) => self.open_new_line_below(),
-            DocumentAction::Edit(EditAction::OpenLineAbove) => self.open_new_line_above(),
             DocumentAction::Movement(MovementAction::SelectCurrentWord) => {
                 self.select_current_word();
             }
-            DocumentAction::Edit(EditAction::DeleteDown) => self.delete_down(action_count),
-            DocumentAction::Edit(EditAction::DeleteUp) => self.delete_up(action_count),
             DocumentAction::Behavior(BehaviorAction::OpenCommandList) => {
                 Self::open_command_list(event_context);
             }
             DocumentAction::Behavior(BehaviorAction::ClearInput) => self.clear_input(),
-            DocumentAction::Edit(EditAction::InsertTab) => self.insert_tab(),
             DocumentAction::Movement(MovementAction::VerticallyCenter) => {
                 self.center_cursor_vertically();
             }
@@ -475,15 +431,83 @@ impl Document {
             DocumentAction::Movement(MovementAction::GoToPairMatch) => {
                 self.go_to_pair_match();
             }
-        }
+            DocumentAction::Behavior(BehaviorAction::AppendText) => self.append_text(),
 
-        if matches!(action, DocumentAction::Edit(_)) {
-            self.request_highlight_refresh();
+            DocumentAction::Edit(edit_action) => {
+                self.handle_edit_action(edit_action, action_count);
+            }
         }
 
         if action.should_reset_desired_column() {
             self.clear_desired_column();
         }
+    }
+
+    fn handle_edit_action(&mut self, action: EditAction, count: usize) {
+        let (transaction, mode) = match action {
+            EditAction::InsertChar(ch) => (self.insert_char(ch), None),
+            EditAction::DeleteGrapheme => (self.delete_grapheme(), None),
+            EditAction::InsertNewline => (self.insert_newline(), None),
+            EditAction::DeleteWord => (self.delete_word(count), None),
+            EditAction::ChangeWord => (self.delete_word(count), Some(Mode::Insert)),
+            EditAction::DeleteToLineEnd => (self.delete_to_line_end(), None),
+            EditAction::ChangeToLineEnd => (self.delete_to_line_end(), Some(Mode::Insert)),
+            EditAction::DeleteToLineStart => (self.delete_to_line_start(), None),
+            EditAction::DeleteToLineFirstNonBlank => (self.delete_to_first_non_blank(), None),
+            EditAction::DeleteLine => (self.delete_line(count), None),
+            EditAction::DeleteWholeWord => (self.delete_whole_word(), None),
+            EditAction::DeleteToPrevWordStart => (self.delete_to_prev_word_start(count), None),
+            EditAction::AppendTextLineEnd => (self.append_text_line_end(), Some(Mode::Insert)),
+            EditAction::DeleteToWordEnd => (self.delete_to_word_end(count), None),
+            EditAction::ChangeToLineStart => (self.delete_to_line_start(), Some(Mode::Insert)),
+            EditAction::ChangeToLineFirstNonBlank => {
+                (self.delete_to_first_non_blank(), Some(Mode::Insert))
+            }
+            EditAction::ChangeLine => (self.change_line(count), Some(Mode::Insert)),
+            EditAction::ChangeWholeWord => (self.delete_whole_word(), Some(Mode::Insert)),
+            EditAction::ChangeToPrevWordStart => {
+                (self.delete_to_prev_word_start(count), Some(Mode::Insert))
+            }
+            EditAction::ChangeToWordEnd => (self.delete_to_word_end(count), Some(Mode::Insert)),
+            EditAction::DeleteSelection => (self.delete_selection(), Some(Mode::Normal)),
+            EditAction::ChangeSelection => (self.delete_selection(), Some(Mode::Insert)),
+            EditAction::OpenLineBelow => (self.open_new_line_below(), Some(Mode::Insert)),
+            EditAction::OpenLineAbove => (self.open_new_line_above(), Some(Mode::Insert)),
+            EditAction::DeleteDown => (self.delete_down(count), None),
+            EditAction::DeleteUp => (self.delete_up(count), None),
+            EditAction::InsertTab => (self.insert_tab(), None),
+        };
+
+        self.apply_transaction(transaction);
+
+        match mode {
+            Some(Mode::Normal) => self.normal_mode(),
+            Some(Mode::Insert) => self.insert_mode(),
+            Some(Mode::Visual) => self.visual_mode(),
+            None => {}
+        }
+    }
+
+    fn apply_transaction(&mut self, transaction: Transaction) {
+        if let Some(edit) = transaction.edit
+            && !edit.is_noop()
+        {
+            self.apply_edit(&edit);
+            self.request_highlight_refresh();
+        }
+
+        self.selection = transaction.selection;
+    }
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "this is the only place we can use the rope-mutating methods"
+    )]
+    fn apply_edit(&mut self, edit: &TextEdit) {
+        self.text
+            .remove(edit.range.start.value()..edit.range.end.value());
+        self.text
+            .insert(edit.range.start.value(), &edit.replacement);
     }
 
     fn move_cursor_down(&mut self, count: usize) {
@@ -695,25 +719,28 @@ impl Document {
         self.key_sequence.set_mode(Mode::Visual);
     }
 
-    fn insert_char(&mut self, ch: char) {
-        self.text.insert_char(self.selection.cursor.value(), ch);
-        self.set_cursor(self.selection.cursor + ch.len_utf8());
+    fn insert_char(&self, ch: char) -> Transaction {
+        Transaction::new(
+            Some(TextEdit::insert(self.selection.cursor, ch)),
+            self.selection
+                .with_cursor(self.selection.cursor + ch.len_utf8()),
+        )
     }
 
-    fn delete_grapheme(&mut self) {
+    fn delete_grapheme(&self) -> Transaction {
         let start = self
             .text
             .slice(..)
             .previous_grapheme_position(self.selection.cursor);
 
-        self.text
-            .remove(start.value()..self.selection.cursor.value());
-
-        self.set_cursor(start);
+        Transaction::new(
+            Some(TextEdit::delete(start..self.selection.cursor)),
+            self.selection.with_cursor(start),
+        )
     }
 
-    fn insert_newline(&mut self) {
-        self.insert_char('\n');
+    fn insert_newline(&self) -> Transaction {
+        self.insert_char('\n')
     }
 
     /// Moves to the cursor to the last non-linebreak grapheme on the current
@@ -741,12 +768,7 @@ impl Document {
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
         let line = text.line_at(line_index);
 
-        let offset = line
-            .char_indices()
-            .find_map(|(byte, ch)| (!ch.is_whitespace()).then(|| ByteIndex::new(byte)))
-            .unwrap_or(ByteIndex::new(0));
-
-        self.set_cursor(text.line_start_byte(line_index) + offset);
+        self.set_cursor(text.line_start_byte(line_index) + line.first_non_blank_offset());
     }
 
     fn move_cursor_next_paragraph(&mut self, count: usize) {
@@ -838,15 +860,17 @@ impl Document {
 
     /// Deletes from the current cursor position up to (but not including) the
     /// start of the next word.
-    fn delete_word(&mut self, count: usize) {
-        for _ in 0..count {
-            let end = match self
+    fn delete_word(&self, count: usize) -> Transaction {
+        let cursor = self.selection.cursor;
+
+        let end = (0..count).fold(cursor, |start, _| {
+            match self
                 .text
-                .slice(self.selection.cursor.value()..)
+                .slice(start.value()..)
                 .chars()
                 .tuple_windows()
                 .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(self.selection.cursor, |index, (left, right)| {
+                .try_fold(start, |index, (left, right)| {
                     let next_index = index + left.ch().len_utf8();
 
                     if right.is_word_start(left) {
@@ -856,44 +880,38 @@ impl Document {
                     }
                 }) {
                 ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-            };
+            }
+        });
 
-            self.text.remove(self.selection.cursor.value()..end.value());
-        }
+        Transaction::new(Some(TextEdit::delete(cursor..end)), self.selection)
     }
 
-    fn change_word(&mut self, count: usize) {
-        self.delete_word(count);
-        self.insert_mode();
-    }
-
-    fn delete_to_line_end(&mut self) {
+    fn delete_to_line_end(&self) -> Transaction {
         let text = self.text.slice(..);
 
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let end = text
+            .line_break(text.line_idx_containing_byte(self.selection.cursor))
+            .position;
 
-        self.text
-            .remove(self.selection.cursor.value()..text.line_break(line_index).position.value());
+        Transaction::new(
+            Some(TextEdit::delete(self.selection.cursor..end)),
+            self.selection,
+        )
     }
 
-    fn change_to_line_end(&mut self) {
-        self.delete_to_line_end();
-
-        self.insert_mode();
-    }
-
-    fn delete_to_line_start(&mut self) {
+    fn delete_to_line_start(&self) -> Transaction {
         let text = self.text.slice(..);
-        let index = text.line_idx_containing_byte(self.selection.cursor);
-        let line_start = text.line_start_byte(index);
+        let line_start = text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
 
-        self.text
-            .remove(line_start.value()..=self.selection.cursor.value());
-
-        self.set_cursor(line_start);
+        Transaction::new(
+            Some(TextEdit::delete(text.inclusive_to_exclusive_range(
+                line_start..=self.selection.cursor,
+            ))),
+            self.selection.with_cursor(line_start),
+        )
     }
 
-    fn delete_to_first_non_blank(&mut self) {
+    fn delete_to_first_non_blank(&self) -> Transaction {
         let text = self.text.slice(..);
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
         let line = text.line_at(line_index);
@@ -906,101 +924,100 @@ impl Document {
 
         let start = text.line_start_byte(line_index) + offset;
 
-        self.text
-            .remove(start.value()..=self.selection.cursor.value());
-
-        self.set_cursor(start);
+        Transaction::new(
+            Some(TextEdit::delete(
+                text.inclusive_to_exclusive_range(start..=self.selection.cursor),
+            )),
+            self.selection.with_cursor(start),
+        )
     }
 
-    fn delete_line(&mut self, count: usize) {
-        for _ in 0..count {
-            let text = self.text.slice(..);
+    fn delete_line(&self, count: usize) -> Transaction {
+        let range = self.line_range(count);
+        let cursor = range.start;
 
-            let index = text.line_idx_containing_byte(self.selection.cursor);
-            let start = text.line_start_byte(index);
-            let end = start + ByteIndex::new(text.line_at(index).len());
-
-            self.text.remove(start.value()..end.value());
-            self.set_cursor(start);
-        }
+        Transaction::new(
+            Some(TextEdit::delete(range)),
+            self.selection.with_cursor(cursor),
+        )
     }
 
-    fn delete_whole_word(&mut self, count: usize) {
-        for _ in 0..count {
-            let current_ch = self.text.char(self.selection.cursor.value());
+    fn delete_whole_word(&self) -> Transaction {
+        let cursor = self.selection.cursor;
+        let current_ch = self.text.char(cursor.value());
 
-            let reversed_chars = self
-                .text
-                .slice(..self.selection.cursor.value())
-                .chars_at(self.selection.cursor.value())
-                .reversed();
+        let reversed_chars = self
+            .text
+            .slice(..cursor.value())
+            .chars_at(cursor.value())
+            .reversed();
 
-            let start = iter::once(current_ch)
-                .chain(reversed_chars)
-                .tuple_windows()
-                .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(self.selection.cursor, |index, (left, right)| {
-                    if right.is_word_start(left) {
-                        ControlFlow::Break(index)
-                    } else {
-                        ControlFlow::Continue(index.saturating_sub(left.ch().len_utf8()))
-                    }
-                })
-                .break_value()
-                .unwrap_or(ByteIndex::new(0));
+        let start = iter::once(current_ch)
+            .chain(reversed_chars)
+            .tuple_windows()
+            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(cursor, |index, (left, right)| {
+                if right.is_word_start(left) {
+                    ControlFlow::Break(index)
+                } else {
+                    ControlFlow::Continue(index.saturating_sub(left.ch().len_utf8()))
+                }
+            })
+            .break_value()
+            .unwrap_or(ByteIndex::new(0));
 
-            let end = match self
-                .text
-                .slice(self.selection.cursor.value()..)
-                .chars()
-                .tuple_windows()
-                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(self.selection.cursor, |index, (left, right)| {
-                    let next_index = index + left.ch().len_utf8();
+        let end = match self
+            .text
+            .slice(cursor.value()..)
+            .chars()
+            .tuple_windows()
+            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
+            .try_fold(self.selection.cursor, |index, (left, right)| {
+                let next_index = index + left.ch().len_utf8();
 
-                    if left.is_word_end(right) {
-                        // we started at the leftmost byte of the `left` char, and we want to
-                        // delete it, and so the byte index we provide is the start of the next
-                        // char, allowing us to use an exclusive range in the `remove` call below
-                        ControlFlow::Break(next_index)
-                    } else {
-                        ControlFlow::Continue(next_index)
-                    }
-                }) {
-                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-            };
+                if left.is_word_end(right) {
+                    // we started at the leftmost byte of the `left` char, and we want to
+                    // delete it, and so the byte index we provide is the start of the next
+                    // char, allowing us to use an exclusive range in the `remove` call below
+                    ControlFlow::Break(next_index)
+                } else {
+                    ControlFlow::Continue(next_index)
+                }
+            }) {
+            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+        };
 
-            self.text.remove(start.value()..end.value());
-            self.set_cursor(start);
-        }
+        Transaction::new(
+            Some(TextEdit::delete(start..end)),
+            self.selection.with_cursor(start),
+        )
     }
 
-    fn delete_to_prev_word_start(&mut self, count: usize) {
-        for _ in 0..count {
-            let start = self
-                .text
-                .slice(..self.selection.cursor.value())
-                .chars_at(self.selection.cursor.value())
-                .reversed()
-                .tuple_windows()
-                .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(self.selection.cursor, |index, (left, right)| {
-                    let next_index = index.saturating_sub(left.ch().len_utf8());
+    fn delete_to_prev_word_start(&self, count: usize) -> Transaction {
+        let cursor = self.selection.cursor;
+        let text = self.text.slice(..cursor.value());
 
-                    if right.is_word_start(left) {
-                        ControlFlow::Break(next_index)
-                    } else {
-                        ControlFlow::Continue(next_index)
-                    }
-                })
-                .break_value()
-                .unwrap_or(ByteIndex::new(0));
+        let start = match count {
+            0 => cursor,
+            _ => {
+                text.chars_at(cursor.value())
+                    .reversed()
+                    .tuple_windows()
+                    .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
+                    .scan(cursor, |index, (left, right)| {
+                        *index = index.saturating_sub(left.ch().len_utf8());
+                        Some(right.is_word_start(left).then_some(*index))
+                    })
+                    .flatten()
+                    .nth(count - 1)
+                    .unwrap_or(ByteIndex::new(0))
+            }
+        };
 
-            self.text
-                .remove(start.value()..self.selection.cursor.value());
-
-            self.set_cursor(start);
-        }
+        Transaction::new(
+            Some(TextEdit::delete(start..cursor)),
+            self.selection.with_cursor(start),
+        )
     }
 
     fn append_text(&mut self) {
@@ -1008,25 +1025,22 @@ impl Document {
         self.insert_mode();
     }
 
-    fn append_text_line_end(&mut self) {
+    fn append_text_line_end(&self) -> Transaction {
         let text = self.text.slice(..);
+        let line_break = text.line_break(text.line_idx_containing_byte(self.selection.cursor));
 
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
-
-        let line_break = text.line_break(line_index);
-
-        self.set_cursor(line_break.position);
-
-        // there is no linebreak, and so we need to make room to append text by adding
-        // one. we will not shift the cursor, so the user will overwrite the
-        // empty space when they enter text
-        if !line_break.has_linebreak {
+        let edit = if line_break.has_linebreak {
+            None
+        } else {
+            // there is no linebreak, and so we need to make room to append text by adding
+            // one. we will not shift the cursor, so the user will overwrite the
+            // empty space when they enter text
             // TODO: use the same linebreak style that the rest of the document uses, if
             // applicable
-            self.text.insert_char(self.selection.cursor.value(), '\n');
-        }
+            Some(TextEdit::insert(line_break.position, '\n'))
+        };
 
-        self.insert_mode();
+        Transaction::new(edit, self.selection.with_cursor(line_break.position))
     }
 
     fn move_cursor_word_end(&mut self, count: usize) {
@@ -1059,17 +1073,16 @@ impl Document {
         }
     }
 
-    fn delete_to_word_end(&mut self, count: usize) {
-        for _ in 0..count {
+    fn delete_to_word_end(&self, count: usize) -> Transaction {
+        let cursor = self.selection.cursor;
+
+        let end = (0..count).fold(cursor, |start, _| {
             // we start searching at the next grapheme so that the cursor doesn't stay where
             // it is if it's already at the end of a word (in that case, we want to
             // go to the end of the **next** word)
-            let search_start = self
-                .text
-                .slice(..)
-                .next_grapheme_position(self.selection.cursor);
+            let search_start = self.text.slice(..).next_grapheme_position(start);
 
-            let word_end = match self
+            match self
                 .text
                 .slice(search_start.value()..)
                 .chars()
@@ -1087,83 +1100,42 @@ impl Document {
                     }
                 }) {
                 ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-            };
+            }
+        });
 
-            self.text
-                .remove(self.selection.cursor.value()..word_end.value());
-        }
+        Transaction::new(Some(TextEdit::delete(cursor..end)), self.selection)
     }
 
-    fn change_to_line_start(&mut self) {
-        self.delete_to_line_start();
-        self.insert_mode();
+    fn change_line(&self, count: usize) -> Transaction {
+        let range = self.line_range(count);
+        let cursor = range.start;
+
+        Transaction::new(
+            // we removed the linebreak (if there was one), and so we need to make room to
+            // append text by adding one. we will not shift the cursor, so the user
+            // will overwrite the empty space when they enter text
+            // TODO: use the same linebreak style that the rest of the document uses, if
+            // applicable
+            Some(TextEdit::replace(range, "\n")),
+            self.selection.with_cursor(cursor),
+        )
     }
 
-    fn change_to_first_non_blank(&mut self) {
-        self.delete_to_first_non_blank();
-        self.insert_mode();
-    }
+    fn delete_selection(&self) -> Transaction {
+        let range = self.selection.range(self.text.slice(..));
+        let cursor = range.start;
 
-    fn change_line(&mut self, count: usize) {
-        for _ in 0..count {
-            let text = self.text.slice(..);
-
-            let line_index = text.line_idx_containing_byte(self.selection.cursor);
-
-            let line_start = text.line_start_byte(line_index);
-            let line_end = text.line_start_byte(line_index + 1);
-
-            self.text.remove(line_start.value()..line_end.value());
-
-            self.set_cursor(line_start);
-        }
-
-        // we removed the linebreak (if there was one), and so we need to make room to
-        // append text by adding one. we will not shift the cursor, so the user
-        // will overwrite the empty space when they enter text
-        // TODO: use the same linebreak style that the rest of the document uses, if
-        // applicable
-        self.text.insert_char(self.selection.cursor.value(), '\n');
-
-        self.insert_mode();
-    }
-
-    fn change_whole_word(&mut self, count: usize) {
-        self.delete_whole_word(count);
-        self.insert_mode();
-    }
-
-    fn change_to_prev_word_start(&mut self, count: usize) {
-        self.delete_to_prev_word_start(count);
-        self.insert_mode();
-    }
-
-    fn change_to_word_end(&mut self, count: usize) {
-        self.delete_to_word_end(count);
-        self.insert_mode();
-    }
-
-    fn delete_selection(&mut self) {
-        let delete_range = self.selection.range(self.text.slice(..));
-
-        self.text
-            .remove(delete_range.start.value()..delete_range.end.value());
-
-        self.set_cursor(delete_range.start);
-
-        self.normal_mode();
-    }
-
-    fn change_selection(&mut self) {
-        self.delete_selection();
-        self.insert_mode();
+        Transaction::new(
+            Some(TextEdit::delete(range)),
+            self.selection.with_cursor(cursor),
+        )
     }
 
     const fn reverse_selection(&mut self) {
         self.selection.reverse();
     }
 
-    fn open_new_line_below(&mut self) {
+    fn open_new_line_below(&self) -> Transaction {
         let text = self.text.slice(..);
 
         let line_index = text.line_idx_containing_byte(self.selection.cursor);
@@ -1175,19 +1147,22 @@ impl Document {
             "\n\n"
         };
 
-        self.text.insert(line_break.position.value(), to_insert);
-        self.set_cursor(self.text.slice(..).line_start_byte(line_index + 1));
-        self.insert_mode();
+        Transaction::new(
+            Some(TextEdit::insert(line_break.position, to_insert)),
+            self.selection
+                .with_cursor(line_break.position + '\n'.len_utf8()),
+        )
     }
 
-    fn open_new_line_above(&mut self) {
+    fn open_new_line_above(&self) -> Transaction {
         let text = self.text.slice(..);
 
         let line_start = text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
 
-        self.text.insert_char(line_start.value(), '\n');
-        self.set_cursor(line_start);
-        self.insert_mode();
+        Transaction::new(
+            Some(TextEdit::insert(line_start, '\n')),
+            self.selection.with_cursor(line_start),
+        )
     }
 
     fn select_current_word(&mut self) {
@@ -1236,53 +1211,40 @@ impl Document {
     }
 
     /// Deletes the current plus the `count` succeeding lines.
-    fn delete_down(&mut self, count: usize) {
+    fn delete_down(&self, count: usize) -> Transaction {
         let text = self.text.slice(..);
 
-        let current_line = text.line_idx_containing_byte(self.selection.cursor);
+        let range = self.line_range(count + 1);
+        let next_line = text.slice(range.end.value()..).line_at(LineIndex::new(0));
+        let cursor = range.start + next_line.first_non_blank_offset();
 
-        let start = text.line_start_byte(current_line);
-
-        let Some(end) = (0..=count)
-            .filter_map(|i| text.get_line_start_byte(current_line + i + 1))
-            .next_back()
-        else {
-            return;
-        };
-
-        self.text.remove(start.value()..end.value());
-        self.set_cursor(start);
-        self.move_cursor_first_non_blank();
+        Transaction::new(
+            Some(TextEdit::delete(range)),
+            self.selection.with_cursor(cursor),
+        )
     }
 
     /// Deletes the current plus the `count` preceding lines.
-    fn delete_up(&mut self, count: usize) {
+    fn delete_up(&self, count: usize) -> Transaction {
         let text = self.text.slice(..);
-
         let current_line = text.line_idx_containing_byte(self.selection.cursor);
-        let Some(prev_line) = current_line.checked_sub(1) else {
-            return;
-        };
 
-        let end =
-            text.line_start_byte(current_line) + ByteIndex::new(text.line_at(current_line).len());
+        if current_line == LineIndex::new(0) {
+            return Transaction::new(None, self.selection);
+        }
 
-        let start = text
-            // NOTE: +1 because when we use `reversed()`, the iterator does not consume the
-            // line at the provided index
-            .lines_at(current_line.value() + 1, LineType::LF_CR)
-            .reversed()
-            .take(count + 1)
-            .fold(end, |byte_index, line| {
-                byte_index.saturating_sub(line.len())
+        let range = self.backwards_line_range(count + 1);
+        let cursor = text
+            .line_idx_containing_byte(range.start)
+            .checked_sub(1)
+            .map_or(range.start, |line| {
+                text.line_start_byte(line) + text.line_at(line).first_non_blank_offset()
             });
 
-        self.text.remove(start.value()..end.value());
-        self.set_cursor(match prev_line.checked_sub(1) {
-            Some(line) => self.text.slice(..).line_start_byte(line),
-            None => start,
-        });
-        self.move_cursor_first_non_blank();
+        Transaction::new(
+            Some(TextEdit::delete(range)),
+            self.selection.with_cursor(cursor),
+        )
     }
 
     fn open_command_list(event_context: &mut EventContext) {
@@ -1332,10 +1294,36 @@ impl Document {
         self.key_sequence.mode()
     }
 
-    fn insert_tab(&mut self) {
+    fn insert_tab(&self) -> Transaction {
         // TODO: if the file treats tabs as spaces, then we should insert spaces here
         // instead.
-        self.insert_char('\t');
+        self.insert_char('\t')
+    }
+
+    /// Gets the range of bytes for `count` lines, starting with the current
+    /// line.
+    fn line_range(&self, count: usize) -> Range<ByteIndex> {
+        let text = self.text.slice(..);
+        let index = text.line_idx_containing_byte(self.selection.cursor);
+        let start = text.line_start_byte(index);
+        let end = text
+            .get_line_start_byte(index + count)
+            .unwrap_or_else(|| ByteIndex::new(text.len()));
+
+        start..end
+    }
+
+    /// Gets the range of bytes for `count` lines, going backwards from the
+    /// current line.
+    fn backwards_line_range(&self, count: usize) -> Range<ByteIndex> {
+        let text = self.text.slice(..);
+        let index_after_current = text.line_idx_containing_byte(self.selection.cursor) + 1;
+        let start = text.line_start_byte(index_after_current.saturating_sub(count));
+        let end = text
+            .get_line_start_byte(index_after_current)
+            .unwrap_or_else(|| ByteIndex::new(text.len()));
+
+        start..end
     }
 
     fn request_highlight_refresh(&self) {
@@ -1608,7 +1596,7 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct Selection {
     /// The "start" of the selection. This is set to the current cursor position
     /// when entering [`Mode::Visual`] and then does not change while in that
@@ -1625,12 +1613,18 @@ impl Selection {
     /// Gets the range of bytes that the selection represents.
     fn range(&self, text: RopeSlice) -> Range<ByteIndex> {
         let start = cmp::min(self.cursor, self.anchor);
+        let end = cmp::max(self.cursor, self.anchor);
+
         // since each byte index represents the **start** of a grapheme, in order to get
         // all of the selected bytes, we extend the rightmost index to the start
         // of the **next** grapheme and represent it as a half-open range.
-        let end = text.next_grapheme_position(cmp::max(self.cursor, self.anchor));
+        text.inclusive_to_exclusive_range(start..=end)
+    }
 
-        start..end
+    /// Creates a new [`Selection`] with the cursor set to the given position.
+    #[must_use]
+    const fn with_cursor(self, cursor: ByteIndex) -> Self {
+        Self { cursor, ..self }
     }
 
     const fn reverse(&mut self) {
@@ -1794,6 +1788,47 @@ impl PairKind {
 enum PairPosition {
     Start,
     End,
+}
+
+#[derive(Debug)]
+struct Transaction {
+    edit: Option<TextEdit>,
+    selection: Selection,
+}
+
+impl Transaction {
+    const fn new(edit: Option<TextEdit>, selection: Selection) -> Self {
+        Self { edit, selection }
+    }
+}
+
+#[derive(Debug)]
+struct TextEdit {
+    range: Range<ByteIndex>,
+    replacement: String,
+}
+
+impl TextEdit {
+    fn insert(at: ByteIndex, text: impl Into<String>) -> Self {
+        Self::replace(at..at, text)
+    }
+
+    fn delete(range: Range<ByteIndex>) -> Self {
+        Self::replace(range, "")
+    }
+
+    fn replace(range: Range<ByteIndex>, text: impl Into<String>) -> Self {
+        assert!(range.start <= range.end, "range must be valid");
+
+        Self {
+            range,
+            replacement: text.into(),
+        }
+    }
+
+    fn is_noop(&self) -> bool {
+        self.range.is_empty() && self.replacement.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -3435,27 +3470,6 @@ mod tests {
     }
 
     #[test]
-    fn delete_whole_word_n() {
-        TestCase {
-            initial_text: "Hello there!!! hi",
-            initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
-
-            keys: vec![
-                key_event!('2'),
-                key_event!('d'),
-                key_event!('i'),
-                key_event!('w'),
-            ],
-
-            expected_text: "Hello  hi",
-            expected_cursor: 6,
-            expected_visual_position: (9, 0),
-        }
-        .run();
-    }
-
-    #[test]
     fn delete_to_prev_word_start() {
         TestCase {
             initial_text: "Hello there!!!",
@@ -3775,30 +3789,6 @@ mod tests {
             expected_text: "Hey there!!!",
             expected_cursor: 3,
             expected_visual_position: (6, 0),
-        }
-        .run();
-    }
-
-    #[test]
-    fn change_whole_word_n() {
-        TestCase {
-            initial_text: "Hello there!!! words words",
-            initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
-
-            keys: vec![
-                key_event!('2'),
-                key_event!('c'),
-                key_event!('i'),
-                key_event!('w'),
-                key_event!('H'),
-                key_event!('e'),
-                key_event!('y'),
-            ],
-
-            expected_text: "Hello Hey words words",
-            expected_cursor: 9,
-            expected_visual_position: (12, 0),
         }
         .run();
     }

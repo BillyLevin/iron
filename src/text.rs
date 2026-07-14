@@ -1,4 +1,8 @@
-use std::ops;
+use std::ops::{
+    self,
+    Range,
+    RangeInclusive,
+};
 
 use ropey::{
     LineType,
@@ -65,6 +69,14 @@ pub(crate) trait RopeSliceExt<'rope> {
 
     /// Gets the line break information for the line at the given `line_index`.
     fn line_break(&self, line_index: LineIndex) -> LineBreakOutcome;
+
+    /// Converts an inclusive byte range to a half-open one containing the
+    /// grapheme starting at the end of the given range.
+    fn inclusive_to_exclusive_range(&self, range: RangeInclusive<ByteIndex>) -> Range<ByteIndex>;
+
+    /// Gets the byte offset of the first non-whitespace character in the slice,
+    /// or 0 if it's all whitespace.
+    fn first_non_blank_offset(&self) -> ByteIndex;
 }
 
 impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
@@ -198,6 +210,19 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
             position: line_start + offset,
             has_linebreak,
         }
+    }
+
+    fn inclusive_to_exclusive_range(&self, range: RangeInclusive<ByteIndex>) -> Range<ByteIndex> {
+        let (start, end) = range.into_inner();
+        assert!(start <= end, "range must be ordered");
+
+        start..self.next_grapheme_position(end)
+    }
+
+    fn first_non_blank_offset(&self) -> ByteIndex {
+        self.char_indices()
+            .find_map(|(byte, ch)| (!ch.is_whitespace()).then(|| ByteIndex::new(byte)))
+            .unwrap_or(ByteIndex::new(0))
     }
 }
 
