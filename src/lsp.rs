@@ -15,6 +15,7 @@ use std::{
     },
     process::{
         self,
+        Child,
         ChildStderr,
         ChildStdin,
         ChildStdout,
@@ -28,7 +29,10 @@ use std::{
             Sender,
         },
     },
-    thread,
+    thread::{
+        self,
+        JoinHandle,
+    },
 };
 
 use anyhow::Context as _;
@@ -103,6 +107,7 @@ use crate::{
 pub(crate) struct LspClient {
     worker_tx: Sender<WorkerInput>,
     event_rx: Receiver<LspEvent>,
+    worker_handle: Option<JoinHandle<()>>,
 }
 
 impl LspClient {
@@ -112,11 +117,12 @@ impl LspClient {
         let (worker_tx, worker_rx) = sync::mpsc::channel();
         let (event_tx, event_rx) = sync::mpsc::channel();
 
-        spawn_worker(worker_tx.clone(), worker_rx, event_tx, workspace_root);
+        let worker_handle = spawn_worker(worker_tx.clone(), worker_rx, event_tx, workspace_root);
 
         Ok(Self {
             worker_tx,
             event_rx,
+            worker_handle: Some(worker_handle),
         })
     }
 
@@ -147,6 +153,19 @@ impl LspClient {
             .is_err()
         {
             log::error!("`worker_rx` is unexpectedly dead");
+        }
+    }
+}
+
+impl Drop for LspClient {
+    fn drop(&mut self) {
+        let _ = self.worker_tx.send(WorkerInput::Shutdown);
+        if self
+            .worker_handle
+            .take()
+            .is_some_and(|handle| handle.join().is_err())
+        {
+            log::error!("lsp worker did not shutdown gracefully");
         }
     }
 }
@@ -261,7 +280,7 @@ struct LspWorker {
     worker_tx: Sender<WorkerInput>,
     worker_rx: Receiver<WorkerInput>,
     event_tx: Sender<LspEvent>,
-    servers: HashMap<LanguageServerId, LanguageServer>,
+    servers: LanguageServers,
     workspace_root: WorkspaceRoot,
 }
 
@@ -276,7 +295,7 @@ impl LspWorker {
             worker_tx,
             worker_rx,
             event_tx,
-            servers: HashMap::new(),
+            servers: LanguageServers::new(),
             workspace_root,
         }
     }
@@ -290,6 +309,12 @@ impl LspWorker {
                         self.handle_server_error(server, error);
                     }
                 }
+                WorkerInput::KillServer { server, error } => {
+                    self.handle_server_error(server, ServerError::Fatal(error));
+                }
+                WorkerInput::Shutdown => {
+                    break;
+                }
             }
         }
     }
@@ -299,10 +324,11 @@ impl LspWorker {
             return;
         };
 
-        match self
-            .get_or_spawn_server(id, self.worker_tx.clone())
-            .and_then(|server| server.send_or_enqueue(action))
-        {
+        let Some(server) = self.get_or_spawn_server(id, self.worker_tx.clone()) else {
+            return;
+        };
+
+        match server.send_or_enqueue(action) {
             Ok(()) => {}
             Err(error) => self.handle_server_error(id, error),
         }
@@ -312,12 +338,20 @@ impl LspWorker {
         &mut self,
         id: LanguageServerId,
         worker_tx: Sender<WorkerInput>,
-    ) -> Result<&mut LanguageServer, ServerError> {
-        self.servers.entry(id).or_try_insert_with_key(|key| {
-            LanguageServer::new(worker_tx, *key, &self.workspace_root)
-                .inspect_err(|error| log::error!("failed to start language server: {error:#}"))
-                .map_err(ServerError::Fatal)
-        })
+    ) -> Option<&mut LanguageServer> {
+        self.servers
+            .map
+            .entry(id)
+            .or_insert_with_key(|key| {
+                match LanguageServer::new(worker_tx, *key, &self.workspace_root) {
+                    Ok(server) => LanguageServerEntry::Active(server),
+                    Err(error) => {
+                        log::error!("failed to start language server: {error:#}");
+                        LanguageServerEntry::Failed
+                    }
+                }
+            })
+            .server_mut()
     }
 
     fn receive(
@@ -341,11 +375,11 @@ impl LspWorker {
         server_id: LanguageServerId,
         request: &RequestObject,
     ) -> Result<(), ServerError> {
-        self.servers
-            .get_mut(&server_id)
-            .context("no corresponding server found")
-            .map_err(ServerError::NonFatal)?
-            .handle_request(request, &self.workspace_root)
+        let Some(server) = self.servers.try_get_mut(server_id)? else {
+            return Ok(());
+        };
+
+        server.handle_request(request, &self.workspace_root)
     }
 
     fn handle_server_response(
@@ -353,11 +387,11 @@ impl LspWorker {
         server_id: LanguageServerId,
         response: &ResponseObject,
     ) -> Result<(), ServerError> {
-        self.servers
-            .get_mut(&server_id)
-            .context("no corresponding server found")
-            .map_err(ServerError::NonFatal)?
-            .handle_response(response)
+        let Some(server) = self.servers.try_get_mut(server_id)? else {
+            return Ok(());
+        };
+
+        server.handle_response(response)
     }
 
     fn handle_server_notification(
@@ -365,13 +399,11 @@ impl LspWorker {
         server_id: LanguageServerId,
         notification: &RequestObject,
     ) -> Result<(), ServerError> {
-        if let Some(event) = self
-            .servers
-            .get_mut(&server_id)
-            .context("no corresponding server found")
-            .map_err(ServerError::NonFatal)?
-            .handle_notification(notification)?
-        {
+        let Some(server) = self.servers.try_get_mut(server_id)? else {
+            return Ok(());
+        };
+
+        if let Some(event) = server.handle_notification(notification)? {
             self.event_tx
                 .send(event)
                 .context("`event_rx` is unexpectedly dead")
@@ -384,20 +416,7 @@ impl LspWorker {
     fn handle_server_error(&mut self, server_id: LanguageServerId, error: ServerError) {
         match error {
             ServerError::Fatal(error) => {
-                let Some(server) = self.servers.get_mut(&server_id) else {
-                    return;
-                };
-
-                match server.state {
-                    ServerState::Initializing { .. } | ServerState::Ready { .. } => {
-                        log::error!("fatal LSP error: {error:#}");
-                        server.state = ServerState::Failed;
-                    }
-                    ServerState::Failed => {
-                        // error has already been logged by this point. nothing
-                        // to do here
-                    }
-                }
+                self.servers.kill_server(server_id, &error);
             }
             ServerError::NonFatal(error) => {
                 log::warn!("non-fatal LSP error: {error:#}");
@@ -407,13 +426,68 @@ impl LspWorker {
 }
 
 #[derive(Debug)]
+struct LanguageServers {
+    map: HashMap<LanguageServerId, LanguageServerEntry>,
+}
+
+impl LanguageServers {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    /// Attempts to get the underlying [`LanguageServer`] for the given `id`, if
+    /// it's alive.
+    fn try_get_mut(
+        &mut self,
+        id: LanguageServerId,
+    ) -> Result<Option<&mut LanguageServer>, ServerError> {
+        Ok(self
+            .map
+            .get_mut(&id)
+            .context("no corresponding server found")
+            .map_err(ServerError::NonFatal)?
+            .server_mut())
+    }
+
+    fn kill_server(&mut self, id: LanguageServerId, error: &anyhow::Error) {
+        match self.map.insert(id, LanguageServerEntry::Failed) {
+            Some(LanguageServerEntry::Active(_)) => {
+                log::error!("fatal LSP error. killing server: {error:#}");
+            }
+            Some(LanguageServerEntry::Failed) | None => {}
+        }
+    }
+}
+
+#[derive(Debug)]
+enum LanguageServerEntry {
+    Active(LanguageServer),
+    Failed,
+}
+
+impl LanguageServerEntry {
+    const fn server_mut(&mut self) -> Option<&mut LanguageServer> {
+        match *self {
+            Self::Active(ref mut server) => Some(server),
+            Self::Failed => None,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct LanguageServer {
     state: ServerState,
-    writer_tx: Sender<serde_json::Value>,
+    writer_tx: Option<Sender<serde_json::Value>>,
     request_ids: RequestIdGenerator,
     /// Requests that are expecting a response from the language server.
     #[expect(clippy::zero_sized_map_values, reason = "won't be zero-sized for long")]
     pending: HashMap<RequestId, PendingRequest>,
+    server_process: LanguageServerProcess,
+    writer_handle: Option<JoinHandle<()>>,
+    reader_handle: Option<JoinHandle<()>>,
+    error_logger_handle: Option<JoinHandle<()>>,
 }
 
 impl LanguageServer {
@@ -422,33 +496,55 @@ impl LanguageServer {
         id: LanguageServerId,
         workspace_root: &WorkspaceRoot,
     ) -> anyhow::Result<Self> {
-        let mut server = Command::new(id.lsp_command())
-            .current_dir(workspace_root.as_path())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("failed to spawn language server")?;
+        let mut server = LanguageServerProcess {
+            process: Command::new(id.lsp_command())
+                .current_dir(workspace_root.as_path())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context("failed to spawn language server")?,
+        };
 
         let (writer_tx, writer_rx) = sync::mpsc::channel::<serde_json::Value>();
 
-        spawn_writer(
-            server.stdin.take().context("failed to take stdin")?,
-            writer_rx,
-        );
-        spawn_reader(
-            server.stdout.take().context("failed to take stdout")?,
-            worker_tx,
+        let writer_handle = spawn_writer(
+            server
+                .process
+                .stdin
+                .take()
+                .context("failed to take stdin")?,
             id,
+            writer_rx,
+            worker_tx.clone(),
         );
-        spawn_error_logger(server.stderr.take().context("failed to take stderr")?);
+        let reader_handle = spawn_reader(
+            server
+                .process
+                .stdout
+                .take()
+                .context("failed to take stdout")?,
+            id,
+            worker_tx,
+        );
+        let error_logger_handle = spawn_error_logger(
+            server
+                .process
+                .stderr
+                .take()
+                .context("failed to take stderr")?,
+        );
 
         let mut this = Self {
             state: ServerState::Initializing { queue: Vec::new() },
-            writer_tx,
+            writer_tx: Some(writer_tx),
             request_ids: RequestIdGenerator::new(),
             #[expect(clippy::zero_sized_map_values, reason = "won't be zero-sized for long")]
             pending: HashMap::new(),
+            server_process: server,
+            writer_handle: Some(writer_handle),
+            reader_handle: Some(reader_handle),
+            error_logger_handle: Some(error_logger_handle),
         };
         this.send_initialize(workspace_root)
             .map_err(ServerError::inner)?;
@@ -544,7 +640,7 @@ impl LanguageServer {
     const fn capabilities(&self) -> Option<Capabilities> {
         match self.state {
             ServerState::Ready { capabilities } => Some(capabilities),
-            ServerState::Initializing { .. } | ServerState::Failed => None,
+            ServerState::Initializing { .. } => None,
         }
     }
 
@@ -568,7 +664,7 @@ impl LanguageServer {
 
         let queue = match self.state {
             ServerState::Initializing { ref mut queue } => mem::take(queue),
-            ServerState::Ready { .. } | ServerState::Failed => {
+            ServerState::Ready { .. } => {
                 return Err(ServerError::Fatal(anyhow::anyhow!(
                     "received initialization response in invalid server state"
                 )));
@@ -661,9 +757,6 @@ impl LanguageServer {
                 self.send_action(action, capabilities)
                     .map_err(ServerError::Fatal)
             }
-            // don't want to be spamming error logs - we log when it first fails; after
-            // that we can silently ignore things.
-            ServerState::Failed => Ok(()),
         }
     }
 
@@ -765,8 +858,8 @@ impl LanguageServer {
     {
         let id = self.request_ids.next();
 
-        self.writer_tx
-            .send(json!({
+        if let Some(ref tx) = self.writer_tx {
+            tx.send(json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "method": R::METHOD,
@@ -775,9 +868,13 @@ impl LanguageServer {
             .context("`writer_rx` is unexpectedly dead")
             .map_err(ServerError::Fatal)?;
 
-        self.pending.insert(id, kind);
-
-        Ok(())
+            self.pending.insert(id, kind);
+            Ok(())
+        } else {
+            Err(ServerError::Fatal(anyhow::anyhow!(
+                "no writer channel exists"
+            )))
+        }
     }
 
     /// <https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#notificationMessage>.
@@ -817,10 +914,59 @@ impl LanguageServer {
     }
 
     fn send(&self, message: serde_json::Value) -> Result<(), ServerError> {
-        self.writer_tx
-            .send(message)
-            .context("`writer_rx` is unexpectedly dead")
-            .map_err(ServerError::Fatal)
+        if let Some(ref tx) = self.writer_tx {
+            tx.send(message)
+                .context("`writer_rx` is unexpectedly dead")
+                .map_err(ServerError::Fatal)
+        } else {
+            Err(ServerError::Fatal(anyhow::anyhow!(
+                "no writer channel exists"
+            )))
+        }
+    }
+
+    fn shutdown(&mut self) {
+        self.writer_tx = None;
+        self.server_process.shutdown();
+        for (name, handle) in [
+            ("writer", &mut self.writer_handle),
+            ("reader", &mut self.reader_handle),
+            ("error logger", &mut self.error_logger_handle),
+        ] {
+            if handle.take().is_some_and(|handle| handle.join().is_err()) {
+                log::error!("language server {name} thread panicked");
+            }
+        }
+    }
+}
+
+impl Drop for LanguageServer {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+#[derive(Debug)]
+struct LanguageServerProcess {
+    process: Child,
+}
+
+impl LanguageServerProcess {
+    fn shutdown(&mut self) {
+        if let Err(error) = self.process.kill()
+            && error.kind() != io::ErrorKind::InvalidInput
+        {
+            log::warn!("failed to kill language server: {error}");
+        }
+        if let Err(error) = self.process.wait() {
+            log::warn!("failed to wait for language server: {error}");
+        }
+    }
+}
+
+impl Drop for LanguageServerProcess {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -874,7 +1020,6 @@ impl From<Language> for LanguageKind {
 enum ServerState {
     Initializing { queue: Vec<LspAction> },
     Ready { capabilities: Capabilities },
-    Failed,
 }
 
 #[derive(Debug)]
@@ -1064,6 +1209,11 @@ enum WorkerInput {
         server: LanguageServerId,
         message: ServerMessage,
     },
+    KillServer {
+        server: LanguageServerId,
+        error: anyhow::Error,
+    },
+    Shutdown,
 }
 
 #[derive(Debug)]
@@ -1251,7 +1401,11 @@ where
     output.flush().context("failed to flush")
 }
 
-fn spawn_reader(stdout: ChildStdout, worker_tx: Sender<WorkerInput>, server: LanguageServerId) {
+fn spawn_reader(
+    stdout: ChildStdout,
+    server: LanguageServerId,
+    worker_tx: Sender<WorkerInput>,
+) -> JoinHandle<()> {
     let mut stdout = BufReader::new(stdout);
 
     thread::spawn(move || {
@@ -1269,31 +1423,52 @@ fn spawn_reader(stdout: ChildStdout, worker_tx: Sender<WorkerInput>, server: Lan
                     }
                 }
                 Err(error) => {
-                    // TODO: should we break out of the loop here? i think probably not
-                    log::error!("failed to read LSP response message: {error:#}");
+                    // nothing to do here if the send fails. means the receiver is
+                    // already dropped so everything has been shutdown.
+                    let _ = worker_tx.send(WorkerInput::KillServer {
+                        server,
+                        error: error.context("failed to read LSP response message"),
+                    });
+                    break;
                 }
             }
         }
-    });
+    })
 }
 
-fn spawn_writer(mut stdin: ChildStdin, writer_rx: Receiver<serde_json::Value>) {
+fn spawn_writer(
+    mut stdin: ChildStdin,
+    server: LanguageServerId,
+    writer_rx: Receiver<serde_json::Value>,
+    worker_tx: Sender<WorkerInput>,
+) -> JoinHandle<()> {
     thread::spawn(move || {
         for message in writer_rx {
-            if write_message(&mut stdin, &message).is_err() {
-                // TODO: notify something there was an error?
+            if let Err(error) = write_message(&mut stdin, &message) {
+                // nothing to do here if the send fails. means the receiver is
+                // already dropped so everything has been shutdown.
+                let _ = worker_tx.send(WorkerInput::KillServer {
+                    server,
+                    error: error.context("failed to write LSP request/notification message"),
+                });
                 break;
             }
         }
-    });
+    })
 }
 
-fn spawn_error_logger(stderr: ChildStderr) {
+fn spawn_error_logger(stderr: ChildStderr) -> JoinHandle<()> {
     thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            log::error!("{line}");
+        for line in BufReader::new(stderr).lines() {
+            match line {
+                Ok(line) => log::error!("{line}"),
+                Err(error) => {
+                    log::error!("stderr logger died - not killing LSP: {error:#}");
+                    break;
+                }
+            }
         }
-    });
+    })
 }
 
 fn spawn_worker(
@@ -1301,8 +1476,8 @@ fn spawn_worker(
     worker_rx: Receiver<WorkerInput>,
     event_tx: Sender<LspEvent>,
     workspace_root: WorkspaceRoot,
-) {
-    thread::spawn(move || LspWorker::new(worker_tx, worker_rx, event_tx, workspace_root).run());
+) -> JoinHandle<()> {
+    thread::spawn(move || LspWorker::new(worker_tx, worker_rx, event_tx, workspace_root).run())
 }
 
 #[cfg(test)]
