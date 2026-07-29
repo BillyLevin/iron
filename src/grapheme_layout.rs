@@ -2,7 +2,7 @@ use crate::{
     document::Grapheme,
     text::ByteIndex,
     ui::{
-        Columns,
+        NonZeroColumns,
         Position,
         WrapOutcome,
     },
@@ -13,7 +13,6 @@ where
     Graphemes: Iterator<Item = &'text str>,
 {
     graphemes: Graphemes,
-    max_width: Columns,
     position: Position,
     byte_index: ByteIndex,
     wrap_behavior: WrapBehavior,
@@ -22,14 +21,9 @@ impl<'text, Graphemes> GraphemeLayoutIterator<'text, Graphemes>
 where
     Graphemes: Iterator<Item = &'text str>,
 {
-    pub(crate) fn new(
-        graphemes: Graphemes,
-        max_width: Columns,
-        wrap_behavior: WrapBehavior,
-    ) -> Self {
+    pub(crate) fn new(graphemes: Graphemes, wrap_behavior: WrapBehavior) -> Self {
         Self {
             graphemes,
-            max_width,
             position: Position::default(),
             byte_index: ByteIndex::new(0),
             wrap_behavior,
@@ -53,8 +47,8 @@ where
 
         let (is_wrapped, position) = match self.wrap_behavior {
             WrapBehavior::NoWrap => (false, self.position),
-            WrapBehavior::Wrap => {
-                let (position, outcome) = self.position.wrap(self.max_width);
+            WrapBehavior::Wrap { max_width } => {
+                let (position, outcome) = self.position.wrap(max_width);
 
                 let is_wrapped = match outcome {
                     WrapOutcome::Wrapped => true,
@@ -79,7 +73,7 @@ where
 
 #[derive(Debug)]
 pub(crate) enum WrapBehavior {
-    Wrap,
+    Wrap { max_width: NonZeroColumns },
     NoWrap,
 }
 

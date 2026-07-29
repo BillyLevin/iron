@@ -98,6 +98,7 @@ use crate::{
         Dimensions,
         Layer,
         LayerKind,
+        NonZeroColumns,
         Position,
         Rectangle,
         Rows,
@@ -290,11 +291,9 @@ impl Document {
 
         buffer.clear_and_style_rectangle(&hints_rectangle, Style::HINTS);
 
-        for visual_grapheme in GraphemeLayoutIterator::new(
-            hints.graphemes(true),
-            hints_rectangle.width(),
-            WrapBehavior::NoWrap,
-        ) {
+        for visual_grapheme in
+            GraphemeLayoutIterator::new(hints.graphemes(true), WrapBehavior::NoWrap)
+        {
             if visual_grapheme.position().top() >= hints_rectangle.height() {
                 break;
             }
@@ -548,14 +547,18 @@ impl Document {
     }
 
     fn move_cursor_down(&mut self, count: usize) {
+        let Some(text_width) = self.max_text_width() else {
+            return;
+        };
+
         for _ in 0..count {
-            let target_column = self.desired_column();
+            let target_column = self.desired_column(text_width);
             let text = self.text.slice(..);
 
             let byte = VisualLineInfo::new(
                 &self.text,
                 text.line_idx_containing_byte(self.selection.cursor),
-                self.max_text_width(),
+                text_width,
             )
             .next_at_column(self.selection.cursor, target_column);
 
@@ -566,15 +569,19 @@ impl Document {
     }
 
     fn move_cursor_up(&mut self, count: usize) {
+        let Some(text_width) = self.max_text_width() else {
+            return;
+        };
+
         for _ in 0..count {
-            let target_column = self.desired_column();
+            let target_column = self.desired_column(text_width);
 
             let text = self.text.slice(..);
 
             let byte = VisualLineInfo::new(
                 &self.text,
                 text.line_idx_containing_byte(self.selection.cursor),
-                self.max_text_width(),
+                text_width,
             )
             .prev_at_column(self.selection.cursor, target_column);
 
@@ -706,9 +713,7 @@ impl Document {
 
     /// Gets (or inserts the current cursor column) the desired column to
     /// navigate to on vertical cursor movement.
-    fn desired_column(&mut self) -> Columns {
-        let width = self.max_text_width();
-
+    fn desired_column(&mut self, max_width: NonZeroColumns) -> Columns {
         *self.desired_cursor_column.get_or_insert_with(|| {
             let text = self.text.slice(..);
 
@@ -719,7 +724,7 @@ impl Document {
                 .chunks()
                 .map(text_width)
                 .sum::<Columns>()
-                .map(|cols| cols % width.value())
+                .map(|cols| cols % max_width.get().value())
         })
     }
 
@@ -889,10 +894,12 @@ impl Document {
 
     /// Determines the maximum room for text based on the dimensions of the
     /// [`Document`] and the size of its gutter.
-    fn max_text_width(&self) -> Columns {
-        // TODO: what about the unlikely case that width <= gutter_width? add an assert
-        // and panic? allow weird behaviour? explicitly handle?
-        self.layout_info.dimensions.width() - self.gutter_width()
+    fn max_text_width(&self) -> Option<NonZeroColumns> {
+        self.layout_info
+            .dimensions
+            .width()
+            .checked_sub(self.gutter_width())
+            .and_then(NonZeroColumns::new)
     }
 
     /// Deletes from the current cursor position up to (but not including) the
@@ -1293,12 +1300,17 @@ impl Document {
     }
 
     fn visual_cursor_position_impl(&self) -> Position {
+        let Some(text_width) = self.max_text_width() else {
+            return Position::default();
+        };
+
         let start = self.text.slice(..).line_start_byte(self.scroll_offset);
 
         GraphemeLayoutIterator::new(
             self.text.slice(start.value()..).graphemes(),
-            self.max_text_width(),
-            WrapBehavior::Wrap,
+            WrapBehavior::Wrap {
+                max_width: text_width,
+            },
         )
         .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
         .map(|grapheme| grapheme.position())
@@ -1501,10 +1513,16 @@ impl Layer for Document {
         );
         let mut current_highlight = highlighter.next();
 
+        let Some(text_width) = self.max_text_width() else {
+            // if there's no room for text, there's no point rendering anything.
+            return;
+        };
+
         for visual_grapheme in GraphemeLayoutIterator::new(
             self.text.slice(start_byte.value()..).graphemes(),
-            self.max_text_width(),
-            WrapBehavior::Wrap,
+            WrapBehavior::Wrap {
+                max_width: text_width,
+            },
         ) {
             if visual_grapheme.position().top() >= self.layout_info.text_rect.height() {
                 break;

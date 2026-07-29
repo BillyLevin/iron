@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     iter,
+    num::NonZeroUsize,
     ops,
 };
 
@@ -277,8 +278,10 @@ impl Dimensions {
     derive_more::Sub,
     derive_more::Div,
     derive_more::Mul,
+    derive_more::Into,
 )]
-#[from(forward)]
+#[from(usize, u16)]
+#[into(usize)]
 pub(crate) struct Columns(usize);
 
 impl Columns {
@@ -303,8 +306,8 @@ impl Columns {
         self.value().checked_add(rhs).map(Self::new)
     }
 
-    fn checked_sub(self, rhs: usize) -> Option<Self> {
-        self.value().checked_sub(rhs).map(Self::new)
+    pub(crate) fn checked_sub(self, rhs: impl Into<usize>) -> Option<Self> {
+        self.value().checked_sub(rhs.into()).map(Self::new)
     }
 }
 
@@ -338,6 +341,19 @@ impl iter::Step for Columns {
 
     fn backward_checked(start: Self, count: usize) -> Option<Self> {
         start.checked_sub(count)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NonZeroColumns(NonZeroUsize);
+
+impl NonZeroColumns {
+    pub(crate) fn new(columns: Columns) -> Option<Self> {
+        NonZeroUsize::new(columns.value()).map(Self)
+    }
+
+    pub(crate) const fn get(self) -> Columns {
+        Columns::new(self.0.get())
     }
 }
 
@@ -448,8 +464,8 @@ impl Position {
     }
 
     #[must_use]
-    pub(crate) fn wrap(&self, max_width: Columns) -> (Self, WrapOutcome) {
-        if self.left() < max_width {
+    pub(crate) fn wrap(&self, max_width: NonZeroColumns) -> (Self, WrapOutcome) {
+        if self.left() < max_width.get() {
             (*self, WrapOutcome::NotWrapped)
         } else {
             (

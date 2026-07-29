@@ -158,11 +158,9 @@ impl Buffer {
     ) -> Position {
         let mut end_position = *position;
 
-        for grapheme in GraphemeLayoutIterator::new(
-            span.text().graphemes(true),
-            rectangle.width(),
-            WrapBehavior::NoWrap,
-        ) {
+        for grapheme in
+            GraphemeLayoutIterator::new(span.text().graphemes(true), WrapBehavior::NoWrap)
+        {
             let current_position = position.offset(grapheme.position());
 
             if !rectangle.contains(&current_position) {

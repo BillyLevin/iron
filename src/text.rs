@@ -24,7 +24,10 @@ use crate::{
         GraphemeLayoutIterator,
         WrapBehavior,
     },
-    ui::Columns,
+    ui::{
+        Columns,
+        NonZeroColumns,
+    },
 };
 
 const LINE_TYPE: LineType = LineType::LF_CR;
@@ -348,11 +351,11 @@ pub(crate) struct VisualLineInfo<'text> {
     /// A line can have multiple visual lines due to text wrapping.
     visual_line_starts: Vec<ByteIndex>,
     /// The maximum visual width of a line before the text needs to wrap.
-    max_width: Columns,
+    max_width: NonZeroColumns,
 }
 
 impl<'text> VisualLineInfo<'text> {
-    pub(crate) fn new(text: &'text Rope, line_index: LineIndex, max_width: Columns) -> Self {
+    pub(crate) fn new(text: &'text Rope, line_index: LineIndex, max_width: NonZeroColumns) -> Self {
         let mut visual_line_starts = Vec::new();
 
         let text_slice = text.slice(..);
@@ -361,8 +364,7 @@ impl<'text> VisualLineInfo<'text> {
 
         for grapheme in GraphemeLayoutIterator::new(
             text_slice.line_at(line_index).graphemes(),
-            max_width,
-            WrapBehavior::Wrap,
+            WrapBehavior::Wrap { max_width },
         ) {
             if grapheme.position().left() == Columns::new(0) {
                 visual_line_starts.push(start + grapheme.byte_index());
