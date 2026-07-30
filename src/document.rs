@@ -2095,13 +2095,13 @@ mod tests {
     struct TestCase<'text> {
         initial_text: &'text str,
         initial_cursor: usize,
-        expected_initial_visual_position: (usize, usize),
+        expected_initial_text_position: (usize, usize),
 
         keys: Vec<KeyEvent>,
 
         expected_text: &'text str,
         expected_cursor: usize,
-        expected_visual_position: (usize, usize),
+        expected_text_position: (usize, usize),
     }
 
     impl TestCase<'_> {
@@ -2111,12 +2111,10 @@ mod tests {
             let mut document = doc(self.initial_text);
 
             document.set_cursor(self.initial_cursor.into());
-            assert_position(
+            assert_text_position(
+                self.expected_initial_text_position,
                 "initial position",
-                document
-                    .visual_cursor_position()
-                    .expect("document cursor is always `Some`"),
-                self.expected_initial_visual_position,
+                &document,
             );
             assert_char_boundary(&document);
 
@@ -2135,28 +2133,18 @@ mod tests {
                 self.expected_cursor.into(),
                 "cursor byte index is incorrect"
             );
-            assert_position(
-                "final position",
-                document
-                    .visual_cursor_position()
-                    .expect("document cursor is always `Some`"),
-                self.expected_visual_position,
-            );
+            assert_text_position(self.expected_text_position, "final position", &document);
             assert_char_boundary(&document);
         }
     }
 
-    fn assert_position(label: &str, actual: Position, expected: (usize, usize)) {
-        assert_eq!(
-            actual.left(),
-            Columns::from(expected.0),
-            "{label} did not match"
-        );
-        assert_eq!(
-            actual.top(),
-            Rows::from(expected.1),
-            "{label} did not match"
-        );
+    fn assert_text_position(expected: (usize, usize), label: &str, document: &Document) {
+        let actual = document.visual_cursor_position().unwrap();
+
+        let expected = Position::new(Columns::new(expected.0), Rows::new(expected.1))
+            .col_offset(document.content_layout().gutter.width);
+
+        assert_eq!(actual, expected, "{label} did not match");
     }
 
     fn assert_char_boundary(doc: &Document) {
@@ -2178,13 +2166,13 @@ mod tests {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('l'); 8],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 16,
-            expected_visual_position: (13, 0),
+            expected_text_position: (10, 0),
         }
         .run();
     }
@@ -2194,13 +2182,13 @@ mod tests {
         TestCase {
             initial_text: "Test",
             initial_cursor: 3,
-            expected_initial_visual_position: (6, 0),
+            expected_initial_text_position: (3, 0),
 
             keys: vec![key_event!('l'); 1],
 
             expected_text: "Test",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -2210,13 +2198,13 @@ mod tests {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('8'), key_event!('l')],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 16,
-            expected_visual_position: (13, 0),
+            expected_text_position: (10, 0),
         }
         .run();
     }
@@ -2226,13 +2214,13 @@ mod tests {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
             initial_cursor: 16,
-            expected_initial_visual_position: (13, 0),
+            expected_initial_text_position: (10, 0),
 
             keys: vec![key_event!('h'); 1],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 12,
-            expected_visual_position: (11, 0),
+            expected_text_position: (8, 0),
         }
         .run();
     }
@@ -2242,13 +2230,13 @@ mod tests {
         TestCase {
             initial_text: "Test",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('h'); 1],
 
             expected_text: "Test",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2258,13 +2246,13 @@ mod tests {
         TestCase {
             initial_text: "Test ⚒️ 😀 ",
             initial_cursor: 16,
-            expected_initial_visual_position: (13, 0),
+            expected_initial_text_position: (10, 0),
 
             keys: vec![key_event!('4'), key_event!('h')],
 
             expected_text: "Test ⚒️ 😀 ",
             expected_cursor: 4,
-            expected_visual_position: (7, 0),
+            expected_text_position: (4, 0),
         }
         .run();
     }
@@ -2274,13 +2262,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('j'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 5,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -2290,13 +2278,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 5,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('j'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 5,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -2306,13 +2294,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest\n",
             initial_cursor: 5,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('j'); 1],
 
             expected_text: "Test\nTest\n",
             expected_cursor: 5,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -2322,13 +2310,13 @@ mod tests {
         TestCase {
             initial_text: &"a".repeat(200),
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('j')],
 
             expected_text: &"a".repeat(200),
             expected_cursor: 77,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -2338,13 +2326,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest\nTest",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('2'), key_event!('j')],
 
             expected_text: "Test\nTest\nTest",
             expected_cursor: 12,
-            expected_visual_position: (5, 2),
+            expected_text_position: (2, 2),
         }
         .run();
     }
@@ -2354,13 +2342,13 @@ mod tests {
         TestCase {
             initial_text: &"Test\n".repeat(15),
             initial_cursor: 3,
-            expected_initial_visual_position: (6, 0),
+            expected_initial_text_position: (3, 0),
 
             keys: vec![key_event!('1'), key_event!('2'), key_event!('j')],
 
             expected_text: &"Test\n".repeat(15),
             expected_cursor: 63,
-            expected_visual_position: (6, 12),
+            expected_text_position: (3, 12),
         }
         .run();
     }
@@ -2370,13 +2358,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 5,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('k'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2386,13 +2374,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('k'); 1],
 
             expected_text: "Test\nTest",
             expected_cursor: 1,
-            expected_visual_position: (4, 0),
+            expected_text_position: (1, 0),
         }
         .run();
     }
@@ -2402,13 +2390,13 @@ mod tests {
         TestCase {
             initial_text: &"a".repeat(200),
             initial_cursor: 77,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('k')],
 
             expected_text: &"a".repeat(200),
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2418,13 +2406,13 @@ mod tests {
         TestCase {
             initial_text: "Test\nTest\nTest",
             initial_cursor: 11,
-            expected_initial_visual_position: (4, 2),
+            expected_initial_text_position: (1, 2),
 
             keys: vec![key_event!('2'), key_event!('k')],
 
             expected_text: "Test\nTest\nTest",
             expected_cursor: 1,
-            expected_visual_position: (4, 0),
+            expected_text_position: (1, 0),
         }
         .run();
     }
@@ -2434,13 +2422,13 @@ mod tests {
         TestCase {
             initial_text: "Long line\nShort\nLong line",
             initial_cursor: 24,
-            expected_initial_visual_position: (11, 2),
+            expected_initial_text_position: (8, 2),
 
             keys: vec![key_event!('k'); 1],
 
             expected_text: "Long line\nShort\nLong line",
             expected_cursor: 15,
-            expected_visual_position: (8, 1),
+            expected_text_position: (5, 1),
         }
         .run();
     }
@@ -2452,7 +2440,7 @@ mod tests {
         TestCase {
             initial_text: &text,
             initial_cursor: 21 * 5,
-            expected_initial_visual_position: (3, 21),
+            expected_initial_text_position: (0, 21),
 
             keys: vec![key_event!('j'); 1],
 
@@ -2460,7 +2448,7 @@ mod tests {
             expected_cursor: 22 * 5,
             // visual position stays the same because we scrolled down, keeping the
             // cursor on the final line
-            expected_visual_position: (3, 21),
+            expected_text_position: (0, 21),
         }
         .run();
     }
@@ -2473,13 +2461,13 @@ mod tests {
         TestCase {
             initial_text: &text,
             initial_cursor: 0,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('G'); 1],
 
             expected_text: &text,
             expected_cursor: (200 * 99) + 99,
-            expected_visual_position: (4, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2491,7 +2479,7 @@ mod tests {
         TestCase {
             initial_text: &text,
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: [vec![key_event!('j'); 26], vec![key_event!('k'); 25]].concat(),
 
@@ -2499,7 +2487,7 @@ mod tests {
             expected_cursor: 6,
             // visual position stays the same because we scrolled up, keeping the
             // cursor on the first line
-            expected_visual_position: (4, 0),
+            expected_text_position: (1, 0),
         }
         .run();
     }
@@ -2511,13 +2499,13 @@ mod tests {
         TestCase {
             initial_text: &text,
             initial_cursor: 20 * 5,
-            expected_initial_visual_position: (3, 20),
+            expected_initial_text_position: (0, 20),
 
             keys: vec![key_event!('z'), key_event!('z')],
 
             expected_text: &text,
             expected_cursor: 20 * 5,
-            expected_visual_position: (3, 11),
+            expected_text_position: (0, 11),
         }
         .run();
     }
@@ -2529,13 +2517,13 @@ mod tests {
         TestCase {
             initial_text: &text,
             initial_cursor: 20 * 5,
-            expected_initial_visual_position: (3, 20),
+            expected_initial_text_position: (0, 20),
 
             keys: vec![key_event!('v'), key_event!('z'), key_event!('z')],
 
             expected_text: &text,
             expected_cursor: 20 * 5,
-            expected_visual_position: (3, 11),
+            expected_text_position: (0, 11),
         }
         .run();
     }
@@ -2545,13 +2533,13 @@ mod tests {
         TestCase {
             initial_text: "Long line\nShort\nLong line",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![key_event!('j'); 2],
 
             expected_text: "Long line\nShort\nLong line",
             expected_cursor: 24,
-            expected_visual_position: (11, 2),
+            expected_text_position: (8, 2),
         }
         .run();
     }
@@ -2561,13 +2549,13 @@ mod tests {
         TestCase {
             initial_text: "Long line\nShort\nLong line",
             initial_cursor: 24,
-            expected_initial_visual_position: (11, 2),
+            expected_initial_text_position: (8, 2),
 
             keys: vec![key_event!('k'); 2],
 
             expected_text: "Long line\nShort\nLong line",
             expected_cursor: 8,
-            expected_visual_position: (11, 0),
+            expected_text_position: (8, 0),
         }
         .run();
     }
@@ -2577,13 +2565,13 @@ mod tests {
         TestCase {
             initial_text: "Test text",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "Test text",
             expected_cursor: 5,
-            expected_visual_position: (8, 0),
+            expected_text_position: (5, 0),
         }
         .run();
     }
@@ -2593,13 +2581,13 @@ mod tests {
         TestCase {
             initial_text: "😀 hello",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "😀 hello",
             expected_cursor: 5,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -2609,13 +2597,13 @@ mod tests {
         TestCase {
             initial_text: "hello world test",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w'); 3],
 
             expected_text: "hello world test",
             expected_cursor: 15,
-            expected_visual_position: (18, 0),
+            expected_text_position: (15, 0),
         }
         .run();
     }
@@ -2625,13 +2613,13 @@ mod tests {
         TestCase {
             initial_text: "hello world",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello world",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2641,13 +2629,13 @@ mod tests {
         TestCase {
             initial_text: "hello world",
             initial_cursor: 5,
-            expected_initial_visual_position: (8, 0),
+            expected_initial_text_position: (5, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello world",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2657,13 +2645,13 @@ mod tests {
         TestCase {
             initial_text: "hello world",
             initial_cursor: 6,
-            expected_initial_visual_position: (9, 0),
+            expected_initial_text_position: (6, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello world",
             expected_cursor: 10,
-            expected_visual_position: (13, 0),
+            expected_text_position: (10, 0),
         }
         .run();
     }
@@ -2673,13 +2661,13 @@ mod tests {
         TestCase {
             initial_text: "hello, world",
             initial_cursor: 5,
-            expected_initial_visual_position: (8, 0),
+            expected_initial_text_position: (5, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello, world",
             expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_text_position: (7, 0),
         }
         .run();
     }
@@ -2689,13 +2677,13 @@ mod tests {
         TestCase {
             initial_text: "hello    world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello    world",
             expected_cursor: 9,
-            expected_visual_position: (12, 0),
+            expected_text_position: (9, 0),
         }
         .run();
     }
@@ -2705,13 +2693,13 @@ mod tests {
         TestCase {
             initial_text: "test123 abc456",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "test123 abc456",
             expected_cursor: 8,
-            expected_visual_position: (11, 0),
+            expected_text_position: (8, 0),
         }
         .run();
     }
@@ -2721,13 +2709,13 @@ mod tests {
         TestCase {
             initial_text: "hello_world test",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello_world test",
             expected_cursor: 12,
-            expected_visual_position: (15, 0),
+            expected_text_position: (12, 0),
         }
         .run();
     }
@@ -2737,13 +2725,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "hello\nworld",
             expected_cursor: 6,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -2753,13 +2741,13 @@ mod tests {
         TestCase {
             initial_text: "",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('w')],
 
             expected_text: "",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2769,13 +2757,13 @@ mod tests {
         TestCase {
             initial_text: "hello world test",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('3'), key_event!('w')],
 
             expected_text: "hello world test",
             expected_cursor: 15,
-            expected_visual_position: (18, 0),
+            expected_text_position: (15, 0),
         }
         .run();
     }
@@ -2785,13 +2773,13 @@ mod tests {
         TestCase {
             initial_text: "Test text",
             initial_cursor: 5,
-            expected_initial_visual_position: (8, 0),
+            expected_initial_text_position: (5, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "Test text",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2801,13 +2789,13 @@ mod tests {
         TestCase {
             initial_text: "😀 hello",
             initial_cursor: 5,
-            expected_initial_visual_position: (6, 0),
+            expected_initial_text_position: (3, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "😀 hello",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2817,13 +2805,13 @@ mod tests {
         TestCase {
             initial_text: "hello world test",
             initial_cursor: 15,
-            expected_initial_visual_position: (18, 0),
+            expected_initial_text_position: (15, 0),
 
             keys: vec![key_event!('b'); 2],
 
             expected_text: "hello world test",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2833,13 +2821,13 @@ mod tests {
         TestCase {
             initial_text: "hello world",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "hello world",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2849,13 +2837,13 @@ mod tests {
         TestCase {
             initial_text: "hello world ",
             initial_cursor: 11,
-            expected_initial_visual_position: (14, 0),
+            expected_initial_text_position: (11, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "hello world ",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2865,13 +2853,13 @@ mod tests {
         TestCase {
             initial_text: "hello world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "hello world",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2881,13 +2869,13 @@ mod tests {
         TestCase {
             initial_text: "hello world  ,",
             initial_cursor: 13,
-            expected_initial_visual_position: (16, 0),
+            expected_initial_text_position: (13, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "hello world  ,",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2897,13 +2885,13 @@ mod tests {
         TestCase {
             initial_text: "test123 abc456",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "test123 abc456",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2913,13 +2901,13 @@ mod tests {
         TestCase {
             initial_text: "hello_world test",
             initial_cursor: 12,
-            expected_initial_visual_position: (15, 0),
+            expected_initial_text_position: (12, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "hello_world test",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2929,13 +2917,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld",
             initial_cursor: 6,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('b')],
 
             expected_text: "hello\nworld",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2945,13 +2933,13 @@ mod tests {
         TestCase {
             initial_text: "",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('b')],
 
             expected_text: "",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -2961,13 +2949,13 @@ mod tests {
         TestCase {
             initial_text: "hello world test",
             initial_cursor: 15,
-            expected_initial_visual_position: (18, 0),
+            expected_initial_text_position: (15, 0),
 
             keys: vec![key_event!('2'), key_event!('b')],
 
             expected_text: "hello world test",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -2977,7 +2965,7 @@ mod tests {
         TestCase {
             initial_text: "lo",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![
                 key_event!('i'),
@@ -2988,7 +2976,7 @@ mod tests {
 
             expected_text: "Hello",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -2998,13 +2986,13 @@ mod tests {
         TestCase {
             initial_text: "Hello!",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('i'), key_event!(Backspace)],
 
             expected_text: "Hllo!",
             expected_cursor: 1,
-            expected_visual_position: (4, 0),
+            expected_text_position: (1, 0),
         }
         .run();
     }
@@ -3014,13 +3002,13 @@ mod tests {
         TestCase {
             initial_text: "Hello ⚒️ !!",
             initial_cursor: 12,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![key_event!('i'), key_event!(Backspace)],
 
             expected_text: "Hello  !!",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -3030,7 +3018,7 @@ mod tests {
         TestCase {
             initial_text: "Hello!!",
             initial_cursor: 6,
-            expected_initial_visual_position: (9, 0),
+            expected_initial_text_position: (6, 0),
 
             keys: vec![
                 key_event!('i'),
@@ -3042,7 +3030,7 @@ mod tests {
             ],
             expected_text: "Hey!",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -3052,7 +3040,7 @@ mod tests {
         TestCase {
             initial_text: "Hello!",
             initial_cursor: 5,
-            expected_initial_visual_position: (8, 0),
+            expected_initial_text_position: (5, 0),
 
             keys: vec![
                 key_event!('i'),
@@ -3063,7 +3051,7 @@ mod tests {
             ],
             expected_text: "Hello!!",
             expected_cursor: 4,
-            expected_visual_position: (7, 0),
+            expected_text_position: (4, 0),
         }
         .run();
     }
@@ -3073,12 +3061,12 @@ mod tests {
         TestCase {
             initial_text: "Hello!",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('i'), key_event!(Enter)],
             expected_text: "He\nllo!",
             expected_cursor: 3,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -3088,13 +3076,13 @@ mod tests {
         TestCase {
             initial_text: "Hello!!",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('$')],
 
             expected_text: "Hello!!",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -3104,13 +3092,13 @@ mod tests {
         TestCase {
             initial_text: "Hello!!\nNext line",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('$')],
 
             expected_text: "Hello!!\nNext line",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -3120,13 +3108,13 @@ mod tests {
         TestCase {
             initial_text: "Hello!!\r\nNext line",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('$')],
 
             expected_text: "Hello!!\r\nNext line",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -3136,13 +3124,13 @@ mod tests {
         TestCase {
             initial_text: "Hello!!",
             initial_cursor: 3,
-            expected_initial_visual_position: (6, 0),
+            expected_initial_text_position: (3, 0),
 
             keys: vec![key_event!('0')],
 
             expected_text: "Hello!!",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3152,13 +3140,13 @@ mod tests {
         TestCase {
             initial_text: "   Hello!!",
             initial_cursor: 7,
-            expected_initial_visual_position: (10, 0),
+            expected_initial_text_position: (7, 0),
 
             keys: vec![key_event!('^')],
 
             expected_text: "   Hello!!",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -3168,13 +3156,13 @@ mod tests {
         TestCase {
             initial_text: "\nHello",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('^')],
 
             expected_text: "\nHello",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3184,13 +3172,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n\nparagraph",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('}')],
 
             expected_text: "hello\nworld\n\nparagraph",
             expected_cursor: 12,
-            expected_visual_position: (3, 2),
+            expected_text_position: (0, 2),
         }
         .run();
     }
@@ -3200,13 +3188,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('}'); 2],
 
             expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             expected_cursor: 26,
-            expected_visual_position: (3, 7),
+            expected_text_position: (0, 7),
         }
         .run();
     }
@@ -3216,13 +3204,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('2'), key_event!('}')],
 
             expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             expected_cursor: 26,
-            expected_visual_position: (3, 7),
+            expected_text_position: (0, 7),
         }
         .run();
     }
@@ -3232,13 +3220,13 @@ mod tests {
         TestCase {
             initial_text: "hello\n\nworld\n\n",
             initial_cursor: 13,
-            expected_initial_visual_position: (3, 3),
+            expected_initial_text_position: (0, 3),
 
             keys: vec![key_event!('{')],
 
             expected_text: "hello\n\nworld\n\n",
             expected_cursor: 6,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -3248,13 +3236,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             initial_cursor: 26,
-            expected_initial_visual_position: (3, 7),
+            expected_initial_text_position: (0, 7),
 
             keys: vec![key_event!('{'); 2],
 
             expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3264,13 +3252,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             initial_cursor: 26,
-            expected_initial_visual_position: (3, 7),
+            expected_initial_text_position: (0, 7),
 
             keys: vec![key_event!('2'), key_event!('{')],
 
             expected_text: "hello\nworld\n\n\n\n\nparagraph\n\n",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3280,13 +3268,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('G')],
 
             expected_text: "hello\nworld\n",
             expected_cursor: 6,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -3296,13 +3284,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\nyo\n",
             initial_cursor: 6,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('1'), key_event!('G')],
 
             expected_text: "hello\nworld\nyo\n",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3312,13 +3300,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('g'), key_event!('e')],
 
             expected_text: "hello\nworld\n",
             expected_cursor: 6,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -3328,13 +3316,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\n",
             initial_cursor: 6,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('g'), key_event!('g')],
 
             expected_text: "hello\nworld\n",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3344,13 +3332,13 @@ mod tests {
         TestCase {
             initial_text: "hello\nworld\nyo\n",
             initial_cursor: 6,
-            expected_initial_visual_position: (3, 1),
+            expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('3'), key_event!('g'), key_event!('g')],
 
             expected_text: "hello\nworld\nyo\n",
             expected_cursor: 12,
-            expected_visual_position: (3, 2),
+            expected_text_position: (0, 2),
         }
         .run();
     }
@@ -3360,13 +3348,13 @@ mod tests {
         TestCase {
             initial_text: "one\ntwo\nthree\nfour",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('2'), key_event!('g'), key_event!('g')],
 
             expected_text: "one\ntwo\nthree\nfour",
             expected_cursor: 4,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -3376,13 +3364,13 @@ mod tests {
         TestCase {
             initial_text: "Hello world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('d'), key_event!('w')],
 
             expected_text: "world",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3392,13 +3380,13 @@ mod tests {
         TestCase {
             initial_text: "Hello world",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('d'), key_event!('w')],
 
             expected_text: "Heworld",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3408,13 +3396,13 @@ mod tests {
         TestCase {
             initial_text: "Hello-world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('d'), key_event!('w')],
 
             expected_text: "-world",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3424,13 +3412,13 @@ mod tests {
         TestCase {
             initial_text: "      Hello-world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('d'), key_event!('w')],
 
             expected_text: "Hello-world",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3440,13 +3428,13 @@ mod tests {
         TestCase {
             initial_text: "Hello world several words",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('2'), key_event!('d'), key_event!('w')],
 
             expected_text: "several words",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3456,7 +3444,7 @@ mod tests {
         TestCase {
             initial_text: "Hello world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3467,7 +3455,7 @@ mod tests {
 
             expected_text: "hiworld",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3477,7 +3465,7 @@ mod tests {
         TestCase {
             initial_text: "Hello world",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3488,7 +3476,7 @@ mod tests {
 
             expected_text: "Hehiworld",
             expected_cursor: 4,
-            expected_visual_position: (7, 0),
+            expected_text_position: (4, 0),
         }
         .run();
     }
@@ -3498,7 +3486,7 @@ mod tests {
         TestCase {
             initial_text: "Hello-world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3509,7 +3497,7 @@ mod tests {
 
             expected_text: "hi-world",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3519,7 +3507,7 @@ mod tests {
         TestCase {
             initial_text: "      Hello-world",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3530,7 +3518,7 @@ mod tests {
 
             expected_text: "hiHello-world",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3540,7 +3528,7 @@ mod tests {
         TestCase {
             initial_text: "Hello world several words",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![
                 key_event!('2'),
@@ -3553,7 +3541,7 @@ mod tests {
 
             expected_text: "Hi several words",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -3563,13 +3551,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\nNext line",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('d'), key_event!('$')],
 
             expected_text: "He\nNext line",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3579,7 +3567,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\nNext line",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3590,7 +3578,7 @@ mod tests {
 
             expected_text: "Hey!\nNext line",
             expected_cursor: 4,
-            expected_visual_position: (7, 0),
+            expected_text_position: (4, 0),
         }
         .run();
     }
@@ -3600,13 +3588,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\n     Next line!",
             initial_cursor: 26,
-            expected_initial_visual_position: (16, 1),
+            expected_initial_text_position: (13, 1),
 
             keys: vec![key_event!('d'), key_event!('0')],
 
             expected_text: "Hello there!\n!",
             expected_cursor: 13,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -3616,13 +3604,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\n     Next line!",
             initial_cursor: 26,
-            expected_initial_visual_position: (16, 1),
+            expected_initial_text_position: (13, 1),
 
             keys: vec![key_event!('d'), key_event!('^')],
 
             expected_text: "Hello there!\n     !",
             expected_cursor: 18,
-            expected_visual_position: (8, 1),
+            expected_text_position: (5, 1),
         }
         .run();
     }
@@ -3632,13 +3620,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\nNext line!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![key_event!('d'), key_event!('d')],
 
             expected_text: "Next line!",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3648,13 +3636,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\nNext line!\nAnd another line!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![key_event!('2'), key_event!('d'), key_event!('d')],
 
             expected_text: "And another line!",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3664,13 +3652,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
 
             expected_text: "Hello !!!",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -3680,13 +3668,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
 
             expected_text: " there!!!",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3696,13 +3684,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
 
             expected_text: " there!!!",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3712,13 +3700,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 6,
-            expected_initial_visual_position: (9, 0),
+            expected_initial_text_position: (6, 0),
 
             keys: vec![key_event!('d'), key_event!('b')],
 
             expected_text: "there!!!",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -3728,13 +3716,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there words words words!!!",
             initial_cursor: 26,
-            expected_initial_visual_position: (29, 0),
+            expected_initial_text_position: (26, 0),
 
             keys: vec![key_event!('4'), key_event!('d'), key_event!('b')],
 
             expected_text: "Hello rds!!!",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -3744,13 +3732,13 @@ mod tests {
         TestCase {
             initial_text: "Hello",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('a'), key_event!('y'), key_event!('y')],
 
             expected_text: "Heyyllo",
             expected_cursor: 4,
-            expected_visual_position: (7, 0),
+            expected_text_position: (4, 0),
         }
         .run();
     }
@@ -3760,13 +3748,13 @@ mod tests {
         TestCase {
             initial_text: "Hello",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('A'), key_event!('!'), key_event!('!')],
 
             expected_text: "Hello!!\n",
             expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_text_position: (7, 0),
         }
         .run();
     }
@@ -3776,13 +3764,13 @@ mod tests {
         TestCase {
             initial_text: "Hello\n",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('A'), key_event!('!'), key_event!('!')],
 
             expected_text: "Hello!!\n",
             expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_text_position: (7, 0),
         }
         .run();
     }
@@ -3792,13 +3780,13 @@ mod tests {
         TestCase {
             initial_text: "Hello__123: there",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('e')],
 
             expected_text: "Hello__123: there",
             expected_cursor: 9,
-            expected_visual_position: (12, 0),
+            expected_text_position: (9, 0),
         }
         .run();
     }
@@ -3808,13 +3796,13 @@ mod tests {
         TestCase {
             initial_text: "Hello__123: there words words words",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('4'), key_event!('e')],
 
             expected_text: "Hello__123: there words words words",
             expected_cursor: 22,
-            expected_visual_position: (25, 0),
+            expected_text_position: (22, 0),
         }
         .run();
     }
@@ -3824,13 +3812,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('d'), key_event!('e')],
 
             expected_text: "He there",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3840,13 +3828,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there there there there there",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('4'), key_event!('d'), key_event!('e')],
 
             expected_text: "He there there",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -3856,7 +3844,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\n     Next line!",
             initial_cursor: 26,
-            expected_initial_visual_position: (16, 1),
+            expected_initial_text_position: (13, 1),
 
             keys: vec![
                 key_event!('c'),
@@ -3868,7 +3856,7 @@ mod tests {
 
             expected_text: "Hello there!\nyo!!",
             expected_cursor: 16,
-            expected_visual_position: (6, 1),
+            expected_text_position: (3, 1),
         }
         .run();
     }
@@ -3878,7 +3866,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\n     Next line!",
             initial_cursor: 26,
-            expected_initial_visual_position: (16, 1),
+            expected_initial_text_position: (13, 1),
 
             keys: vec![
                 key_event!('c'),
@@ -3890,7 +3878,7 @@ mod tests {
 
             expected_text: "Hello there!\n     yo!!",
             expected_cursor: 21,
-            expected_visual_position: (11, 1),
+            expected_text_position: (8, 1),
         }
         .run();
     }
@@ -3900,7 +3888,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\nNext line!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3912,7 +3900,7 @@ mod tests {
 
             expected_text: "Hey\nNext line!",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -3922,7 +3910,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3934,7 +3922,7 @@ mod tests {
 
             expected_text: "Hey\n",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -3944,7 +3932,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!\nNext line!\nAnother line!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![
                 key_event!('2'),
@@ -3957,7 +3945,7 @@ mod tests {
 
             expected_text: "Hey\nAnother line!",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -3967,7 +3955,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -3980,7 +3968,7 @@ mod tests {
 
             expected_text: "Hello Hey!!!",
             expected_cursor: 9,
-            expected_visual_position: (12, 0),
+            expected_text_position: (9, 0),
         }
         .run();
     }
@@ -3990,7 +3978,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -4003,7 +3991,7 @@ mod tests {
 
             expected_text: "Hey there!!!",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -4013,7 +4001,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 4,
-            expected_initial_visual_position: (7, 0),
+            expected_initial_text_position: (4, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -4026,7 +4014,7 @@ mod tests {
 
             expected_text: "Hey there!!!",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -4036,13 +4024,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![key_event!('c'), key_event!('b'), key_event!('H')],
 
             expected_text: "Hello Here!!!",
             expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_text_position: (7, 0),
         }
         .run();
     }
@@ -4052,7 +4040,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 6,
-            expected_initial_visual_position: (9, 0),
+            expected_initial_text_position: (6, 0),
 
             keys: vec![
                 key_event!('c'),
@@ -4065,7 +4053,7 @@ mod tests {
 
             expected_text: "Hey there!!!",
             expected_cursor: 4,
-            expected_visual_position: (7, 0),
+            expected_text_position: (4, 0),
         }
         .run();
     }
@@ -4075,7 +4063,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there!!!",
             initial_cursor: 8,
-            expected_initial_visual_position: (11, 0),
+            expected_initial_text_position: (8, 0),
 
             keys: vec![
                 key_event!('2'),
@@ -4086,7 +4074,7 @@ mod tests {
 
             expected_text: "Here!!!",
             expected_cursor: 1,
-            expected_visual_position: (4, 0),
+            expected_text_position: (1, 0),
         }
         .run();
     }
@@ -4096,13 +4084,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('c'), key_event!('e'), key_event!('y')],
 
             expected_text: "Hey there",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -4112,7 +4100,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there words words",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('3'),
@@ -4123,7 +4111,7 @@ mod tests {
 
             expected_text: "Hey words",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -4133,7 +4121,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('v'),
@@ -4144,7 +4132,7 @@ mod tests {
 
             expected_text: "Heher line!",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -4154,7 +4142,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('v'),
@@ -4171,7 +4159,7 @@ mod tests {
 
             expected_text: "Hey\nanother line!",
             expected_cursor: 8,
-            expected_visual_position: (7, 1),
+            expected_text_position: (4, 1),
         }
         .run();
     }
@@ -4181,7 +4169,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('v'),
@@ -4192,7 +4180,7 @@ mod tests {
 
             expected_text: "Hello there\nAnother line!",
             expected_cursor: 2,
-            expected_visual_position: (5, 0),
+            expected_text_position: (2, 0),
         }
         .run();
     }
@@ -4202,7 +4190,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('v'),
@@ -4214,7 +4202,7 @@ mod tests {
 
             expected_text: "Hello there\nAnother line!",
             expected_cursor: 15,
-            expected_visual_position: (6, 1),
+            expected_text_position: (3, 1),
         }
         .run();
     }
@@ -4224,7 +4212,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!",
             initial_cursor: 15,
-            expected_initial_visual_position: (6, 1),
+            expected_initial_text_position: (3, 1),
 
             keys: vec![
                 key_event!('o'),
@@ -4235,7 +4223,7 @@ mod tests {
 
             expected_text: "Hello there\nAnother line!\nHey\n",
             expected_cursor: 29,
-            expected_visual_position: (6, 2),
+            expected_text_position: (3, 2),
         }
         .run();
     }
@@ -4245,7 +4233,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!\nAgain a line :)",
             initial_cursor: 15,
-            expected_initial_visual_position: (6, 1),
+            expected_initial_text_position: (3, 1),
 
             keys: vec![
                 key_event!('o'),
@@ -4256,7 +4244,7 @@ mod tests {
 
             expected_text: "Hello there\nAnother line!\nHey\nAgain a line :)",
             expected_cursor: 29,
-            expected_visual_position: (6, 2),
+            expected_text_position: (3, 2),
         }
         .run();
     }
@@ -4266,7 +4254,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!\nAgain a line :)",
             initial_cursor: 15,
-            expected_initial_visual_position: (6, 1),
+            expected_initial_text_position: (3, 1),
 
             keys: vec![
                 key_event!('O'),
@@ -4277,7 +4265,7 @@ mod tests {
 
             expected_text: "Hello there\nHey\nAnother line!\nAgain a line :)",
             expected_cursor: 15,
-            expected_visual_position: (6, 1),
+            expected_text_position: (3, 1),
         }
         .run();
     }
@@ -4287,7 +4275,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line!\nAgain a line :)",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('O'),
@@ -4298,7 +4286,7 @@ mod tests {
 
             expected_text: "Hey\nHello there\nAnother line!\nAgain a line :)",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -4308,7 +4296,7 @@ mod tests {
         TestCase {
             initial_text: "Hello there",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![
                 key_event!('v'),
@@ -4319,7 +4307,7 @@ mod tests {
 
             expected_text: " there",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -4329,13 +4317,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line\n     And another",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('d'), key_event!('j')],
 
             expected_text: "     And another",
             expected_cursor: 5,
-            expected_visual_position: (8, 0),
+            expected_text_position: (5, 0),
         }
         .run();
     }
@@ -4345,13 +4333,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line\n     And another\nAnd one more",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('2'), key_event!('d'), key_event!('j')],
 
             expected_text: "And one more",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -4361,13 +4349,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line\nAnd another",
             initial_cursor: 27,
-            expected_initial_visual_position: (5, 2),
+            expected_initial_text_position: (2, 2),
 
             keys: vec![key_event!('d'), key_event!('k')],
 
             expected_text: "Hello there\n",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -4377,13 +4365,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line\nAnd another\nAnd one more",
             initial_cursor: 27,
-            expected_initial_visual_position: (5, 2),
+            expected_initial_text_position: (2, 2),
 
             keys: vec![key_event!('2'), key_event!('d'), key_event!('k')],
 
             expected_text: "And one more",
             expected_cursor: 0,
-            expected_visual_position: (3, 0),
+            expected_text_position: (0, 0),
         }
         .run();
     }
@@ -4393,13 +4381,13 @@ mod tests {
         TestCase {
             initial_text: "Hello there\nAnother line\nAnd another\nAnd one more",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('2'), key_event!(Esc), key_event!('j')],
 
             expected_text: "Hello there\nAnother line\nAnd another\nAnd one more",
             expected_cursor: 12,
-            expected_visual_position: (3, 1),
+            expected_text_position: (0, 1),
         }
         .run();
     }
@@ -4409,13 +4397,13 @@ mod tests {
         TestCase {
             initial_text: "{Hello }",
             initial_cursor: 0,
-            expected_initial_visual_position: (3, 0),
+            expected_initial_text_position: (0, 0),
 
             keys: vec![key_event!('%')],
 
             expected_text: "{Hello }",
             expected_cursor: 7,
-            expected_visual_position: (10, 0),
+            expected_text_position: (7, 0),
         }
         .run();
     }
@@ -4425,13 +4413,13 @@ mod tests {
         TestCase {
             initial_text: "H[ello]",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('%')],
 
             expected_text: "H[ello]",
             expected_cursor: 6,
-            expected_visual_position: (9, 0),
+            expected_text_position: (6, 0),
         }
         .run();
     }
@@ -4441,13 +4429,13 @@ mod tests {
         TestCase {
             initial_text: "He()llo",
             initial_cursor: 2,
-            expected_initial_visual_position: (5, 0),
+            expected_initial_text_position: (2, 0),
 
             keys: vec![key_event!('%')],
 
             expected_text: "He()llo",
             expected_cursor: 3,
-            expected_visual_position: (6, 0),
+            expected_text_position: (3, 0),
         }
         .run();
     }
@@ -4457,13 +4445,13 @@ mod tests {
         TestCase {
             initial_text: "hello {\nworld } test",
             initial_cursor: 1,
-            expected_initial_visual_position: (4, 0),
+            expected_initial_text_position: (1, 0),
 
             keys: vec![key_event!('$'), key_event!('%')],
 
             expected_text: "hello {\nworld } test",
             expected_cursor: 14,
-            expected_visual_position: (9, 1),
+            expected_text_position: (6, 1),
         }
         .run();
     }
