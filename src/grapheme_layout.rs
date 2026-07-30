@@ -45,25 +45,16 @@ where
 
         let grapheme = Grapheme::from(grapheme);
 
-        let (is_wrapped, position) = match self.wrap_behavior {
-            WrapBehavior::NoWrap => (false, self.position),
-            WrapBehavior::Wrap { max_width } => {
-                let (position, outcome) = self.position.wrap(max_width);
-
-                let is_wrapped = match outcome {
-                    WrapOutcome::Wrapped => true,
-                    WrapOutcome::NotWrapped => false,
-                };
-
-                (is_wrapped, position)
-            }
+        let (position, wrap_status) = match self.wrap_behavior {
+            WrapBehavior::NoWrap => (self.position, WrapOutcome::NotWrapped),
+            WrapBehavior::Wrap { max_width } => self.position.wrap(max_width),
         };
 
         self.position = position.advance(&grapheme);
 
         Some(VisualGrapheme {
             grapheme,
-            is_wrapped,
+            wrap_status,
             position,
             end_position: self.position,
             byte_index,
@@ -80,7 +71,7 @@ pub(crate) enum WrapBehavior {
 #[derive(Debug)]
 pub(crate) struct VisualGrapheme<'text> {
     grapheme: Grapheme<'text>,
-    is_wrapped: bool,
+    wrap_status: WrapOutcome,
     position: Position,
     end_position: Position,
     byte_index: ByteIndex,
@@ -95,8 +86,8 @@ impl VisualGrapheme<'_> {
         self.end_position
     }
 
-    pub(crate) const fn is_wrapped(&self) -> bool {
-        self.is_wrapped
+    pub(crate) const fn wrap_status(&self) -> WrapOutcome {
+        self.wrap_status
     }
 
     pub(crate) const fn grapheme(&self) -> &Grapheme<'_> {

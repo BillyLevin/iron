@@ -516,7 +516,7 @@ impl Position {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum WrapOutcome {
     Wrapped,
     NotWrapped,

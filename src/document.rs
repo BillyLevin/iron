@@ -103,6 +103,7 @@ use crate::{
         Rectangle,
         Rows,
         Span,
+        WrapOutcome,
         spans_width,
     },
 };
@@ -282,7 +283,7 @@ impl Document {
             },
         );
 
-        let container = &self.layout_info.text_rect;
+        let container = &self.layout_info.content_rect;
 
         let hints_rectangle = container.at_bottom_right(Dimensions::new(
             cmp::min(container.width(), max_width),
@@ -547,7 +548,7 @@ impl Document {
     }
 
     fn move_cursor_down(&mut self, count: usize) {
-        let Some(text_width) = self.max_text_width() else {
+        let Some(text_width) = self.content_layout().max_text_width() else {
             return;
         };
 
@@ -569,7 +570,7 @@ impl Document {
     }
 
     fn move_cursor_up(&mut self, count: usize) {
-        let Some(text_width) = self.max_text_width() else {
+        let Some(text_width) = self.content_layout().max_text_width() else {
             return;
         };
 
@@ -668,18 +669,11 @@ impl Document {
         ));
     }
 
-    fn gutter_width(&self) -> Columns {
-        Columns::from(cmp::max(
-            3,
-            number_of_digits(self.text.slice(..).line_count()) + 1,
-        ))
-    }
-
     fn recalculate_scroll(&mut self) {
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
 
-        let height = self.layout_info.text_rect.height();
+        let height = self.layout_info.content_rect.height();
 
         if cursor_line < self.scroll_offset {
             // upwards scroll
@@ -706,7 +700,7 @@ impl Document {
     fn center_cursor_vertically(&mut self) {
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
-        let middle = self.layout_info.text_rect.height() / 2;
+        let middle = self.layout_info.content_rect.height() / 2;
 
         self.scroll_offset = cursor_line.saturating_sub(middle);
     }
@@ -892,14 +886,9 @@ impl Document {
         self.set_cursor(self.text.slice(..).line_start_byte(line));
     }
 
-    /// Determines the maximum room for text based on the dimensions of the
-    /// [`Document`] and the size of its gutter.
-    fn max_text_width(&self) -> Option<NonZeroColumns> {
+    fn content_layout(&self) -> ContentLayout {
         self.layout_info
-            .dimensions
-            .width()
-            .checked_sub(self.gutter_width())
-            .and_then(NonZeroColumns::new)
+            .content_layout(self.text.slice(..).line_count())
     }
 
     /// Deletes from the current cursor position up to (but not including) the
@@ -1300,7 +1289,9 @@ impl Document {
     }
 
     fn visual_cursor_position_impl(&self) -> Position {
-        let Some(text_width) = self.max_text_width() else {
+        let content_layout = self.content_layout();
+
+        let Some(text_width) = content_layout.max_text_width() else {
             return Position::default();
         };
 
@@ -1315,7 +1306,7 @@ impl Document {
         .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
         .map(|grapheme| grapheme.position())
         .unwrap_or_default()
-        .col_offset(self.gutter_width())
+        .col_offset(content_layout.gutter.width)
     }
 
     pub(crate) fn save(&self) -> anyhow::Result<()> {
@@ -1496,11 +1487,17 @@ impl Layer for Document {
     fn render(&mut self, buffer: &mut Buffer) {
         let text = self.text.slice(..);
 
-        let gutter_width = self.gutter_width();
-
         let start_byte = text.line_start_byte(self.scroll_offset);
 
-        buffer.clear_and_style_rectangle(&self.layout_info.text_rect, Style::BACKGROUND);
+        buffer.clear_and_style_rectangle(&self.layout_info.content_rect, Style::BACKGROUND);
+
+        let content_layout = self.content_layout();
+        let gutter_width = content_layout.gutter.width;
+
+        let Some(text_width) = content_layout.max_text_width() else {
+            // if there's no room for text, there's no point rendering anything.
+            return;
+        };
 
         let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
 
@@ -1513,9 +1510,9 @@ impl Layer for Document {
         );
         let mut current_highlight = highlighter.next();
 
-        let Some(text_width) = self.max_text_width() else {
-            // if there's no room for text, there's no point rendering anything.
-            return;
+        let gutter_renderer = GutterRenderer {
+            gutter: &content_layout.gutter,
+            cursor_line,
         };
 
         for visual_grapheme in GraphemeLayoutIterator::new(
@@ -1524,33 +1521,17 @@ impl Layer for Document {
                 max_width: text_width,
             },
         ) {
-            if visual_grapheme.position().top() >= self.layout_info.text_rect.height() {
+            if visual_grapheme.position().top() >= self.layout_info.content_rect.height() {
                 break;
             }
 
             if visual_grapheme.position().left() == Columns::new(0) {
-                // we only display the line number on the first visual row of a wrapped
-                // line; the rest are just empty
-                let gutter_contents = if visual_grapheme.is_wrapped() {
-                    " ".repeat(gutter_width.value())
-                } else {
-                    let line_number_str = if cursor_line == line_index {
-                        format!("{} ", line_index + 1)
-                    } else {
-                        format!("{} ", line_index.abs_diff(cursor_line))
-                    };
-                    format!("{line_number_str:>width$}", width = gutter_width.value())
-                };
-
-                let gutter_style = if cursor_line == line_index {
-                    Style::GUTTER_SELECTED
-                } else {
-                    Style::GUTTER
-                };
-
-                buffer[visual_grapheme.position()]
-                    .set_content(&gutter_contents)
-                    .set_style(gutter_style);
+                gutter_renderer.render(
+                    visual_grapheme.position(),
+                    visual_grapheme.wrap_status(),
+                    line_index,
+                    buffer,
+                );
             }
 
             let translated_position = visual_grapheme.position().col_offset(gutter_width);
@@ -1645,10 +1626,9 @@ impl Layer for Document {
 
 #[derive(Debug)]
 pub(crate) struct LayoutInfo {
-    dimensions: Dimensions,
     /// Size and position of the area that the file contents (including
     /// gutters) can be rendered into.
-    text_rect: Rectangle,
+    content_rect: Rectangle,
     /// Size and position of the area that the status line can be rendered
     /// into.
     status_line_rect: Rectangle,
@@ -1656,14 +1636,110 @@ pub(crate) struct LayoutInfo {
 
 impl LayoutInfo {
     fn new(dimensions: Dimensions) -> Self {
-        let (text_rect, status_line_rect) = Rectangle::from_dimensions(dimensions)
+        let (content_rect, status_line_rect) = Rectangle::from_dimensions(dimensions)
             .split_at_row(dimensions.height().saturating_sub(Rows::new(2)));
 
         Self {
-            dimensions,
-            text_rect,
+            content_rect,
             status_line_rect,
         }
+    }
+
+    fn content_layout(&self, line_count: usize) -> ContentLayout {
+        ContentLayout::new(&self.content_rect, line_count)
+    }
+}
+
+#[derive(Debug)]
+struct ContentLayout {
+    gutter: GutterRow,
+    text_width: Columns,
+}
+
+impl ContentLayout {
+    fn new(container: &Rectangle, line_count: usize) -> Self {
+        let gutter_width = cmp::max(
+            Columns::new(3),
+            GutterRow::LINE_NUMBER_RIGHT_PADDING + number_of_digits(line_count),
+        );
+
+        Self {
+            gutter: GutterRow {
+                width: gutter_width,
+            },
+            text_width: container.width().saturating_sub(gutter_width),
+        }
+    }
+
+    fn max_text_width(&self) -> Option<NonZeroColumns> {
+        NonZeroColumns::new(self.text_width)
+    }
+}
+
+#[derive(Debug)]
+struct GutterRow {
+    width: Columns,
+}
+
+impl GutterRow {
+    const LINE_NUMBER_RIGHT_PADDING: Columns = Columns::new(1);
+}
+
+#[derive(Debug)]
+struct GutterRenderer<'gutter> {
+    gutter: &'gutter GutterRow,
+    cursor_line: LineIndex,
+}
+
+impl GutterRenderer<'_> {
+    /// Renders the gutter for the current visual line (derived from line index
+    /// and wrap status). Must be called at the start of a visual line.
+    fn render(
+        &self,
+        position: Position,
+        wrapped: WrapOutcome,
+        current_line: LineIndex,
+        buffer: &mut Buffer,
+    ) {
+        assert_eq!(
+            position.left(),
+            Columns::new(0),
+            "gutter must start at the left edge of the screen"
+        );
+
+        let gutter_contents = match wrapped {
+            // we only display the line number on the first visual row of a wrapped
+            // line
+            WrapOutcome::Wrapped => " ".repeat(self.gutter.width.value()),
+            WrapOutcome::NotWrapped => {
+                let line_number_width = self
+                    .gutter
+                    .width
+                    .saturating_sub(GutterRow::LINE_NUMBER_RIGHT_PADDING);
+
+                let line_number = if self.cursor_line == current_line {
+                    current_line + 1
+                } else {
+                    current_line.abs_diff(self.cursor_line)
+                };
+
+                format!(
+                    "{line_number:>width$}{}",
+                    " ".repeat(GutterRow::LINE_NUMBER_RIGHT_PADDING.value()),
+                    width = line_number_width.value(),
+                )
+            }
+        };
+
+        let gutter_style = if self.cursor_line == current_line {
+            Style::GUTTER_SELECTED
+        } else {
+            Style::GUTTER
+        };
+
+        buffer[position]
+            .set_content(&gutter_contents)
+            .set_style(gutter_style);
     }
 }
 
