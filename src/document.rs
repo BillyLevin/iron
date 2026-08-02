@@ -155,7 +155,7 @@ pub(crate) struct Document {
 
     version: DocumentVersion,
 
-    diagnostics: Vec<Diagnostic>,
+    diagnostics: Diagnostics,
 }
 
 impl Document {
@@ -186,7 +186,7 @@ impl Document {
             highlight_request_tx,
             highlight_response_rx,
             version: DocumentVersion::default(),
-            diagnostics: Vec::new(),
+            diagnostics: Diagnostics::new(),
         };
 
         this.request_highlight_refresh();
@@ -1437,17 +1437,8 @@ impl Document {
         params: &PublishDiagnosticsParams,
         position_encoding: PositionEncoding,
     ) {
-        let text = self.text.slice(..);
-
-        self.diagnostics = params
-            .diagnostics
-            .iter()
-            .filter_map(|diagnostic| {
-                Diagnostic::new(diagnostic, position_encoding, text)
-                    .inspect_err(|err| log::warn!("invalid diagnostic: {err}"))
-                    .ok()
-            })
-            .collect();
+        self.diagnostics
+            .publish_new(&params.diagnostics, self.text.slice(..), position_encoding);
     }
 
     pub(crate) const fn version(&self) -> DocumentVersion {
@@ -1510,6 +1501,9 @@ impl Layer for Document {
         );
         let mut current_highlight = highlighter.next();
 
+        let mut diagnostics = self.diagnostics.spans_from(start_byte);
+        let mut current_diagnostic = diagnostics.next();
+
         let gutter_renderer = GutterRenderer {
             gutter: &content_layout.gutter,
             cursor_line,
@@ -1552,25 +1546,21 @@ impl Layer for Document {
                 current_highlight = highlighter.next();
             }
 
+            while current_diagnostic
+                .is_some_and(|diagnostic| diagnostic.range.end <= grapheme_index)
+            {
+                current_diagnostic = diagnostics.next();
+            }
+
             let style = current_highlight
                 .as_ref()
                 .map(|&(ref token, _checkpoint)| token.kind())
                 .map_or(Style::TEXT, Style::from)
                 .merge(
-                    self.diagnostics
-                        .iter()
-                        .find(|diagnostic| {
-                            // some syntax errors come back as an empty range, so we handle those
-                            // explicitly.
-                            if diagnostic.range.is_empty() {
-                                diagnostic.range.start == grapheme_index
-                            } else {
-                                diagnostic.range.contains(&grapheme_index)
-                            }
-                        })
-                        .map_or_else(Style::new, |diagnostic| {
-                            Style::diagnostic(diagnostic.severity)
-                        }),
+                    current_diagnostic
+                        .filter(|diagnostic| diagnostic.range.contains(&grapheme_index))
+                        .map(|diagnostic| diagnostic.severity)
+                        .map_or_else(Style::new, Style::diagnostic),
                 );
 
             buffer[translated_position]
@@ -2019,6 +2009,194 @@ impl TextEdit {
 }
 
 #[derive(Debug)]
+struct Diagnostics {
+    raw: Vec<Diagnostic>,
+    underlines: Vec<DiagnosticSpan>,
+}
+
+impl Diagnostics {
+    const fn new() -> Self {
+        Self {
+            raw: Vec::new(),
+            underlines: Vec::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.raw.clear();
+        self.underlines.clear();
+    }
+
+    fn publish_new(
+        &mut self,
+        diagnostics: &[gen_lsp_types::Diagnostic],
+        text: RopeSlice<'_>,
+        position_encoding: PositionEncoding,
+    ) {
+        self.raw = diagnostics
+            .iter()
+            .filter_map(|diagnostic| {
+                Diagnostic::new(diagnostic, position_encoding, text)
+                    .inspect_err(|err| log::warn!("invalid diagnostic: {err}"))
+                    .ok()
+            })
+            .collect();
+
+        self.underlines = Self::derive_underlines(&self.raw);
+    }
+
+    fn spans_from(&self, index: ByteIndex) -> impl Iterator<Item = &DiagnosticSpan> {
+        self.underlines[self
+            .underlines
+            .partition_point(|span| span.range.end <= index)..]
+            .iter()
+    }
+
+    fn derive_underlines(diagnostics: &[Diagnostic]) -> Vec<DiagnosticSpan> {
+        #[derive(Debug)]
+        struct DiagnosticEvent {
+            at: ByteIndex,
+            kind: DiagnosticEventKind,
+            severity: DiagnosticSeverity,
+        }
+
+        #[derive(Debug)]
+        enum DiagnosticEventKind {
+            Start,
+            End,
+        }
+
+        #[derive(Debug)]
+        struct SeverityCounts {
+            error: usize,
+            warning: usize,
+            info: usize,
+            hint: usize,
+        }
+
+        impl SeverityCounts {
+            const fn increment(&mut self, severity: DiagnosticSeverity) {
+                match severity {
+                    DiagnosticSeverity::Error => self.error += 1,
+                    DiagnosticSeverity::Warning => self.warning += 1,
+                    DiagnosticSeverity::Information => self.info += 1,
+                    DiagnosticSeverity::Hint => self.hint += 1,
+                }
+            }
+
+            const fn decrement(&mut self, severity: DiagnosticSeverity) {
+                match severity {
+                    DiagnosticSeverity::Error => self.error -= 1,
+                    DiagnosticSeverity::Warning => self.warning -= 1,
+                    DiagnosticSeverity::Information => self.info -= 1,
+                    DiagnosticSeverity::Hint => self.hint -= 1,
+                }
+            }
+
+            const fn highest_severity(&self) -> Option<DiagnosticSeverity> {
+                match (self.error, self.warning, self.info, self.hint) {
+                    (x, ..) if x > 0 => Some(DiagnosticSeverity::Error),
+                    (_, x, ..) if x > 0 => Some(DiagnosticSeverity::Warning),
+                    (_, _, x, ..) if x > 0 => Some(DiagnosticSeverity::Information),
+                    (_, _, _, x) if x > 0 => Some(DiagnosticSeverity::Hint),
+                    _ => None,
+                }
+            }
+        }
+
+        let mut events: Vec<DiagnosticEvent> = diagnostics
+            .iter()
+            .flat_map(|diagnostic| {
+                let start = diagnostic.range.start;
+                let end = diagnostic.range.end;
+
+                [
+                    DiagnosticEvent {
+                        at: start,
+                        kind: DiagnosticEventKind::Start,
+                        severity: diagnostic.severity,
+                    },
+                    DiagnosticEvent {
+                        // some diagnostics come back as an empty range, but we still want to
+                        // display an underline, and so we extend it
+                        at: if start == end { start + 1 } else { end },
+                        kind: DiagnosticEventKind::End,
+                        severity: diagnostic.severity,
+                    },
+                ]
+            })
+            .collect();
+
+        let mut result: Vec<DiagnosticSpan> = vec![];
+
+        let mut counts = SeverityCounts {
+            error: 0,
+            warning: 0,
+            info: 0,
+            hint: 0,
+        };
+        events.sort_by_key(|event| event.at);
+
+        let mut previous_at = None;
+        let mut i = 0_usize;
+
+        while i < events.len() {
+            let event = &events[i];
+
+            if let Some(previous) = previous_at
+                && let Some(severity) = counts.highest_severity()
+            {
+                if let Some(last) = result.last_mut()
+                    && severity == last.severity
+                    && last.range.end == previous
+                {
+                    // we can extend the last range instead of pushing a new span because it's the
+                    // same severity and there's no gap
+                    last.range.end = event.at;
+                } else {
+                    result.push(DiagnosticSpan {
+                        range: previous..event.at,
+                        severity,
+                    });
+                }
+            }
+
+            while i < events.len() && events[i].at == event.at {
+                match events[i].kind {
+                    DiagnosticEventKind::Start => {
+                        counts.increment(events[i].severity);
+                    }
+                    DiagnosticEventKind::End => {
+                        counts.decrement(events[i].severity);
+                    }
+                }
+
+                i += 1;
+            }
+
+            previous_at = Some(event.at);
+        }
+
+        debug_assert!(
+            result.is_sorted_by_key(|span| span.range.end),
+            "spans must be sorted"
+        );
+        debug_assert!(
+            result.windows(2).all(
+                #[expect(
+                    clippy::missing_asserts_for_indexing,
+                    reason = "don't care about this in a debug assert"
+                )]
+                |pair| pair[0].range.end <= pair[1].range.start
+            ),
+            "diagnostic spans must not overlap"
+        );
+
+        result
+    }
+}
+
+#[derive(Debug)]
 struct Diagnostic {
     severity: DiagnosticSeverity,
     range: Range<ByteIndex>,
@@ -2035,6 +2213,14 @@ impl Diagnostic {
             range: lsp_to_byte_range(diagnostic.range, position_encoding, text)?,
         })
     }
+}
+
+/// A diagnostic that will be displayed in the document (if it's part of the
+/// current viewport). Prioritises overlapping diagnostics by their severity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiagnosticSpan {
+    range: Range<ByteIndex>,
+    severity: DiagnosticSeverity,
 }
 
 fn lsp_to_byte_range(
@@ -2064,7 +2250,11 @@ fn lsp_to_byte_range(
     let start = translate_position(range.start)?;
     let end = translate_position(range.end)?;
 
-    anyhow::ensure!(start <= end, "diagnostic range is invalid: end > start");
+    anyhow::ensure!(start <= end, "diagnostic range is invalid: start > end");
+    anyhow::ensure!(
+        end <= ByteIndex::new(text.len()),
+        "diagnostic range is invalid: end > text.len()"
+    );
 
     Ok(start..end)
 }
@@ -4454,6 +4644,413 @@ mod tests {
             expected_text_position: (6, 1),
         }
         .run();
+    }
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+    use std::io::Write as _;
+
+    use super::*;
+    use crate::{
+        buffer::Cell,
+        style::StyleAttributes,
+    };
+
+    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
+
+    fn doc(contents: &str) -> Document {
+        let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+        write!(temp_file, "{contents}").unwrap();
+
+        Document::new(temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
+    }
+
+    #[derive(Debug, Clone)]
+    struct TestDiagnostic {
+        start: (u32, u32),
+        end: (u32, u32),
+        severity: DiagnosticSeverity,
+    }
+
+    fn doc_with_diagnostics(contents: &str, diagnostics: &[TestDiagnostic]) -> Document {
+        let mut document = doc(contents);
+        document.publish_diagnostics(
+            &PublishDiagnosticsParams {
+                uri: document.lsp_id().url().clone(),
+                version: None,
+                diagnostics: diagnostics
+                    .iter()
+                    .map(|diagnostic| {
+                        gen_lsp_types::Diagnostic {
+                            range: gen_lsp_types::Range {
+                                start: gen_lsp_types::Position {
+                                    line: diagnostic.start.0,
+                                    character: diagnostic.start.1,
+                                },
+                                end: gen_lsp_types::Position {
+                                    line: diagnostic.end.0,
+                                    character: diagnostic.end.1,
+                                },
+                            },
+                            severity: Some(diagnostic.severity),
+                            ..Default::default()
+                        }
+                    })
+                    .collect(),
+            },
+            PositionEncoding::UTF8,
+        );
+        document
+    }
+
+    #[test]
+    fn underline_rendering() {
+        let diagnostics = vec![
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Warning,
+            },
+            TestDiagnostic {
+                start: (0, 2),
+                end: (0, 4),
+                severity: DiagnosticSeverity::Error,
+            },
+        ];
+
+        let mut reversed_diagnostics = diagnostics.clone();
+        reversed_diagnostics.reverse();
+
+        for input in [diagnostics, reversed_diagnostics] {
+            let doc_text = "hello, world!";
+            let mut document = doc_with_diagnostics(doc_text, &input);
+
+            let mut buffer = Buffer::new(TEST_DIMENSIONS);
+            document.render(&mut buffer);
+
+            let cell_at_column = |column: usize| -> &Cell {
+                let gutter_width = document.content_layout().gutter.width;
+                &buffer[Position::new(Columns::new(column), Rows::new(0)).col_offset(gutter_width)]
+            };
+
+            let assert_severity = |column: usize, severity: DiagnosticSeverity| {
+                assert!(
+                    cell_at_column(column)
+                        .attributes()
+                        .contains(StyleAttributes::Undercurled)
+                );
+                assert_eq!(
+                    cell_at_column(column).underline_color(),
+                    Style::diagnostic(severity).underline_color().unwrap()
+                );
+            };
+
+            let assert_no_severity = |column: usize| {
+                assert!(
+                    !cell_at_column(column)
+                        .attributes()
+                        .contains(StyleAttributes::Undercurled)
+                );
+            };
+
+            assert_no_severity(0);
+            assert_severity(1, DiagnosticSeverity::Warning);
+            assert_severity(2, DiagnosticSeverity::Error);
+            assert_severity(3, DiagnosticSeverity::Error);
+            assert_severity(4, DiagnosticSeverity::Warning);
+            for col in 5..doc_text.len() {
+                assert_no_severity(col);
+            }
+        }
+    }
+
+    #[test]
+    fn underline_severity_priority() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 10),
+                severity: DiagnosticSeverity::Hint,
+            },
+            TestDiagnostic {
+                start: (0, 3),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Error,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![
+            DiagnosticSpan {
+                range: ByteIndex::new(1)..ByteIndex::new(3),
+                severity: DiagnosticSeverity::Hint,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(3)..ByteIndex::new(5),
+                severity: DiagnosticSeverity::Error,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(5)..ByteIndex::new(10),
+                severity: DiagnosticSeverity::Hint,
+            },
+        ]);
+    }
+
+    #[test]
+    fn underline_severity_priority_input_order_does_not_matter() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 3),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Error,
+            },
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 10),
+                severity: DiagnosticSeverity::Hint,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![
+            DiagnosticSpan {
+                range: ByteIndex::new(1)..ByteIndex::new(3),
+                severity: DiagnosticSeverity::Hint,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(3)..ByteIndex::new(5),
+                severity: DiagnosticSeverity::Error,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(5)..ByteIndex::new(10),
+                severity: DiagnosticSeverity::Hint,
+            },
+        ]);
+    }
+
+    #[test]
+    fn underline_coalesce() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 6),
+                severity: DiagnosticSeverity::Warning,
+            },
+            TestDiagnostic {
+                start: (0, 3),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Warning,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![DiagnosticSpan {
+            range: ByteIndex::new(1)..ByteIndex::new(6),
+            severity: DiagnosticSeverity::Warning,
+        },]);
+    }
+
+    #[test]
+    fn underline_coalesce_adjacent_start_and_end() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 3),
+                severity: DiagnosticSeverity::Warning,
+            },
+            TestDiagnostic {
+                start: (0, 3),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Warning,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![DiagnosticSpan {
+            range: ByteIndex::new(1)..ByteIndex::new(5),
+            severity: DiagnosticSeverity::Warning,
+        }]);
+    }
+
+    #[test]
+    fn underline_no_coalesce_if_gap() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 3),
+                severity: DiagnosticSeverity::Warning,
+            },
+            TestDiagnostic {
+                start: (0, 4),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Warning,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![
+            DiagnosticSpan {
+                range: ByteIndex::new(1)..ByteIndex::new(3),
+                severity: DiagnosticSeverity::Warning,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(4)..ByteIndex::new(5),
+                severity: DiagnosticSeverity::Warning,
+            },
+        ]);
+    }
+
+    #[test]
+    fn underline_empty_range() {
+        let document = doc_with_diagnostics("hello, world!", &[TestDiagnostic {
+            start: (0, 1),
+            end: (0, 1),
+            severity: DiagnosticSeverity::Warning,
+        }]);
+
+        assert_eq!(document.diagnostics.underlines, vec![DiagnosticSpan {
+            range: ByteIndex::new(1)..ByteIndex::new(2),
+            severity: DiagnosticSeverity::Warning,
+        },]);
+    }
+
+    #[test]
+    fn underline_high_priority_empty_range() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 0),
+                end: (0, 4),
+                severity: DiagnosticSeverity::Hint,
+            },
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 1),
+                severity: DiagnosticSeverity::Error,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![
+            DiagnosticSpan {
+                range: ByteIndex::new(0)..ByteIndex::new(1),
+                severity: DiagnosticSeverity::Hint,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(1)..ByteIndex::new(2),
+                severity: DiagnosticSeverity::Error,
+            },
+            DiagnosticSpan {
+                range: ByteIndex::new(2)..ByteIndex::new(4),
+                severity: DiagnosticSeverity::Hint,
+            },
+        ]);
+    }
+
+    #[test]
+    fn underline_low_priority_empty_range() {
+        let document = doc_with_diagnostics("hello, world!", &[
+            TestDiagnostic {
+                start: (0, 0),
+                end: (0, 4),
+                severity: DiagnosticSeverity::Error,
+            },
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 1),
+                severity: DiagnosticSeverity::Hint,
+            },
+        ]);
+
+        assert_eq!(document.diagnostics.underlines, vec![DiagnosticSpan {
+            range: ByteIndex::new(0)..ByteIndex::new(4),
+            severity: DiagnosticSeverity::Error,
+        },]);
+    }
+
+    #[test]
+    fn diagnostic_spans_from_byte_index() {
+        let doc_text = "hello, world!";
+        let document = doc_with_diagnostics(doc_text, &[
+            TestDiagnostic {
+                start: (0, 1),
+                end: (0, 3),
+                severity: DiagnosticSeverity::Warning,
+            },
+            TestDiagnostic {
+                start: (0, 5),
+                end: (0, 7),
+                severity: DiagnosticSeverity::Error,
+            },
+            TestDiagnostic {
+                start: (0, 9),
+                end: (0, 10),
+                severity: DiagnosticSeverity::Error,
+            },
+        ]);
+
+        for i in 0..3 {
+            assert_eq!(
+                document
+                    .diagnostics
+                    .spans_from(ByteIndex::new(i))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vec![
+                    DiagnosticSpan {
+                        range: ByteIndex::new(1)..ByteIndex::new(3),
+                        severity: DiagnosticSeverity::Warning
+                    },
+                    DiagnosticSpan {
+                        range: ByteIndex::new(5)..ByteIndex::new(7),
+                        severity: DiagnosticSeverity::Error
+                    },
+                    DiagnosticSpan {
+                        range: ByteIndex::new(9)..ByteIndex::new(10),
+                        severity: DiagnosticSeverity::Error
+                    }
+                ]
+            );
+        }
+
+        for i in 3..7 {
+            assert_eq!(
+                document
+                    .diagnostics
+                    .spans_from(ByteIndex::new(i))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vec![
+                    DiagnosticSpan {
+                        range: ByteIndex::new(5)..ByteIndex::new(7),
+                        severity: DiagnosticSeverity::Error
+                    },
+                    DiagnosticSpan {
+                        range: ByteIndex::new(9)..ByteIndex::new(10),
+                        severity: DiagnosticSeverity::Error
+                    }
+                ]
+            );
+        }
+
+        for i in 7..10 {
+            assert_eq!(
+                document
+                    .diagnostics
+                    .spans_from(ByteIndex::new(i))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vec![DiagnosticSpan {
+                    range: ByteIndex::new(9)..ByteIndex::new(10),
+                    severity: DiagnosticSeverity::Error
+                }]
+            );
+        }
+
+        for i in 10..doc_text.len() {
+            assert_eq!(
+                document
+                    .diagnostics
+                    .spans_from(ByteIndex::new(i))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vec![]
+            );
+        }
     }
 }
 
