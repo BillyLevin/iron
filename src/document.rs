@@ -1306,7 +1306,7 @@ impl Document {
         .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
         .map(|grapheme| grapheme.position())
         .unwrap_or_default()
-        .col_offset(content_layout.gutter.width)
+        .col_offset(content_layout.gutter.width())
     }
 
     pub(crate) fn save(&self) -> anyhow::Result<()> {
@@ -1483,7 +1483,7 @@ impl Layer for Document {
         buffer.clear_and_style_rectangle(&self.layout_info.content_rect, Style::BACKGROUND);
 
         let content_layout = self.content_layout();
-        let gutter_width = content_layout.gutter.width;
+        let gutter_width = content_layout.gutter.width();
 
         let Some(text_width) = content_layout.max_text_width() else {
             // if there's no room for text, there's no point rendering anything.
@@ -1524,6 +1524,7 @@ impl Layer for Document {
                     visual_grapheme.position(),
                     visual_grapheme.wrap_status(),
                     line_index,
+                    self.diagnostics.line_severity(line_index),
                     buffer,
                 );
             }
@@ -1648,16 +1649,13 @@ struct ContentLayout {
 
 impl ContentLayout {
     fn new(container: &Rectangle, line_count: usize) -> Self {
-        let gutter_width = cmp::max(
-            Columns::new(3),
-            GutterRow::LINE_NUMBER_RIGHT_PADDING + number_of_digits(line_count),
-        );
+        let gutter = GutterRow {
+            line_number_width: Columns::new(cmp::max(2, number_of_digits(line_count))),
+        };
 
         Self {
-            gutter: GutterRow {
-                width: gutter_width,
-            },
-            text_width: container.width().saturating_sub(gutter_width),
+            gutter,
+            text_width: container.width().saturating_sub(gutter.width()),
         }
     }
 
@@ -1666,13 +1664,18 @@ impl ContentLayout {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct GutterRow {
-    width: Columns,
+    line_number_width: Columns,
 }
 
 impl GutterRow {
+    const DIAGNOSTIC_ICON: &str = "● ";
     const LINE_NUMBER_RIGHT_PADDING: Columns = Columns::new(1);
+
+    fn width(self) -> Columns {
+        text_width(Self::DIAGNOSTIC_ICON) + self.line_number_width + Self::LINE_NUMBER_RIGHT_PADDING
+    }
 }
 
 #[derive(Debug)]
@@ -1689,6 +1692,7 @@ impl GutterRenderer<'_> {
         position: Position,
         wrapped: WrapOutcome,
         current_line: LineIndex,
+        severity: Option<DiagnosticSeverity>,
         buffer: &mut Buffer,
     ) {
         assert_eq!(
@@ -1697,16 +1701,23 @@ impl GutterRenderer<'_> {
             "gutter must start at the left edge of the screen"
         );
 
-        let gutter_contents = match wrapped {
-            // we only display the line number on the first visual row of a wrapped
-            // line
-            WrapOutcome::Wrapped => " ".repeat(self.gutter.width.value()),
-            WrapOutcome::NotWrapped => {
-                let line_number_width = self
-                    .gutter
-                    .width
-                    .saturating_sub(GutterRow::LINE_NUMBER_RIGHT_PADDING);
+        let diagnostic_contents = match (wrapped, severity) {
+            // we only display gutter contents on the first visual row of a wrapped line
+            (WrapOutcome::Wrapped, _) | (_, None) => {
+                " ".repeat(text_width(GutterRow::DIAGNOSTIC_ICON).value())
+            }
+            (WrapOutcome::NotWrapped, Some(_)) => GutterRow::DIAGNOSTIC_ICON.to_owned(),
+        };
 
+        let line_number_contents = match wrapped {
+            // we only display gutter contents on the first visual row of a wrapped line
+            WrapOutcome::Wrapped => {
+                " ".repeat(
+                    self.gutter.line_number_width.value()
+                        + GutterRow::LINE_NUMBER_RIGHT_PADDING.value(),
+                )
+            }
+            WrapOutcome::NotWrapped => {
                 let line_number = if self.cursor_line == current_line {
                     current_line + 1
                 } else {
@@ -1716,7 +1727,7 @@ impl GutterRenderer<'_> {
                 format!(
                     "{line_number:>width$}{}",
                     " ".repeat(GutterRow::LINE_NUMBER_RIGHT_PADDING.value()),
-                    width = line_number_width.value(),
+                    width = self.gutter.line_number_width.value(),
                 )
             }
         };
@@ -1727,8 +1738,19 @@ impl GutterRenderer<'_> {
             Style::GUTTER
         };
 
-        buffer[position]
-            .set_content(&gutter_contents)
+        let diagnostic_style = severity.map_or(gutter_style, |severity| {
+            gutter_style.merge(Style::diagnostic_icon(severity))
+        });
+
+        let diagnostic_position = position;
+        let line_number_position = position.col_offset(text_width(&diagnostic_contents));
+
+        buffer[diagnostic_position]
+            .set_content(&diagnostic_contents)
+            .set_style(diagnostic_style);
+
+        buffer[line_number_position]
+            .set_content(&line_number_contents)
             .set_style(gutter_style);
     }
 }
@@ -2010,20 +2032,22 @@ impl TextEdit {
 
 #[derive(Debug)]
 struct Diagnostics {
-    raw: Vec<Diagnostic>,
+    /// Diagnostics with translated byte/line ranges. Sorted by start line
+    /// index.
+    entries: Vec<Diagnostic>,
     underlines: Vec<DiagnosticSpan>,
 }
 
 impl Diagnostics {
     const fn new() -> Self {
         Self {
-            raw: Vec::new(),
+            entries: Vec::new(),
             underlines: Vec::new(),
         }
     }
 
     fn clear(&mut self) {
-        self.raw.clear();
+        self.entries.clear();
         self.underlines.clear();
     }
 
@@ -2033,7 +2057,7 @@ impl Diagnostics {
         text: RopeSlice<'_>,
         position_encoding: PositionEncoding,
     ) {
-        self.raw = diagnostics
+        let mut entries: Vec<Diagnostic> = diagnostics
             .iter()
             .filter_map(|diagnostic| {
                 Diagnostic::new(diagnostic, position_encoding, text)
@@ -2041,8 +2065,10 @@ impl Diagnostics {
                     .ok()
             })
             .collect();
+        entries.sort_unstable_by_key(|diagnostic| diagnostic.line_range.start);
 
-        self.underlines = Self::derive_underlines(&self.raw);
+        self.entries = entries;
+        self.underlines = Self::derive_underlines(&self.entries);
     }
 
     fn spans_from(&self, index: ByteIndex) -> impl Iterator<Item = &DiagnosticSpan> {
@@ -2050,6 +2076,22 @@ impl Diagnostics {
             .underlines
             .partition_point(|span| span.range.end <= index)..]
             .iter()
+    }
+
+    fn on_line(&self, line_index: LineIndex) -> impl Iterator<Item = &Diagnostic> {
+        let partition = self
+            .entries
+            .partition_point(|diagnostic| diagnostic.line_range.start <= line_index);
+
+        self.entries[..partition]
+            .iter()
+            .filter(move |diagnostic| diagnostic.line_range.contains(&line_index))
+    }
+
+    fn line_severity(&self, line: LineIndex) -> Option<DiagnosticSeverity> {
+        self.on_line(line)
+            .max_by_key(|diagnostic| diagnostic.severity_priority())
+            .map(|diagnostic| diagnostic.severity)
     }
 
     fn derive_underlines(diagnostics: &[Diagnostic]) -> Vec<DiagnosticSpan> {
@@ -2107,8 +2149,8 @@ impl Diagnostics {
         let mut events: Vec<DiagnosticEvent> = diagnostics
             .iter()
             .flat_map(|diagnostic| {
-                let start = diagnostic.range.start;
-                let end = diagnostic.range.end;
+                let start = diagnostic.byte_range.start;
+                let end = diagnostic.byte_range.end;
 
                 [
                     DiagnosticEvent {
@@ -2199,7 +2241,8 @@ impl Diagnostics {
 #[derive(Debug)]
 struct Diagnostic {
     severity: DiagnosticSeverity,
-    range: Range<ByteIndex>,
+    byte_range: Range<ByteIndex>,
+    line_range: Range<LineIndex>,
 }
 
 impl Diagnostic {
@@ -2208,10 +2251,28 @@ impl Diagnostic {
         position_encoding: PositionEncoding,
         text: RopeSlice<'_>,
     ) -> anyhow::Result<Self> {
+        let byte_range = lsp_to_byte_range(diagnostic.range, position_encoding, text)?;
+        let start_line = text.line_idx_containing_byte(byte_range.start);
+        let end_line = if byte_range.is_empty() {
+            start_line
+        } else {
+            text.line_idx_containing_byte(byte_range.end.saturating_sub(1))
+        };
+
         Ok(Self {
             severity: diagnostic.severity.unwrap_or(DiagnosticSeverity::Error),
-            range: lsp_to_byte_range(diagnostic.range, position_encoding, text)?,
+            byte_range,
+            line_range: start_line..(end_line + 1),
         })
+    }
+
+    const fn severity_priority(&self) -> u8 {
+        match self.severity {
+            DiagnosticSeverity::Hint => 0,
+            DiagnosticSeverity::Information => 1,
+            DiagnosticSeverity::Warning => 2,
+            DiagnosticSeverity::Error => 3,
+        }
     }
 }
 
@@ -2332,7 +2393,7 @@ mod tests {
         let actual = document.visual_cursor_position().unwrap();
 
         let expected = Position::new(Columns::new(expected.0), Rows::new(expected.1))
-            .col_offset(document.content_layout().gutter.width);
+            .col_offset(document.content_layout().gutter.width());
 
         assert_eq!(actual, expected, "{label} did not match");
     }
@@ -2505,7 +2566,7 @@ mod tests {
             keys: vec![key_event!('j')],
 
             expected_text: &"a".repeat(200),
-            expected_cursor: 77,
+            expected_cursor: 75,
             expected_text_position: (0, 1),
         }
         .run();
@@ -2579,7 +2640,7 @@ mod tests {
     fn move_cursor_up_wrapped() {
         TestCase {
             initial_text: &"a".repeat(200),
-            initial_cursor: 77,
+            initial_cursor: 75,
             expected_initial_text_position: (0, 1),
 
             keys: vec![key_event!('k')],
@@ -4730,7 +4791,7 @@ mod diagnostics_tests {
             document.render(&mut buffer);
 
             let cell_at_column = |column: usize| -> &Cell {
-                let gutter_width = document.content_layout().gutter.width;
+                let gutter_width = document.content_layout().gutter.width();
                 &buffer[Position::new(Columns::new(column), Rows::new(0)).col_offset(gutter_width)]
             };
 
@@ -5052,6 +5113,70 @@ mod diagnostics_tests {
             );
         }
     }
+
+    #[test]
+    fn line_severity() {
+        let mut document = doc_with_diagnostics("hello, world!\nhow are you?\nare you okay?\n", &[
+            TestDiagnostic {
+                start: (0, 3),
+                end: (0, 5),
+                severity: DiagnosticSeverity::Hint,
+            },
+            TestDiagnostic {
+                start: (0, 6),
+                end: (0, 7),
+                severity: DiagnosticSeverity::Warning,
+            },
+            TestDiagnostic {
+                start: (1, 2),
+                end: (1, 2),
+                severity: DiagnosticSeverity::Error,
+            },
+            TestDiagnostic {
+                start: (1, 3),
+                end: (1, 8),
+                severity: DiagnosticSeverity::Information,
+            },
+            TestDiagnostic {
+                start: (1, 9),
+                end: (1, 9),
+                severity: DiagnosticSeverity::Warning,
+            },
+        ]);
+
+        let mut buffer = Buffer::new(TEST_DIMENSIONS);
+        document.render(&mut buffer);
+
+        let gutter_0 = &buffer[Position::new(0_usize.into(), 0_usize.into())];
+        assert_eq!(
+            document.diagnostics.line_severity(0.into()),
+            Some(DiagnosticSeverity::Warning)
+        );
+        assert_eq!(gutter_0.content(), "● ");
+        assert_eq!(
+            gutter_0.foreground(),
+            Style::diagnostic_icon(DiagnosticSeverity::Warning)
+                .foreground()
+                .unwrap()
+        );
+
+        let gutter_1 = &buffer[Position::new(0_usize.into(), 1_usize.into())];
+        assert_eq!(
+            document.diagnostics.line_severity(1.into()),
+            Some(DiagnosticSeverity::Error)
+        );
+        assert_eq!(gutter_1.content(), "● ");
+        assert_eq!(
+            gutter_1.foreground(),
+            Style::diagnostic_icon(DiagnosticSeverity::Error)
+                .foreground()
+                .unwrap()
+        );
+
+        let gutter_2 = &buffer[Position::new(0_usize.into(), 2_usize.into())];
+        assert_eq!(gutter_2.content(), "  ");
+        assert_eq!(document.diagnostics.line_severity(2.into()), None);
+    }
 }
 
 #[cfg(test)]
@@ -5149,7 +5274,6 @@ mod proptests {
 
             let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
             prop_assert_eq!(document.selection.cursor, expected);
-
         }
     }
 }

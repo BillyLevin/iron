@@ -104,14 +104,11 @@ impl Style {
     }
 
     pub(crate) const fn diagnostic(severity: DiagnosticSeverity) -> Self {
-        let color = match severity {
-            DiagnosticSeverity::Error => colors::FADED_RED,
-            DiagnosticSeverity::Warning => colors::FADED_YELLOW,
-            DiagnosticSeverity::Information => colors::FADED_BLUE,
-            DiagnosticSeverity::Hint => colors::FADED_GREEN,
-        };
+        Self::new().with_undercurl(diagnostic_color(severity))
+    }
 
-        Self::new().with_undercurl(color)
+    pub(crate) const fn diagnostic_icon(severity: DiagnosticSeverity) -> Self {
+        Self::new().with_fg(diagnostic_color(severity))
     }
 }
 
@@ -159,6 +156,15 @@ impl From<TokenKind> for Style {
             }
             TokenKind::Whitespace => Self::new(),
         }
+    }
+}
+
+const fn diagnostic_color(severity: DiagnosticSeverity) -> Color {
+    match severity {
+        DiagnosticSeverity::Error => colors::FADED_RED,
+        DiagnosticSeverity::Warning => colors::FADED_YELLOW,
+        DiagnosticSeverity::Information => colors::FADED_BLUE,
+        DiagnosticSeverity::Hint => colors::FADED_GREEN,
     }
 }
 
