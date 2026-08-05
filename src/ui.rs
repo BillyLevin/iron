@@ -342,6 +342,16 @@ impl iter::Step for Columns {
     fn backward_checked(start: Self, count: usize) -> Option<Self> {
         start.checked_sub(count)
     }
+
+    fn forward_overflowing(start: Self, count: usize) -> (Self, bool) {
+        let (value, did_overflow) = start.value().overflowing_add(count);
+        (Self::new(value), did_overflow)
+    }
+
+    fn backward_overflowing(start: Self, count: usize) -> (Self, bool) {
+        let (value, did_overflow) = start.value().overflowing_sub(count);
+        (Self::new(value), did_overflow)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -417,6 +427,16 @@ impl iter::Step for Rows {
 
     fn backward_checked(start: Self, count: usize) -> Option<Self> {
         start.checked_sub(count)
+    }
+
+    fn forward_overflowing(start: Self, count: usize) -> (Self, bool) {
+        let (value, did_overflow) = start.value().overflowing_add(count);
+        (Self::new(value), did_overflow)
+    }
+
+    fn backward_overflowing(start: Self, count: usize) -> (Self, bool) {
+        let (value, did_overflow) = start.value().overflowing_sub(count);
+        (Self::new(value), did_overflow)
     }
 }
 
