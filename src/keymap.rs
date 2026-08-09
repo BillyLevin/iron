@@ -215,6 +215,11 @@ impl KeyMap {
         );
 
         map.register(
+            &[key!(' '), key!('e')],
+            DocumentAction::Behavior(BehaviorAction::OpenDiagnosticList),
+        );
+
+        map.register(
             &[key!(Esc)],
             DocumentAction::Behavior(BehaviorAction::ClearInput),
         );
@@ -523,6 +528,7 @@ pub(crate) enum BehaviorAction {
     ClearInput,
     OpenFilePicker,
     AppendText,
+    OpenDiagnosticList,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -594,7 +600,8 @@ impl DocumentAction {
                 | BehaviorAction::SwitchToVisualMode
                 | BehaviorAction::OpenCommandList
                 | BehaviorAction::ClearInput
-                | BehaviorAction::OpenFilePicker,
+                | BehaviorAction::OpenFilePicker
+                | BehaviorAction::OpenDiagnosticList,
             )
             | Self::Movement(
                 MovementAction::MoveDown
@@ -665,6 +672,7 @@ impl DocumentAction {
             Self::Movement(MovementAction::VerticallyCenter) => "Center cursor vertically",
             Self::Behavior(BehaviorAction::OpenFilePicker) => "Open file picker",
             Self::Movement(MovementAction::GoToPairMatch) => "Go to pair match",
+            Self::Behavior(BehaviorAction::OpenDiagnosticList) => "Open line diagnostics",
         }
     }
 }

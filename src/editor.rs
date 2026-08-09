@@ -8,6 +8,7 @@ use crossterm::event::Event;
 use crate::{
     buffer::Buffer,
     commands::CommandList,
+    diagnostic_list::DiagnosticList,
     document::Document,
     file_picker::{
         FileIndex,
@@ -129,8 +130,7 @@ impl Editor {
                                 .version
                                 .is_none_or(|version| version == self.document.version().value())
                         {
-                            self.document
-                                .publish_diagnostics(&params, position_encoding);
+                            self.document.publish_diagnostics(params, position_encoding);
 
                             result = EventOutcome::Handled;
                         }
@@ -170,6 +170,13 @@ impl Editor {
                         LayerKind::FilePicker => {
                             self.layers
                                 .push(Box::new(FilePicker::new(self.file_index.picker())));
+                        }
+                        LayerKind::DiagnosticList => {
+                            let diagnostics = self.document.diagnostics_for_cursor_line();
+
+                            if !diagnostics.is_empty() {
+                                self.layers.push(Box::new(DiagnosticList::new(diagnostics)));
+                            }
                         }
                     }
                 }

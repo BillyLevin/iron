@@ -1,5 +1,8 @@
 use std::{
-    cmp,
+    cmp::{
+        self,
+        Reverse,
+    },
     fmt,
     fs::File,
     io::{
@@ -36,6 +39,7 @@ use crossterm::event::{
 };
 use gen_lsp_types::{
     DiagnosticSeverity,
+    Message,
     PublishDiagnosticsParams,
 };
 use itertools::Itertools as _;
@@ -458,9 +462,11 @@ impl Document {
                 self.go_to_pair_match();
             }
             DocumentAction::Behavior(BehaviorAction::AppendText) => self.append_text(),
-
             DocumentAction::Edit(edit_action) => {
                 self.handle_edit_action(edit_action, action_count, event_context);
+            }
+            DocumentAction::Behavior(BehaviorAction::OpenDiagnosticList) => {
+                Self::open_diagnostic_list(event_context);
             }
         }
 
@@ -1291,6 +1297,10 @@ impl Document {
         event_context.push_action(EditorAction::AddLayer(LayerKind::FilePicker));
     }
 
+    fn open_diagnostic_list(event_context: &mut EventContext) {
+        event_context.push_action(EditorAction::AddLayer(LayerKind::DiagnosticList));
+    }
+
     fn visual_cursor_position_impl(&self) -> Position {
         let content_layout = self.content_layout();
 
@@ -1437,11 +1447,11 @@ impl Document {
 
     pub(crate) fn publish_diagnostics(
         &mut self,
-        params: &PublishDiagnosticsParams,
+        params: PublishDiagnosticsParams,
         position_encoding: PositionEncoding,
     ) {
         self.diagnostics
-            .publish_new(&params.diagnostics, self.text.slice(..), position_encoding);
+            .publish_new(params.diagnostics, self.text.slice(..), position_encoding);
     }
 
     pub(crate) const fn version(&self) -> DocumentVersion {
@@ -1450,6 +1460,25 @@ impl Document {
 
     pub(crate) const fn lsp_id(&self) -> &DocumentLspId {
         &self.lsp_id
+    }
+
+    /// A list of diagnostic messages that are part of the current cursor line.
+    /// Sorted by severity first and then position.
+    pub(crate) fn diagnostics_for_cursor_line(&self) -> Vec<DiagnosticMessage> {
+        self.diagnostics
+            .on_line(
+                self.text
+                    .slice(..)
+                    .line_idx_containing_byte(self.selection.cursor),
+            )
+            .sorted_by_key(|diagnostic| {
+                (
+                    Reverse(diagnostic.severity_priority()),
+                    diagnostic.byte_range.start,
+                )
+            })
+            .map(DiagnosticMessage::from)
+            .collect()
     }
 }
 
@@ -2052,12 +2081,12 @@ impl Diagnostics {
 
     fn publish_new(
         &mut self,
-        diagnostics: &[gen_lsp_types::Diagnostic],
+        diagnostics: Vec<gen_lsp_types::Diagnostic>,
         text: RopeSlice<'_>,
         position_encoding: PositionEncoding,
     ) {
         let mut entries: Vec<Diagnostic> = diagnostics
-            .iter()
+            .into_iter()
             .filter_map(|diagnostic| {
                 Diagnostic::new(diagnostic, position_encoding, text)
                     .inspect_err(|err| log::warn!("invalid diagnostic: {err}"))
@@ -2238,7 +2267,8 @@ impl Diagnostics {
 }
 
 #[derive(Debug)]
-struct Diagnostic {
+pub(crate) struct Diagnostic {
+    message: String,
     severity: DiagnosticSeverity,
     byte_range: Range<ByteIndex>,
     line_range: Range<LineIndex>,
@@ -2246,7 +2276,7 @@ struct Diagnostic {
 
 impl Diagnostic {
     fn new(
-        diagnostic: &gen_lsp_types::Diagnostic,
+        diagnostic: gen_lsp_types::Diagnostic,
         position_encoding: PositionEncoding,
         text: RopeSlice<'_>,
     ) -> anyhow::Result<Self> {
@@ -2259,10 +2289,19 @@ impl Diagnostic {
         };
 
         Ok(Self {
+            message: match diagnostic.message {
+                Message::String(value) => value,
+                // TODO: render markdown
+                Message::MarkupContent(content) => content.value,
+            },
             severity: diagnostic.severity.unwrap_or(DiagnosticSeverity::Error),
             byte_range,
             line_range: start_line..(end_line + 1),
         })
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.message
     }
 
     const fn severity_priority(&self) -> u8 {
@@ -2281,6 +2320,31 @@ impl Diagnostic {
 struct DiagnosticSpan {
     range: Range<ByteIndex>,
     severity: DiagnosticSeverity,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DiagnosticMessage {
+    message: String,
+    severity: DiagnosticSeverity,
+}
+
+impl DiagnosticMessage {
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub(crate) const fn severity(&self) -> DiagnosticSeverity {
+        self.severity
+    }
+}
+
+impl From<&Diagnostic> for DiagnosticMessage {
+    fn from(diagnostic: &Diagnostic) -> Self {
+        Self {
+            message: diagnostic.message().to_owned(),
+            severity: diagnostic.severity,
+        }
+    }
 }
 
 fn lsp_to_byte_range(
@@ -4807,7 +4871,7 @@ mod diagnostics_tests {
     fn doc_with_diagnostics(contents: &str, diagnostics: &[TestDiagnostic]) -> Document {
         let mut document = doc(contents);
         document.publish_diagnostics(
-            &PublishDiagnosticsParams {
+            PublishDiagnosticsParams {
                 uri: document.lsp_id().url().clone(),
                 version: None,
                 diagnostics: diagnostics

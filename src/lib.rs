@@ -3,6 +3,7 @@
 pub mod args;
 pub mod buffer;
 pub mod commands;
+pub mod diagnostic_list;
 pub mod document;
 pub mod editor;
 pub mod file_picker;

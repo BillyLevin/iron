@@ -51,6 +51,7 @@ pub(crate) trait Layer {
 pub(crate) enum LayerKind {
     CommandList,
     FilePicker,
+    DiagnosticList,
 }
 
 /// A structure representing (unsurprisingly) a rectangular region of the
