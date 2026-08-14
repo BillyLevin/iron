@@ -90,6 +90,7 @@ use crate::{
         RopeSliceExt as _,
         TAB_VISUAL_WIDTH,
         VisualLineInfo,
+        number_width,
         text_width,
     },
     ui::{
@@ -1650,7 +1651,7 @@ struct ContentLayout {
 impl ContentLayout {
     fn new(container: &Rectangle, line_count: usize) -> Self {
         let gutter = GutterRow {
-            line_number_width: Columns::new(cmp::max(2, number_of_digits(line_count))),
+            line_number_width: cmp::max(Columns::new(2), number_width(line_count)),
         };
 
         Self {
@@ -1825,10 +1826,6 @@ impl Selection {
     const fn reverse(&mut self) {
         mem::swap(&mut self.anchor, &mut self.cursor);
     }
-}
-
-fn number_of_digits(value: usize) -> usize {
-    (value.checked_ilog10().unwrap_or(0) + 1) as usize
 }
 
 #[derive(Debug, Clone, Copy)]

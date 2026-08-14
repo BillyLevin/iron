@@ -562,3 +562,8 @@ pub(crate) fn text_width(text: &str) -> Columns {
         })
         .sum()
 }
+
+/// Works out the width of an integer (one column for each digit).
+pub(crate) fn number_width(value: usize) -> Columns {
+    Columns::new((value.checked_ilog10().unwrap_or(0) + 1) as usize)
+}
