@@ -211,7 +211,7 @@ impl Document {
         let (keys, count) = self.key_sequence.parse();
 
         let maybe_action = match keymap.get(&keys) {
-            Some(&KeyMap::BindingPart { .. }) => {
+            Some(&KeyMap::BindingPart { map: _ }) => {
                 // the key sequence could form a binding with subsequent key events. since
                 // we'd already pushed the latest event to the sequence store, we are done
                 None
@@ -269,7 +269,7 @@ impl Document {
             |(hints, max_width, max_height), (event, map_node)| {
                 let key = event.to_string();
                 let label = match *map_node {
-                    KeyMap::BindingPart { .. } => "...",
+                    KeyMap::BindingPart { map: _ } => "...",
                     KeyMap::Action(action) => action.label(),
                 };
 

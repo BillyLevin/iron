@@ -640,7 +640,7 @@ impl LanguageServer {
     const fn capabilities(&self) -> Option<Capabilities> {
         match self.state {
             ServerState::Ready { capabilities } => Some(capabilities),
-            ServerState::Initializing { .. } => None,
+            ServerState::Initializing { queue: _ } => None,
         }
     }
 
@@ -664,7 +664,7 @@ impl LanguageServer {
 
         let queue = match self.state {
             ServerState::Initializing { ref mut queue } => mem::take(queue),
-            ServerState::Ready { .. } => {
+            ServerState::Ready { capabilities: _ } => {
                 return Err(ServerError::Fatal(anyhow::anyhow!(
                     "received initialization response in invalid server state"
                 )));
@@ -979,7 +979,10 @@ impl LanguageServerId {
     fn try_from_action(action: &LspAction, workspace_root: &WorkspaceRoot) -> Option<Self> {
         let id = match *action {
             LspAction::OpenDocument(ref snapshot)
-            | LspAction::ChangeDocument { ref snapshot, .. }
+            | LspAction::ChangeDocument {
+                ref snapshot,
+                edit: _,
+            }
             | LspAction::SaveDocument(ref snapshot) => &snapshot.id,
             LspAction::CloseDocument(ref id) => id,
         };
