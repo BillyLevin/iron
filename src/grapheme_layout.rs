@@ -47,7 +47,7 @@ where
 
         let (position, wrap_status) = match self.wrap_behavior {
             WrapBehavior::NoWrap => (self.position, WrapOutcome::NotWrapped),
-            WrapBehavior::Wrap { max_width } => self.position.wrap(max_width),
+            WrapBehavior::Wrap { max_width } => self.position.wrap(&grapheme, max_width),
         };
 
         self.position = position.advance(&grapheme);
@@ -96,5 +96,33 @@ impl VisualGrapheme<'_> {
 
     pub(crate) const fn byte_index(&self) -> ByteIndex {
         self.byte_index
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::{
+        Columns,
+        Rows,
+    };
+
+    #[test]
+    fn wide_grapheme_wraps_before_it_exceeds_the_maximum_width() {
+        let max_width = NonZeroColumns::new(Columns::new(2)).expect("width is not zero");
+        let graphemes =
+            GraphemeLayoutIterator::new(["a", "😀"].into_iter(), WrapBehavior::Wrap {
+                max_width,
+            });
+
+        assert_eq!(
+            graphemes
+                .map(|grapheme| grapheme.position())
+                .collect::<Vec<_>>(),
+            vec![
+                Position::new(Columns::new(0), Rows::new(0)),
+                Position::new(Columns::new(0), Rows::new(1))
+            ]
+        );
     }
 }

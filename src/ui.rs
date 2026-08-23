@@ -484,8 +484,12 @@ impl Position {
     }
 
     #[must_use]
-    pub(crate) fn wrap(&self, max_width: NonZeroColumns) -> (Self, WrapOutcome) {
-        if self.left() < max_width.get() {
+    pub(crate) fn wrap(
+        &self,
+        grapheme: &Grapheme,
+        max_width: NonZeroColumns,
+    ) -> (Self, WrapOutcome) {
+        if self.left() + text_width(grapheme.as_str()) <= max_width.get() {
             (*self, WrapOutcome::NotWrapped)
         } else {
             (
