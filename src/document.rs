@@ -647,7 +647,7 @@ impl Document {
                 .tuple_windows()
                 .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
                 .try_fold(self.selection.cursor, |index, (left, right)| {
-                    let next_index = index.saturating_sub(left.ch().len_utf8());
+                    let next_index = index.saturating_sub(right.ch().len_utf8());
 
                     if right.is_word_start(left) {
                         ControlFlow::Break(next_index)
@@ -1039,7 +1039,7 @@ impl Document {
                     .tuple_windows()
                     .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
                     .scan(cursor, |index, (left, right)| {
-                        *index = index.saturating_sub(left.ch().len_utf8());
+                        *index = index.saturating_sub(right.ch().len_utf8());
                         Some(right.is_word_start(left).then_some(*index))
                     })
                     .flatten()
@@ -2386,6 +2386,7 @@ mod tests {
         }
     }
 
+    #[track_caller]
     fn assert_text_position(expected: (usize, usize), label: &str, document: &Document) {
         let actual = document.visual_cursor_position().unwrap();
 
@@ -2395,6 +2396,7 @@ mod tests {
         assert_eq!(actual, expected, "{label} did not match");
     }
 
+    #[track_caller]
     fn assert_char_boundary(doc: &Document) {
         assert!(
             doc.text.is_char_boundary(doc.selection.cursor.value()),
@@ -3209,6 +3211,22 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_prev_word_start_varying_char_lengths() {
+        TestCase {
+            initial_text: "-こんにちは",
+            initial_cursor: 13,
+            expected_initial_text_position: (9, 0),
+
+            keys: vec![key_event!('b')],
+
+            expected_text: "-こんにちは",
+            expected_cursor: 1,
+            expected_text_position: (1, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn insert() {
         TestCase {
             initial_text: "lo",
@@ -3976,6 +3994,22 @@ mod tests {
     }
 
     #[test]
+    fn delete_to_prev_word_start_varying_char_lengths() {
+        TestCase {
+            initial_text: "-こんにちは",
+            initial_cursor: 13,
+            expected_initial_text_position: (9, 0),
+
+            keys: vec![key_event!('d'), key_event!('b')],
+
+            expected_text: "-は",
+            expected_cursor: 1,
+            expected_text_position: (1, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn append_text() {
         TestCase {
             initial_text: "Hello",
@@ -4323,6 +4357,27 @@ mod tests {
             expected_text: "Here!!!",
             expected_cursor: 1,
             expected_text_position: (1, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_prev_word_start_varying_char_lengths() {
+        TestCase {
+            initial_text: "-こんにちは",
+            initial_cursor: 13,
+            expected_initial_text_position: (9, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('b'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "-hiは",
+            expected_cursor: 3,
+            expected_text_position: (3, 0),
         }
         .run();
     }

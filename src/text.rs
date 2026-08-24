@@ -536,6 +536,10 @@ impl RightChar {
 
         left_kind != right_kind && right_kind != WordBoundaryKind::Whitespace
     }
+
+    pub(crate) const fn ch(self) -> char {
+        self.0
+    }
 }
 
 #[derive(Debug)]
