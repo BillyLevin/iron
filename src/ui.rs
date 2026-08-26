@@ -206,24 +206,15 @@ impl Rectangle {
         self.right() > position.left() && self.bottom() > position.top()
     }
 
-    /// Gets the inner [`Rectangle`] of the `self`, assuming that it's bordered.
-    /// This should only be called if `self` has been validated to be large
-    /// enough to have a border.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self.width() < 3` or `self.height() < 3`.
-    pub(crate) fn clip_border(&self) -> Self {
-        assert!(
-            self.width() >= Columns::new(3),
-            "rectangle must be at least 3 cells wide in order to have a border"
-        );
-        assert!(
-            self.height() >= Rows::new(3),
-            "rectangle must be at least 3 cells high in order to have a border"
-        );
+    /// Gets the inner [`Rectangle`] of `self` after removing its border. If
+    /// there isn't room to have a border and content, returns [`None`]
+    /// instead.
+    pub(crate) fn clip_border(&self) -> Option<Self> {
+        if self.width() < Columns::new(3) || self.height() < Rows::new(3) {
+            return None;
+        }
 
-        Self {
+        Some(Self {
             offset: self
                 .offset
                 .offset(Position::new(Columns::new(1), Rows::new(1))),
@@ -231,7 +222,7 @@ impl Rectangle {
                 self.width() - Columns::new(2),
                 self.height() - Rows::new(2),
             ),
-        }
+        })
     }
 }
 
@@ -298,8 +289,8 @@ impl Columns {
     }
 
     #[must_use = "`saturating_sub` does not mutate the current value, but returns a new value"]
-    pub(crate) const fn saturating_sub(self, rhs: Self) -> Self {
-        Self(self.0.saturating_sub(rhs.0))
+    pub(crate) fn saturating_sub(self, rhs: impl Into<usize>) -> Self {
+        Self(self.0.saturating_sub(rhs.into()))
     }
 
     fn checked_add(self, rhs: usize) -> Option<Self> {

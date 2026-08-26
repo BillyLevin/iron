@@ -29,7 +29,10 @@ use fff_search::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
-    buffer::Buffer,
+    buffer::{
+        Buffer,
+        DrawBorderOutcome,
+    },
     editor::{
         EditorAction,
         EventContext,
@@ -233,6 +236,8 @@ impl FilePicker {
 
 impl Layer for FilePicker {
     fn render(&mut self, buffer: &mut Buffer) {
+        self.cursor_position = None;
+
         let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
 
         let rectangle = app_rectangle.at_center(Dimensions::new(
@@ -244,7 +249,25 @@ impl Layer for FilePicker {
 
         let (input_rectangle, list_rectangle) = rectangle.split_at_row(Rows::new(3));
 
-        let input_rectangle = buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
+        let input_rectangle = match buffer.draw_border(input_rectangle, Style::COMMAND_LIST_BORDER)
+        {
+            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+        };
+
+        let (list_rectangle, preview_rectangle) =
+            list_rectangle.split_at_column(list_rectangle.width() / 2);
+
+        let list_rectangle = match buffer.draw_border(list_rectangle, Style::COMMAND_LIST_BORDER) {
+            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+        };
+
+        let preview_rectangle =
+            match buffer.draw_border(preview_rectangle, Style::COMMAND_LIST_BORDER) {
+                DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+                DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+            };
 
         let search_text = self
             .search_term
@@ -259,13 +282,8 @@ impl Layer for FilePicker {
 
         self.cursor_position = Some(input_rectangle.offset().col_offset(cmp::min(
             text_width(search_text),
-            input_rectangle.width() - Columns::new(1),
+            input_rectangle.width().saturating_sub(1_usize),
         )));
-
-        let (list_rectangle, preview_rectangle) =
-            list_rectangle.split_at_column(list_rectangle.width() / 2);
-
-        let list_rectangle = buffer.draw_border(&list_rectangle, Style::COMMAND_LIST_BORDER);
 
         self.recalculate_scroll(&list_rectangle);
 
@@ -287,8 +305,6 @@ impl Layer for FilePicker {
                 .collect(),
             &list_rectangle,
         );
-
-        let preview_rectangle = buffer.draw_border(&preview_rectangle, Style::COMMAND_LIST_BORDER);
 
         buffer.render_lines(
             self.files

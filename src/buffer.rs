@@ -74,19 +74,17 @@ impl Buffer {
     /// Draws a border on the edges of the given `rectangle` if there's room to
     /// do so.
     ///
-    /// # Panics
-    ///
-    /// Panics if:
-    ///   * `rectangle.width() >= Columns::new(3)`, or:
-    ///   * `rectangle.height() >= Rows::new(3)`
-    ///
-    /// because there wouldn't be room to draw a border.
-    ///
     /// # Returns
     ///
-    /// For convenience, returns the inner rectangle that doesn't include the
-    /// border.
-    pub(crate) fn draw_border(&mut self, rectangle: &Rectangle, style: Style) -> Rectangle {
+    /// - The inner rectangle if a border was drawn,
+    /// - The original rectangle if the border was not drawn
+    pub(crate) fn draw_border(&mut self, rectangle: Rectangle, style: Style) -> DrawBorderOutcome {
+        let Some(inner_rectangle) = rectangle.clip_border() else {
+            return DrawBorderOutcome::NotDrawn {
+                original_rectangle: rectangle,
+            };
+        };
+
         assert!(
             rectangle.width() >= Columns::new(3),
             "rectangle must be at least 3 cells wide in order to have a border"
@@ -114,7 +112,7 @@ impl Buffer {
             .set_content(&format!("└{}┘", "─".repeat(rectangle.width().value() - 2)))
             .set_style(style);
 
-        rectangle.clip_border()
+        DrawBorderOutcome::Drawn { inner_rectangle }
     }
 
     /// Renders each given [`Span`] **in order** inside the `rectangle`. See
@@ -191,6 +189,12 @@ impl Buffer {
             (current_rectangle, rest_rectangle) = rest_rectangle.split_at_row(Rows::new(1));
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum DrawBorderOutcome {
+    Drawn { inner_rectangle: Rectangle },
+    NotDrawn { original_rectangle: Rectangle },
 }
 
 impl ops::Index<Position> for Buffer {
@@ -285,5 +289,134 @@ impl Cell {
 impl Default for Cell {
     fn default() -> Self {
         Self::new(" ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt;
+
+    use super::*;
+
+    #[derive(PartialEq, Eq)]
+    struct TestRenderedBuffer(Vec<String>);
+
+    impl fmt::Debug for TestRenderedBuffer {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            writeln!(formatter)?;
+
+            for row in &self.0 {
+                writeln!(formatter, "{row}")?;
+            }
+
+            writeln!(formatter)
+        }
+    }
+
+    impl From<&[&str]> for TestRenderedBuffer {
+        fn from(rows: &[&str]) -> Self {
+            Self(rows.iter().map(|row| String::from(*row)).collect())
+        }
+    }
+
+    macro_rules! assert_buffer_eq {
+        ($buffer:expr, $expected:expr $(,)?) => {
+            assert_eq!(
+                rendered_buffer($buffer),
+                TestRenderedBuffer::from(&($expected)[..])
+            );
+        };
+    }
+
+    fn rendered_buffer(buffer: &Buffer) -> TestRenderedBuffer {
+        let row_width = buffer.dimensions().width().value();
+
+        TestRenderedBuffer(
+            buffer
+                .cells()
+                .chunks(row_width)
+                .map(|cells| {
+                    let mut row = String::new();
+                    let mut cell_index = 0;
+
+                    while cell_index < cells.len() {
+                        let cell = &cells[cell_index];
+                        let cell_width = cell.width().value();
+
+                        assert!(cell_width > 0, "buffer cells must have a non-zero width");
+
+                        row.push_str(&cell.content().replace(' ', "·"));
+                        cell_index += cell_width;
+                    }
+
+                    row
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn draws_border_if_there_is_room() {
+        let buffer_dimensions = Dimensions::new(Columns::new(10), Rows::new(10));
+        let mut buffer = Buffer::new(buffer_dimensions);
+        let buffer_rectangle = Rectangle::from_dimensions(buffer_dimensions);
+
+        let rectangle_dimensions = Dimensions::new(
+            buffer_dimensions.width() - Columns::new(2),
+            buffer_dimensions.height() - Rows::new(2),
+        );
+
+        let rectangle = match buffer.draw_border(
+            buffer_rectangle.at_center(rectangle_dimensions),
+            Style::COMMAND_LIST_BORDER,
+        ) {
+            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+        };
+
+        buffer.render_lines(vec![Line::new(vec![Span::new("Hello")])], &rectangle);
+
+        assert_buffer_eq!(&buffer, [
+            "··········",
+            "·┌──────┐·",
+            "·│Hello·│·",
+            "·│······│·",
+            "·│······│·",
+            "·│······│·",
+            "·│······│·",
+            "·│······│·",
+            "·└──────┘·",
+            "··········",
+        ]);
+    }
+
+    #[test]
+    fn does_not_draw_border_if_there_is_no_room() {
+        let buffer_dimensions = Dimensions::new(Columns::new(4), Rows::new(4));
+        let mut buffer = Buffer::new(buffer_dimensions);
+        let buffer_rectangle = Rectangle::from_dimensions(buffer_dimensions);
+
+        let rectangle_dimensions = Dimensions::new(
+            buffer_dimensions.width() - Columns::new(2),
+            buffer_dimensions.height() - Rows::new(2),
+        );
+
+        let rectangle = match buffer.draw_border(
+            buffer_rectangle.at_center(rectangle_dimensions),
+            Style::COMMAND_LIST_BORDER,
+        ) {
+            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+        };
+
+        buffer.render_lines(vec![Line::new(vec![Span::new("Hi")])], &rectangle);
+
+        #[rustfmt::skip]
+        assert_buffer_eq!(&buffer, [
+            "····",
+            "·Hi·",
+            "····",
+            "····",
+        ]);
     }
 }

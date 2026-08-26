@@ -17,7 +17,10 @@ use nucleo_matcher::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
-    buffer::Buffer,
+    buffer::{
+        Buffer,
+        DrawBorderOutcome,
+    },
     editor::{
         EditorAction,
         EventContext,
@@ -154,9 +157,7 @@ impl CommandList {
 
 impl Layer for CommandList {
     fn render(&mut self, buffer: &mut Buffer) {
-        // TODO: figure out what to do when there's not enough room. i don't care about
-        // it not working since the screen should never be that tiny, but i'd
-        // rather the program didn't crash in that case.
+        self.cursor_position = None;
 
         let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
 
@@ -169,7 +170,17 @@ impl Layer for CommandList {
 
         let (input_rectangle, commands_rectangle) = rectangle.split_at_row(Rows::new(3));
 
-        let input_text_rectangle = buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
+        let input_text_rectangle =
+            match buffer.draw_border(input_rectangle, Style::COMMAND_LIST_BORDER) {
+                DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+                DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+            };
+
+        let commands_rectangle =
+            match buffer.draw_border(commands_rectangle, Style::COMMAND_LIST_BORDER) {
+                DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
+                DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
+            };
 
         let text = self
             .search_term
@@ -184,11 +195,8 @@ impl Layer for CommandList {
 
         self.cursor_position = Some(input_text_rectangle.offset().col_offset(cmp::min(
             text_width(text),
-            input_text_rectangle.width() - Columns::new(1),
+            input_text_rectangle.width().saturating_sub(1_usize),
         )));
-
-        let commands_rectangle =
-            buffer.draw_border(&commands_rectangle, Style::COMMAND_LIST_BORDER);
 
         // TODO: check whether this re-allocates because of the `.collect()` (match_list
         // returns a Vec rather than iterator)
