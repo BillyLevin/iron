@@ -316,6 +316,14 @@ impl ops::AddAssign<usize> for Columns {
     }
 }
 
+impl ops::Sub<usize> for Columns {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Self(self.0 - rhs)
+    }
+}
+
 impl iter::Step for Columns {
     fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
         if start <= end {
@@ -399,6 +407,14 @@ impl Rows {
 
     fn checked_sub(self, rhs: usize) -> Option<Self> {
         self.value().checked_sub(rhs).map(Self::new)
+    }
+}
+
+impl ops::Sub<usize> for Rows {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Self(self.0 - rhs)
     }
 }
 
@@ -494,9 +510,9 @@ impl Position {
     }
 
     #[must_use]
-    pub(crate) fn col_offset(&self, gutter_width: Columns) -> Self {
+    pub(crate) fn col_offset(&self, offset: Columns) -> Self {
         Self {
-            left: self.left + gutter_width,
+            left: self.left + offset,
             top: self.top,
         }
     }

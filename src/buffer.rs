@@ -95,22 +95,36 @@ impl Buffer {
         );
 
         let top_left = rectangle.offset();
-        self[top_left]
-            .set_content(&format!("┌{}┐", "─".repeat(rectangle.width().value() - 2)))
-            .set_style(style);
+        self[top_left].set_content("┌").set_style(style);
 
-        for row in (1..rectangle.height().value() - 1).map(Rows::new) {
+        for offset in Columns::new(1)..=(rectangle.width() - 2_usize) {
+            self[top_left.col_offset(offset)]
+                .set_content("─")
+                .set_style(style);
+        }
+
+        let top_right = top_left.col_offset(rectangle.width() - 1_usize);
+        self[top_right].set_content("┐").set_style(style);
+
+        for row in Rows::new(1)..(rectangle.height() - 1_usize) {
             let left = top_left.row_offset(row);
-            let right = top_left.offset(Position::new(rectangle.width() - Columns::new(1), row));
+            let right = left.col_offset(rectangle.width() - 1);
 
             self[left].set_content("│").set_style(style);
             self[right].set_content("│").set_style(style);
         }
 
-        let bottom_left = top_left.row_offset(rectangle.height() - Rows::new(1));
-        self[bottom_left]
-            .set_content(&format!("└{}┘", "─".repeat(rectangle.width().value() - 2)))
-            .set_style(style);
+        let bottom_left = top_left.row_offset(rectangle.height() - 1_usize);
+        self[bottom_left].set_content("└").set_style(style);
+
+        for offset in Columns::new(1)..=(rectangle.width() - 2_usize) {
+            self[bottom_left.col_offset(offset)]
+                .set_content("─")
+                .set_style(style);
+        }
+
+        let bottom_right = bottom_left.col_offset(rectangle.width() - 1_usize);
+        self[bottom_right].set_content("┘").set_style(style);
 
         DrawBorderOutcome::Drawn { inner_rectangle }
     }
