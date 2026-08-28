@@ -978,7 +978,9 @@ impl Document {
 
     fn delete_whole_word(&self) -> Transaction {
         let cursor = self.selection.cursor;
-        let current_ch = self.text.char(cursor.value());
+        let Ok(current_ch) = self.text.get_char(cursor.value()) else {
+            return Transaction::new(None, self.selection);
+        };
 
         let reversed_chars = self
             .text
@@ -3955,6 +3957,22 @@ mod tests {
             keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
 
             expected_text: " there!!!",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_whole_word_empty() {
+        TestCase {
+            initial_text: "",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![key_event!('d'), key_event!('i'), key_event!('w')],
+
+            expected_text: "",
             expected_cursor: 0,
             expected_text_position: (0, 0),
         }
