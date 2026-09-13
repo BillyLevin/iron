@@ -194,7 +194,7 @@ impl Buffer {
         position.top().value() * self.dimensions.width().value() + position.left().value()
     }
 
-    pub(crate) fn render_lines(&mut self, lines: Vec<Line>, rectangle: &Rectangle) {
+    pub(crate) fn render_lines(&mut self, lines: &[Line], rectangle: &Rectangle) {
         let (mut current_rectangle, mut rest_rectangle) = rectangle.split_at_row(Rows::new(1));
 
         for line in lines {
@@ -388,7 +388,7 @@ mod tests {
             DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
         };
 
-        buffer.render_lines(vec![Line::new(vec![Span::new("Hello")])], &rectangle);
+        buffer.render_lines(&[Line::new(vec![Span::new("Hello")])], &rectangle);
 
         assert_buffer_eq!(&buffer, [
             "··········",
@@ -423,7 +423,7 @@ mod tests {
             DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
         };
 
-        buffer.render_lines(vec![Line::new(vec![Span::new("Hi")])], &rectangle);
+        buffer.render_lines(&[Line::new(vec![Span::new("Hi")])], &rectangle);
 
         #[rustfmt::skip]
         assert_buffer_eq!(&buffer, [

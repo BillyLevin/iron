@@ -198,8 +198,8 @@ impl Layer for CommandList {
             input_text_rectangle.width().saturating_sub(1_usize),
         )));
 
-        // TODO: check whether this re-allocates because of the `.collect()` (match_list
-        // returns a Vec rather than iterator)
+        // TODO: check whether this re-allocates because of the `.collect()`
+        // (match_list returns a Vec rather than iterator)
         self.visible_commands = Pattern::parse(
             &self.search_term,
             CaseMatching::Ignore,
@@ -214,7 +214,8 @@ impl Layer for CommandList {
         .collect();
 
         buffer.render_lines(
-            self.visible_commands
+            &self
+                .visible_commands
                 .iter()
                 .map(|i| &COMMANDS[*i])
                 .enumerate()
@@ -227,7 +228,7 @@ impl Layer for CommandList {
 
                     Line::new(vec![span])
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
             &commands_rectangle,
         );
     }

@@ -24,11 +24,10 @@ use crate::{
         Dimensions,
         Layer,
         LayerKind,
-        Line,
         Position,
         Rectangle,
         Rows,
-        Span,
+        WrappedLineLayout,
     },
 };
 
@@ -54,18 +53,42 @@ impl DiagnosticList {
 impl Layer for DiagnosticList {
     fn render(&mut self, buffer: &mut Buffer) {
         let diagnostics_count = self.diagnostics.len();
+        let max_number_width = number_width(diagnostics_count);
 
         let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
 
         let max_height = app_rectangle.height();
         let min_height = Rows::new(5);
-        // +2 for the border
-        let desired_height = Rows::new(diagnostics_count + 2);
+
+        let width = app_rectangle.width() * 8 / 10;
+        let (content_width, border_height) =
+            Rectangle::from_dimensions(Dimensions::new(width, max_height))
+                .clip_border()
+                .map_or((width, Rows::new(0)), |rectangle| {
+                    (rectangle.width(), Rows::new(2))
+                });
+
+        let lines = self
+            .diagnostics
+            .iter()
+            .enumerate()
+            .map(|(index, diagnostic)| {
+                let line_number = index + 1;
+                let padding = max_number_width - number_width(line_number);
+
+                let text = format!("{line_number}.{:padding$} ", "", padding = padding.value())
+                    + diagnostic.message();
+
+                (text, Style::diagnostic(diagnostic.severity()))
+            });
+
+        let line_layout = WrappedLineLayout::new(lines, content_width);
+
+        let desired_height = line_layout.height() + border_height;
 
         let height = cmp::min(max_height, cmp::max(min_height, desired_height));
 
-        let rectangle =
-            app_rectangle.at_center(Dimensions::new(app_rectangle.width() * 8 / 10, height));
+        let rectangle = app_rectangle.at_center(Dimensions::new(width, height));
 
         buffer.clear_and_style_rectangle(&rectangle, Style::COMMAND_LIST);
         let rectangle = match buffer.draw_border(rectangle, Style::COMMAND_LIST_BORDER) {
@@ -73,29 +96,13 @@ impl Layer for DiagnosticList {
             DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
         };
 
-        let max_number_width = number_width(diagnostics_count);
-
-        buffer.render_lines(
-            self.diagnostics
-                .iter()
-                .enumerate()
-                .map(|(index, diagnostic)| {
-                    let line_number = index + 1;
-                    let padding = max_number_width - number_width(line_number);
-
-                    Line::new(vec![
-                        Span::new(format!(
-                            "{line_number}.{:padding$} ",
-                            "",
-                            padding = padding.value()
-                        )),
-                        Span::new(diagnostic.message())
-                            .with_style(Style::diagnostic(diagnostic.severity())),
-                    ])
-                })
-                .collect(),
-            &rectangle,
+        assert_eq!(
+            rectangle.width(),
+            content_width,
+            "`content_width` must have been calculated correctly"
         );
+
+        buffer.render_lines(line_layout.lines(), &rectangle);
     }
 
     fn handle_event(

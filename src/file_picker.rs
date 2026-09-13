@@ -288,7 +288,8 @@ impl Layer for FilePicker {
         self.recalculate_scroll(&list_rectangle);
 
         buffer.render_lines(
-            self.files
+            &self
+                .files
                 .iter()
                 .enumerate()
                 .skip(self.scroll_offset.value())
@@ -302,12 +303,13 @@ impl Layer for FilePicker {
                         },
                     ))
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
             &list_rectangle,
         );
 
         buffer.render_lines(
-            self.files
+            &self
+                .files
                 .get(self.selected_index)
                 .map_or_else(
                     || Ok(vec![Line::new(vec![Span::new("No file selected")])]),

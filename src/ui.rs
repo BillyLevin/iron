@@ -1,11 +1,13 @@
 use std::{
     borrow::Cow,
     iter,
+    mem,
     num::NonZeroUsize,
     ops,
 };
 
 use crossterm::event::Event;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
     buffer::Buffer,
@@ -605,6 +607,60 @@ pub(crate) fn spans_width(spans: &[Span]) -> Columns {
 pub(crate) enum Alignment {
     Left,
     Right,
+}
+
+pub(crate) struct WrappedLineLayout<'text> {
+    lines: Vec<Line<'text>>,
+}
+
+impl<'text> WrappedLineLayout<'text> {
+    pub(crate) fn new(lines: impl Iterator<Item = (String, Style)>, max_width: Columns) -> Self {
+        let mut wrapped_lines = Vec::new();
+
+        let Some(max_width) = NonZeroColumns::new(max_width) else {
+            return Self { lines: Vec::new() };
+        };
+
+        for (text, style) in lines {
+            let mut position = Position::default();
+            let mut current_line = String::new();
+
+            for grapheme in text.graphemes(true).map(Grapheme::from) {
+                let wrap_status: WrapOutcome;
+                (position, wrap_status) = position.wrap(&grapheme, max_width);
+
+                match wrap_status {
+                    WrapOutcome::Wrapped => {
+                        wrapped_lines.push(Line::new(vec![
+                            Span::new(mem::take(&mut current_line)).with_style(style),
+                        ]));
+                        current_line.push_str(grapheme.as_str());
+                    }
+                    WrapOutcome::NotWrapped => {
+                        current_line.push_str(grapheme.as_str());
+                    }
+                }
+
+                position = position.advance(&grapheme);
+            }
+
+            if !current_line.is_empty() {
+                wrapped_lines.push(Line::new(vec![Span::new(current_line).with_style(style)]));
+            }
+        }
+
+        Self {
+            lines: wrapped_lines,
+        }
+    }
+
+    pub(crate) const fn height(&self) -> Rows {
+        Rows::new(self.lines.len())
+    }
+
+    pub(crate) fn lines(&self) -> &[Line<'text>] {
+        &self.lines
+    }
 }
 
 #[cfg(test)]
