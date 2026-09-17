@@ -141,10 +141,12 @@ impl RustLexer {
     }
 
     fn read_number(&mut self) -> TokenKind {
-        // TODO: could create `self.eat_while_with_peek` helper if this comes up again
+        // TODO: could create `self.eat_while_with_peek` helper if this comes up
+        // again
         while let Some(ch) = self.source.current {
-            // NOTE: not technically correct to allow all letters but i haven't found a case
-            // where this causes anything weird to happen with the highlights
+            // NOTE: not technically correct to allow all letters but i haven't
+            // found a case where this causes anything weird to
+            // happen with the highlights
             if !(ch.is_ascii_alphanumeric()
                 || ch == '_'
                 || (ch == '.' && self.source.peek() != Some('.')))
@@ -176,8 +178,8 @@ impl RustLexer {
             }
         });
 
-        // we don't `self.source.assert('"')` here because the string may have just
-        // never been closed
+        // we don't `self.source.assert('"')` here because the string may have
+        // just never been closed
         self.source.next_char();
 
         TokenKind::String
@@ -369,8 +371,9 @@ impl RustLexer {
         }
 
         // we'll assume it's a lifetime
-        // TODO: it could also be intended as a string but they accidentally put it in
-        // single quotes: do we want to highlight that differently?
+        // TODO: it could also be intended as a string but they accidentally put
+        // it in single quotes: do we want to highlight that
+        // differently?
         self.source
             .eat_while(|ch| ch.is_ascii_alphanumeric() || ch == '_');
 
@@ -588,8 +591,8 @@ impl RustLexer {
         let next_is_path_separator =
             self.source.current == Some(':') && self.source.peek() == Some(':');
 
-        // last item in a path is probably an enum member, assuming we're not in a use
-        // declaration
+        // last item in a path is probably an enum member, assuming we're not in
+        // a use declaration
         if self.last_significant == SignificantKind::PathSeparator && !next_is_path_separator {
             return true;
         }

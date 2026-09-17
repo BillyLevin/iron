@@ -109,8 +109,8 @@ impl TomlLexer {
             }
         });
 
-        // we don't `self.assert('"')` here because the string may have just never been
-        // closed
+        // we don't `self.assert('"')` here because the string may have just
+        // never been closed
         self.source.next_char();
 
         TokenKind::String

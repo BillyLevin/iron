@@ -123,8 +123,9 @@ impl Editor {
                         params,
                         position_encoding,
                     } => {
-                        // TODO: when we support multiple open documents, match up
-                        // `params.uri` with the correct doc
+                        // TODO: when we support multiple open documents, match
+                        // up `params.uri` with the
+                        // correct doc
                         if self.document.url() == &params.uri
                             && params
                                 .version

@@ -163,9 +163,9 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     fn line_count(&self) -> usize {
         // NOTE: we are doing this because of:
         // https://docs.rs/ropey/2.0.0-beta.1/ropey/#a-note-about-line-breaks. if the file
-        // has a trailing line break, ropey counts that in the line count, but we want
-        // to act as if it doesn't exist. so, if the last line is empty, we'll
-        // lower the line count
+        // has a trailing line break, ropey counts that in the line count, but
+        // we want to act as if it doesn't exist. so, if the last line
+        // is empty, we'll lower the line count
         let lines = self.len_lines(LINE_TYPE);
 
         let last_line = self.line(lines.saturating_sub(1), LINE_TYPE);
@@ -419,11 +419,12 @@ impl<'text> VisualLineInfo<'text> {
             .visual_line_starts
             .partition_point(|start_index| *start_index <= byte_index);
 
-        // the partition logic actually gets the index of the **next** visual line (if
-        // it exists), and so we have to subtract two from the result. this
-        // works even if there isn't a visual line below the current one, since
-        // `partition_point` returns the length of `visual_line_starts` if the
-        // predicate matches for all elements
+        // the partition logic actually gets the index of the **next** visual
+        // line (if it exists), and so we have to subtract two from the
+        // result. this works even if there isn't a visual line below
+        // the current one, since `partition_point` returns the length
+        // of `visual_line_starts` if the predicate matches for all
+        // elements
         if partition >= 2 {
             self.visual_line_starts.get(partition - 2).copied()
         } else {

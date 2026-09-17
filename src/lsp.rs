@@ -1426,8 +1426,9 @@ fn spawn_reader(
                     }
                 }
                 Err(error) => {
-                    // nothing to do here if the send fails. means the receiver is
-                    // already dropped so everything has been shutdown.
+                    // nothing to do here if the send fails. means the receiver
+                    // is already dropped so everything has
+                    // been shutdown.
                     let _ = worker_tx.send(WorkerInput::KillServer {
                         server,
                         error: error.context("failed to read LSP response message"),

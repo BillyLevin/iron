@@ -43,8 +43,9 @@ impl JJPoller {
                 info = latest;
             }
 
-            // TODO: is there even any reason to use `Result`? i suppose will be useful
-            // for logging if i ever get around to implementing that...
+            // TODO: is there even any reason to use `Result`? i suppose will be
+            // useful for logging if i ever get around to
+            // implementing that...
             info.ok()
         } else {
             None

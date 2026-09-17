@@ -428,7 +428,8 @@ impl From<KeyEvent> for KeyBinding {
     fn from(event: KeyEvent) -> Self {
         let mut modifiers = event.modifiers;
 
-        // we don't need to differentiate between shift/no shift for capital letters
+        // we don't need to differentiate between shift/no shift for capital
+        // letters
         if modifiers.contains(KeyModifiers::SHIFT)
             && let KeyCode::Char(ch) = event.code
             && ch.is_uppercase()
