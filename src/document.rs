@@ -10,7 +10,6 @@ use std::{
         BufWriter,
     },
     iter,
-    mem,
     num::{
         NonZero,
         NonZeroUsize,
@@ -53,6 +52,10 @@ use url::Url;
 
 use crate::{
     buffer::Buffer,
+    cursor::{
+        CursorState,
+        Selection,
+    },
     editor::{
         EditorAction,
         EventContext,
@@ -116,7 +119,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct Document {
     text: Rope,
-    selection: Selection,
+    cursor_state: CursorState,
 
     normal_keymap: KeyMap,
     insert_keymap: KeyMap,
@@ -125,15 +128,6 @@ pub(crate) struct Document {
     /// Number of lines from the top of the file that the buffer text should
     /// start from.
     scroll_offset: LineIndex,
-
-    /// When navigating vertically, the cursor will be moved to the left if the
-    /// next line is narrower than the current. We use this field to track
-    /// where the cursor would ideally be so that we can move it there if
-    /// the line is wide enough.
-    ///
-    /// The value is relative to the start of the **text**, and does NOT include
-    /// the `gutter_width`.
-    desired_cursor_column: Option<Columns>,
 
     /// The keys that have been pressed which may add up to a registered
     /// keybinding. Used in the `KeyMap` lookups.
@@ -174,12 +168,11 @@ impl Document {
 
         let this = Self {
             text,
-            selection: Selection::default(),
+            cursor_state: CursorState::default(),
             normal_keymap: KeyMap::normal(),
             insert_keymap: KeyMap::insert(),
             visual_keymap: KeyMap::visual(),
             scroll_offset: LineIndex::default(),
-            desired_cursor_column: None,
             key_sequence: KeySequence::new(Mode::Normal),
             language,
             file_path,
@@ -216,17 +209,20 @@ impl Document {
 
         let maybe_action = match keymap.get(&keys) {
             Some(&KeyMap::BindingPart { map: _ }) => {
-                // the key sequence could form a binding with subsequent key events. since
-                // we'd already pushed the latest event to the sequence store, we are done
+                // the key sequence could form a binding with subsequent key
+                // events. since we'd already pushed the latest
+                // event to the sequence store, we are done
                 None
             }
             Some(&KeyMap::Action(action)) => Some(action),
             None => {
-                // the current key sequence does not form a binding for any of the registered
-                // commands. therefore, we clear the sequence
+                // the current key sequence does not form a binding for any of
+                // the registered commands. therefore, we clear
+                // the sequence
                 self.key_sequence.clear();
 
-                // look for any fallback events that aren't registered in the map
+                // look for any fallback events that aren't registered in the
+                // map
                 self.event_fallback(key_event)
             }
         };
@@ -251,7 +247,8 @@ impl Document {
     /// Displays the keybindings (if any) that are currently possible for the
     /// user to invoke, based on the current sequence of key events.
     fn render_key_hint(&self, buffer: &mut Buffer) {
-        // TODO: would be nice to display the count in the labels where it's relevant
+        // TODO: would be nice to display the count in the labels where it's
+        // relevant
         let (keys, _count) = self.key_sequence.parse();
 
         if keys.is_empty() {
@@ -304,8 +301,8 @@ impl Document {
                 break;
             }
 
-            // wrapping has been turned off, and therefore we ignore all graphemes
-            // that would overflow
+            // wrapping has been turned off, and therefore we ignore all
+            // graphemes that would overflow
             if visual_grapheme.position().left() >= hints_rectangle.width() {
                 continue;
             }
@@ -383,12 +380,20 @@ impl Document {
         }
     }
 
+    const fn cursor(&self) -> ByteIndex {
+        self.cursor_state.cursor()
+    }
+
+    const fn selection(&self) -> Selection {
+        self.cursor_state.selection()
+    }
+
     const fn set_cursor(&mut self, index: ByteIndex) {
-        self.selection.cursor = index;
+        self.cursor_state.set_cursor(index);
     }
 
     const fn set_anchor(&mut self, index: ByteIndex) {
-        self.selection.anchor = index;
+        self.cursor_state.set_anchor(index);
     }
 
     fn apply_action(
@@ -529,7 +534,7 @@ impl Document {
             self.on_edit(edit, initial_text, context);
         }
 
-        self.selection = transaction.selection;
+        self.cursor_state.set_selection(transaction.selection);
     }
 
     #[expect(
@@ -565,10 +570,10 @@ impl Document {
 
             let byte = VisualLineInfo::new(
                 &self.text,
-                text.line_idx_containing_byte(self.selection.cursor),
+                text.line_idx_containing_byte(self.cursor()),
                 text_width,
             )
-            .next_at_column(self.selection.cursor, target_column);
+            .next_at_column(self.cursor(), target_column);
 
             if let Some(byte_index) = byte {
                 self.set_cursor(byte_index);
@@ -588,10 +593,10 @@ impl Document {
 
             let byte = VisualLineInfo::new(
                 &self.text,
-                text.line_idx_containing_byte(self.selection.cursor),
+                text.line_idx_containing_byte(self.cursor()),
                 text_width,
             )
-            .prev_at_column(self.selection.cursor, target_column);
+            .prev_at_column(self.cursor(), target_column);
 
             if let Some(byte_index) = byte {
                 self.set_cursor(byte_index);
@@ -601,11 +606,7 @@ impl Document {
 
     fn move_cursor_right(&mut self, count: usize) {
         for _ in 0..count {
-            self.set_cursor(
-                self.text
-                    .slice(..)
-                    .next_grapheme_position(self.selection.cursor),
-            );
+            self.set_cursor(self.text.slice(..).next_grapheme_position(self.cursor()));
         }
     }
 
@@ -614,7 +615,7 @@ impl Document {
             self.set_cursor(
                 self.text
                     .slice(..)
-                    .previous_grapheme_position(self.selection.cursor),
+                    .previous_grapheme_position(self.cursor()),
             );
         }
     }
@@ -623,11 +624,11 @@ impl Document {
         for _ in 0..count {
             let byte_index = match self
                 .text
-                .slice(self.selection.cursor.value()..)
+                .slice(self.cursor().value()..)
                 .chars()
                 .tuple_windows()
                 .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(self.selection.cursor, |index, (left, right)| {
+                .try_fold(self.cursor(), |index, (left, right)| {
                     let next_index = index + left.ch().len_utf8();
 
                     if right.is_word_start(left) {
@@ -647,12 +648,12 @@ impl Document {
         for _ in 0..count {
             let byte_index = self
                 .text
-                .slice(..self.selection.cursor.value())
-                .chars_at(self.selection.cursor.value())
+                .slice(..self.cursor().value())
+                .chars_at(self.cursor().value())
                 .reversed()
                 .tuple_windows()
                 .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(self.selection.cursor, |index, (left, right)| {
+                .try_fold(self.cursor(), |index, (left, right)| {
                     let next_index = index.saturating_sub(right.ch().len_utf8());
 
                     if right.is_word_start(left) {
@@ -671,14 +672,14 @@ impl Document {
     /// Ensures that the cursor does not go past the end of the file.
     fn clamp_cursor(&mut self) {
         self.set_cursor(cmp::min(
-            self.selection.cursor,
+            self.cursor(),
             ByteIndex::new(self.text.slice(..).len().saturating_sub(1)),
         ));
     }
 
     fn recalculate_scroll(&mut self) {
         let text = self.text.slice(..);
-        let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
+        let cursor_line = text.line_idx_containing_byte(self.cursor());
 
         let height = self.layout_info.content_rect.height();
 
@@ -686,8 +687,9 @@ impl Document {
             // upwards scroll
             self.scroll_offset = cursor_line;
         } else {
-            // move the scroll offset further down so that we don't have to scan as much of
-            // the rope when calculating the cursor position. `scroll_offset` will still be
+            // move the scroll offset further down so that we don't have to scan
+            // as much of the rope when calculating the cursor
+            // position. `scroll_offset` will still be
             // off the screen, so it won't impact the calculation
             if cursor_line > self.scroll_offset + LineIndex::new(height.value()) {
                 self.scroll_offset = cursor_line.saturating_sub(height.value());
@@ -706,7 +708,7 @@ impl Document {
 
     fn center_cursor_vertically(&mut self) {
         let text = self.text.slice(..);
-        let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
+        let cursor_line = text.line_idx_containing_byte(self.cursor());
         let middle = self.layout_info.content_rect.height() / 2;
 
         self.scroll_offset = cursor_line.saturating_sub(middle);
@@ -715,22 +717,28 @@ impl Document {
     /// Gets (or inserts the current cursor column) the desired column to
     /// navigate to on vertical cursor movement.
     fn desired_column(&mut self, max_width: NonZeroColumns) -> Columns {
-        *self.desired_cursor_column.get_or_insert_with(|| {
-            let text = self.text.slice(..);
+        if let Some(column) = self.cursor_state.desired_cursor_column() {
+            return column;
+        }
 
-            let line_start =
-                text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
+        let text = self.text.slice(..);
+        let cursor = self.cursor();
 
-            text.slice(line_start.value()..self.selection.cursor.value())
-                .chunks()
-                .map(text_width)
-                .sum::<Columns>()
-                .map(|cols| cols % max_width.get().value())
-        })
+        let line_start = text.line_start_byte(text.line_idx_containing_byte(cursor));
+
+        let column = text
+            .slice(line_start.value()..cursor.value())
+            .chunks()
+            .map(text_width)
+            .sum::<Columns>()
+            .map(|cols| cols % max_width.get().value());
+
+        self.cursor_state.set_desired_cursor_column(column);
+        column
     }
 
     const fn clear_desired_column(&mut self) {
-        self.desired_cursor_column = None;
+        self.cursor_state.clear_desired_column();
     }
 
     const fn event_fallback(&self, key_event: KeyEvent) -> Option<DocumentAction> {
@@ -758,15 +766,14 @@ impl Document {
     }
 
     const fn visual_mode(&mut self) {
-        self.selection.anchor = self.selection.cursor;
+        self.set_anchor(self.cursor());
         self.key_sequence.set_mode(Mode::Visual);
     }
 
     fn insert_char(&self, ch: char) -> Transaction {
         Transaction::new(
-            Some(TextEdit::insert(self.selection.cursor, ch)),
-            self.selection
-                .with_cursor(self.selection.cursor + ch.len_utf8()),
+            Some(TextEdit::insert(self.cursor(), ch)),
+            self.selection().with_cursor(self.cursor() + ch.len_utf8()),
         )
     }
 
@@ -774,11 +781,11 @@ impl Document {
         let start = self
             .text
             .slice(..)
-            .previous_grapheme_position(self.selection.cursor);
+            .previous_grapheme_position(self.cursor());
 
         Transaction::new(
-            Some(TextEdit::delete(start..self.selection.cursor)),
-            self.selection.with_cursor(start),
+            Some(TextEdit::delete(start..self.cursor())),
+            self.selection().with_cursor(start),
         )
     }
 
@@ -790,7 +797,7 @@ impl Document {
     /// line.
     fn move_cursor_line_end(&mut self) {
         let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line_index = text.line_idx_containing_byte(self.cursor());
 
         self.set_cursor(cmp::max(
             text.line_start_byte(line_index),
@@ -801,14 +808,14 @@ impl Document {
     fn move_cursor_line_start(&mut self) {
         let text = self.text.slice(..);
 
-        self.set_cursor(text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor)));
+        self.set_cursor(text.line_start_byte(text.line_idx_containing_byte(self.cursor())));
     }
 
     /// Moves the cursor to the first non-whitespace character on the current
     /// line.
     fn move_cursor_first_non_blank(&mut self) {
         let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line_index = text.line_idx_containing_byte(self.cursor());
         let line = text.line_at(line_index);
 
         self.set_cursor(text.line_start_byte(line_index) + line.first_non_blank_offset());
@@ -817,7 +824,7 @@ impl Document {
     fn move_cursor_next_paragraph(&mut self, count: usize) {
         for _ in 0..count {
             let text = self.text.slice(..);
-            let line_index = text.line_idx_containing_byte(self.selection.cursor);
+            let line_index = text.line_idx_containing_byte(self.cursor());
 
             let line_offset = self
                 .text
@@ -837,7 +844,7 @@ impl Document {
     fn move_cursor_prev_paragraph(&mut self, count: usize) {
         for _ in 0..count {
             let text = self.text.slice(..);
-            let line_index = text.line_idx_containing_byte(self.selection.cursor);
+            let line_index = text.line_idx_containing_byte(self.cursor());
 
             let line_offset = self
                 .text
@@ -901,7 +908,7 @@ impl Document {
     /// Deletes from the current cursor position up to (but not including) the
     /// start of the next word.
     fn delete_word(&self, count: usize) -> Transaction {
-        let cursor = self.selection.cursor;
+        let cursor = self.cursor();
 
         let end = (0..count).fold(cursor, |start, _| {
             match self
@@ -923,37 +930,34 @@ impl Document {
             }
         });
 
-        Transaction::new(Some(TextEdit::delete(cursor..end)), self.selection)
+        Transaction::new(Some(TextEdit::delete(cursor..end)), self.selection())
     }
 
     fn delete_to_line_end(&self) -> Transaction {
         let text = self.text.slice(..);
 
         let end = text
-            .line_break(text.line_idx_containing_byte(self.selection.cursor))
+            .line_break(text.line_idx_containing_byte(self.cursor()))
             .position;
 
-        Transaction::new(
-            Some(TextEdit::delete(self.selection.cursor..end)),
-            self.selection,
-        )
+        Transaction::new(Some(TextEdit::delete(self.cursor()..end)), self.selection())
     }
 
     fn delete_to_line_start(&self) -> Transaction {
         let text = self.text.slice(..);
-        let line_start = text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
+        let line_start = text.line_start_byte(text.line_idx_containing_byte(self.cursor()));
 
         Transaction::new(
-            Some(TextEdit::delete(text.inclusive_to_exclusive_range(
-                line_start..=self.selection.cursor,
-            ))),
-            self.selection.with_cursor(line_start),
+            Some(TextEdit::delete(
+                text.inclusive_to_exclusive_range(line_start..=self.cursor()),
+            )),
+            self.selection().with_cursor(line_start),
         )
     }
 
     fn delete_to_first_non_blank(&self) -> Transaction {
         let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line_index = text.line_idx_containing_byte(self.cursor());
         let line = text.line_at(line_index);
 
         let offset: ByteIndex = line
@@ -966,9 +970,9 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::delete(
-                text.inclusive_to_exclusive_range(start..=self.selection.cursor),
+                text.inclusive_to_exclusive_range(start..=self.cursor()),
             )),
-            self.selection.with_cursor(start),
+            self.selection().with_cursor(start),
         )
     }
 
@@ -978,14 +982,14 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::delete(range)),
-            self.selection.with_cursor(cursor),
+            self.selection().with_cursor(cursor),
         )
     }
 
     fn delete_whole_word(&self) -> Transaction {
-        let cursor = self.selection.cursor;
+        let cursor = self.cursor();
         let Ok(current_ch) = self.text.get_char(cursor.value()) else {
-            return Transaction::new(None, self.selection);
+            return Transaction::new(None, self.selection());
         };
 
         let reversed_chars = self
@@ -1014,13 +1018,15 @@ impl Document {
             .chars()
             .tuple_windows()
             .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
+            .try_fold(self.cursor(), |index, (left, right)| {
                 let next_index = index + left.ch().len_utf8();
 
                 if left.is_word_end(right) {
-                    // we started at the leftmost byte of the `left` char, and we want to
-                    // delete it, and so the byte index we provide is the start of the next
-                    // char, allowing us to use an exclusive range in the `remove` call below
+                    // we started at the leftmost byte of the `left` char, and
+                    // we want to delete it, and so the byte
+                    // index we provide is the start of the next
+                    // char, allowing us to use an exclusive range in the
+                    // `remove` call below
                     ControlFlow::Break(next_index)
                 } else {
                     ControlFlow::Continue(next_index)
@@ -1031,12 +1037,12 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::delete(start..end)),
-            self.selection.with_cursor(start),
+            self.selection().with_cursor(start),
         )
     }
 
     fn delete_to_prev_word_start(&self, count: usize) -> Transaction {
-        let cursor = self.selection.cursor;
+        let cursor = self.cursor();
         let text = self.text.slice(..cursor.value());
 
         let start = match count {
@@ -1058,7 +1064,7 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::delete(start..cursor)),
-            self.selection.with_cursor(start),
+            self.selection().with_cursor(start),
         )
     }
 
@@ -1069,31 +1075,29 @@ impl Document {
 
     fn append_text_line_end(&self) -> Transaction {
         let text = self.text.slice(..);
-        let line_break = text.line_break(text.line_idx_containing_byte(self.selection.cursor));
+        let line_break = text.line_break(text.line_idx_containing_byte(self.cursor()));
 
         let edit = if line_break.has_linebreak {
             None
         } else {
-            // there is no linebreak, and so we need to make room to append text by adding
-            // one. we will not shift the cursor, so the user will overwrite the
-            // empty space when they enter text
-            // TODO: use the same linebreak style that the rest of the document uses, if
-            // applicable
+            // there is no linebreak, and so we need to make room to append text
+            // by adding one. we will not shift the cursor, so the
+            // user will overwrite the empty space when they enter
+            // text TODO: use the same linebreak style that the rest
+            // of the document uses, if applicable
             Some(TextEdit::insert(line_break.position, '\n'))
         };
 
-        Transaction::new(edit, self.selection.with_cursor(line_break.position))
+        Transaction::new(edit, self.selection().with_cursor(line_break.position))
     }
 
     fn move_cursor_word_end(&mut self, count: usize) {
         for _ in 0..count {
-            // we start searching at the next grapheme so that the cursor doesn't stay where
-            // it is if it's already at the end of a word (in that case, we want to
-            // go to the end of the **next** word)
-            let search_start = self
-                .text
-                .slice(..)
-                .next_grapheme_position(self.selection.cursor);
+            // we start searching at the next grapheme so that the cursor
+            // doesn't stay where it is if it's already at the end
+            // of a word (in that case, we want to go to the end of
+            // the **next** word)
+            let search_start = self.text.slice(..).next_grapheme_position(self.cursor());
 
             let word_end = match self
                 .text
@@ -1116,12 +1120,13 @@ impl Document {
     }
 
     fn delete_to_word_end(&self, count: usize) -> Transaction {
-        let cursor = self.selection.cursor;
+        let cursor = self.cursor();
 
         let end = (0..count).fold(cursor, |start, _| {
-            // we start searching at the next grapheme so that the cursor doesn't stay where
-            // it is if it's already at the end of a word (in that case, we want to
-            // go to the end of the **next** word)
+            // we start searching at the next grapheme so that the cursor
+            // doesn't stay where it is if it's already at the end
+            // of a word (in that case, we want to go to the end of
+            // the **next** word)
             let search_start = self.text.slice(..).next_grapheme_position(start);
 
             match self
@@ -1134,8 +1139,10 @@ impl Document {
                     let next_index = index + left.ch().len_utf8();
 
                     if left.is_word_end(right) {
-                        // we want to delete the whole character, which may be multiple bytes,
-                        // and so we delete up to (but not including) the next character index
+                        // we want to delete the whole character, which may be
+                        // multiple bytes,
+                        // and so we delete up to (but not including) the next
+                        // character index
                         ControlFlow::Break(next_index)
                     } else {
                         ControlFlow::Continue(next_index)
@@ -1145,7 +1152,7 @@ impl Document {
             }
         });
 
-        Transaction::new(Some(TextEdit::delete(cursor..end)), self.selection)
+        Transaction::new(Some(TextEdit::delete(cursor..end)), self.selection())
     }
 
     fn change_line(&self, count: usize) -> Transaction {
@@ -1159,28 +1166,28 @@ impl Document {
             // TODO: use the same linebreak style that the rest of the document uses, if
             // applicable
             Some(TextEdit::replace(range, "\n")),
-            self.selection.with_cursor(cursor),
+            self.selection().with_cursor(cursor),
         )
     }
 
     fn delete_selection(&self) -> Transaction {
-        let range = self.selection.range(self.text.slice(..));
+        let range = self.selection().range(self.text.slice(..));
         let cursor = range.start;
 
         Transaction::new(
             Some(TextEdit::delete(range)),
-            self.selection.with_cursor(cursor),
+            self.selection().with_cursor(cursor),
         )
     }
 
     const fn reverse_selection(&mut self) {
-        self.selection.reverse();
+        self.cursor_state.reverse_selection();
     }
 
     fn open_new_line_below(&self) -> Transaction {
         let text = self.text.slice(..);
 
-        let line_index = text.line_idx_containing_byte(self.selection.cursor);
+        let line_index = text.line_idx_containing_byte(self.cursor());
         let line_break = text.line_break(line_index);
 
         let to_insert = if line_break.has_linebreak {
@@ -1191,7 +1198,7 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::insert(line_break.position, to_insert)),
-            self.selection
+            self.selection()
                 .with_cursor(line_break.position + '\n'.len_utf8()),
         )
     }
@@ -1199,28 +1206,28 @@ impl Document {
     fn open_new_line_above(&self) -> Transaction {
         let text = self.text.slice(..);
 
-        let line_start = text.line_start_byte(text.line_idx_containing_byte(self.selection.cursor));
+        let line_start = text.line_start_byte(text.line_idx_containing_byte(self.cursor()));
 
         Transaction::new(
             Some(TextEdit::insert(line_start, '\n')),
-            self.selection.with_cursor(line_start),
+            self.selection().with_cursor(line_start),
         )
     }
 
     fn select_current_word(&mut self) {
-        let current_ch = self.text.char(self.selection.cursor.value());
+        let current_ch = self.text.char(self.cursor().value());
 
         let reversed_chars = self
             .text
-            .slice(..self.selection.cursor.value())
-            .chars_at(self.selection.cursor.value())
+            .slice(..self.cursor().value())
+            .chars_at(self.cursor().value())
             .reversed();
 
         let start = iter::once(current_ch)
             .chain(reversed_chars)
             .tuple_windows()
             .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
+            .try_fold(self.cursor(), |index, (left, right)| {
                 if right.is_word_start(left) {
                     ControlFlow::Break(index)
                 } else {
@@ -1232,11 +1239,11 @@ impl Document {
 
         let end = match self
             .text
-            .slice(self.selection.cursor.value()..)
+            .slice(self.cursor().value()..)
             .chars()
             .tuple_windows()
             .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.selection.cursor, |index, (left, right)| {
+            .try_fold(self.cursor(), |index, (left, right)| {
                 let next_index = index + left.ch().len_utf8();
 
                 if left.is_word_end(right) {
@@ -1262,17 +1269,17 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::delete(range)),
-            self.selection.with_cursor(cursor),
+            self.selection().with_cursor(cursor),
         )
     }
 
     /// Deletes the current plus the `count` preceding lines.
     fn delete_up(&self, count: usize) -> Transaction {
         let text = self.text.slice(..);
-        let current_line = text.line_idx_containing_byte(self.selection.cursor);
+        let current_line = text.line_idx_containing_byte(self.cursor());
 
         if current_line == LineIndex::new(0) {
-            return Transaction::new(None, self.selection);
+            return Transaction::new(None, self.selection());
         }
 
         let range = self.backwards_line_range(count + 1);
@@ -1285,7 +1292,7 @@ impl Document {
 
         Transaction::new(
             Some(TextEdit::delete(range)),
-            self.selection.with_cursor(cursor),
+            self.selection().with_cursor(cursor),
         )
     }
 
@@ -1316,7 +1323,7 @@ impl Document {
                 max_width: text_width,
             },
         )
-        .find(|grapheme| start + grapheme.byte_index() >= self.selection.cursor)
+        .find(|grapheme| start + grapheme.byte_index() >= self.cursor())
         .map(|grapheme| grapheme.position())
         .unwrap_or_default()
         .col_offset(content_layout.gutter.width())
@@ -1348,8 +1355,8 @@ impl Document {
     }
 
     fn insert_tab(&self) -> Transaction {
-        // TODO: if the file treats tabs as spaces, then we should insert spaces here
-        // instead.
+        // TODO: if the file treats tabs as spaces, then we should insert spaces
+        // here instead.
         self.insert_char('\t')
     }
 
@@ -1357,7 +1364,7 @@ impl Document {
     /// line.
     fn line_range(&self, count: usize) -> Range<ByteIndex> {
         let text = self.text.slice(..);
-        let index = text.line_idx_containing_byte(self.selection.cursor);
+        let index = text.line_idx_containing_byte(self.cursor());
         let start = text.line_start_byte(index);
         let end = text
             .get_line_start_byte(index + count)
@@ -1370,7 +1377,7 @@ impl Document {
     /// current line.
     fn backwards_line_range(&self, count: usize) -> Range<ByteIndex> {
         let text = self.text.slice(..);
-        let index_after_current = text.line_idx_containing_byte(self.selection.cursor) + 1;
+        let index_after_current = text.line_idx_containing_byte(self.cursor()) + 1;
         let start = text.line_start_byte(index_after_current.saturating_sub(count));
         let end = text
             .get_line_start_byte(index_after_current)
@@ -1391,7 +1398,7 @@ impl Document {
     }
 
     fn go_to_pair_match(&mut self) {
-        let cursor = self.selection.cursor.value();
+        let cursor = self.cursor().value();
 
         let Some(pair) = self.text.get_byte(cursor).and_then(PairItem::new) else {
             return;
@@ -1430,8 +1437,8 @@ impl Document {
         };
 
         self.set_cursor(match pair.position {
-            PairPosition::Start => self.selection.cursor + offset,
-            PairPosition::End => self.selection.cursor - offset,
+            PairPosition::Start => self.cursor() + offset,
+            PairPosition::End => self.cursor() - offset,
         });
     }
 
@@ -1466,11 +1473,7 @@ impl Document {
     /// Sorted by severity first and then position.
     pub(crate) fn diagnostics_for_cursor_line(&self) -> Vec<DiagnosticMessage> {
         self.diagnostics
-            .on_line(
-                self.text
-                    .slice(..)
-                    .line_idx_containing_byte(self.selection.cursor),
-            )
+            .on_line(self.text.slice(..).line_idx_containing_byte(self.cursor()))
             .sorted_by_key(|diagnostic| {
                 (
                     Reverse(diagnostic.severity_priority()),
@@ -1522,7 +1525,7 @@ impl Layer for Document {
             return;
         };
 
-        let cursor_line = text.line_idx_containing_byte(self.selection.cursor);
+        let cursor_line = text.line_idx_containing_byte(self.cursor());
 
         let mut line_index = self.scroll_offset;
 
@@ -1601,7 +1604,7 @@ impl Layer for Document {
                 .set_style(style);
 
             if matches!(self.mode(), Mode::Visual)
-                && self.selection.range(text).contains(&grapheme_index)
+                && self.selection().range(text).contains(&grapheme_index)
             {
                 buffer[translated_position].set_style(style.merge(Style::TEXT_SELECTED));
             }
@@ -1823,42 +1826,6 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct Selection {
-    /// The "start" of the selection. This is set to the current cursor position
-    /// when entering [`Mode::Visual`] and then does not change while in that
-    /// mode. If the document is not [`Mode::Visual`] then the value of this
-    /// field is meaningless.
-    anchor: ByteIndex,
-    /// The "end" of the selection, which changes during movement. It is **not**
-    /// restricted to appearing after [`Selection::anchor`]: it can overlap it,
-    /// or appear before it in the document.
-    cursor: ByteIndex,
-}
-
-impl Selection {
-    /// Gets the range of bytes that the selection represents.
-    fn range(&self, text: RopeSlice) -> Range<ByteIndex> {
-        let start = cmp::min(self.cursor, self.anchor);
-        let end = cmp::max(self.cursor, self.anchor);
-
-        // since each byte index represents the **start** of a grapheme, in order to get
-        // all of the selected bytes, we extend the rightmost index to the start
-        // of the **next** grapheme and represent it as a half-open range.
-        text.inclusive_to_exclusive_range(start..=end)
-    }
-
-    /// Creates a new [`Selection`] with the cursor set to the given position.
-    #[must_use]
-    const fn with_cursor(self, cursor: ByteIndex) -> Self {
-        Self { cursor, ..self }
-    }
-
-    const fn reverse(&mut self) {
-        mem::swap(&mut self.anchor, &mut self.cursor);
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Mode {
     Normal,
@@ -1890,10 +1857,11 @@ impl HighlightCache {
     /// [`ByteIndex`]. This can be used as a start point to re-calculate the
     /// highlights for a section of the text.
     fn checkpoint_before(&self, index: ByteIndex) -> ByteIndex {
-        // if the token cache isn't yet populated, we don't want to highlight the whole
-        // text as this could be slow for extremely large files and this method
-        // blocks the renderer. instead, we'll just act as if `index` is a
-        // checkpoint and allow the highlights to potentially be slightly off until the
+        // if the token cache isn't yet populated, we don't want to highlight
+        // the whole text as this could be slow for extremely large
+        // files and this method blocks the renderer. instead, we'll
+        // just act as if `index` is a checkpoint and allow the
+        // highlights to potentially be slightly off until the
         // token cache populates (shouldn't actually be noticeable to the user)
         if self.tokens.is_empty() {
             return index;
@@ -2220,8 +2188,9 @@ impl Diagnostics {
                     && severity == last.severity
                     && last.range.end == previous
                 {
-                    // we can extend the last range instead of pushing a new span because it's the
-                    // same severity and there's no gap
+                    // we can extend the last range instead of pushing a new
+                    // span because it's the same severity
+                    // and there's no gap
                     last.range.end = event.at;
                 } else {
                     result.push(DiagnosticSpan {
@@ -2443,7 +2412,7 @@ mod tests {
                 "text is incorrect"
             );
             assert_eq!(
-                document.selection.cursor,
+                document.cursor(),
                 self.expected_cursor.into(),
                 "cursor byte index is incorrect"
             );
@@ -2465,7 +2434,7 @@ mod tests {
     #[track_caller]
     fn assert_char_boundary(doc: &Document) {
         assert!(
-            doc.text.is_char_boundary(doc.selection.cursor.value()),
+            doc.text.is_char_boundary(doc.cursor().value()),
             "cursor isn't a char boundary"
         );
     }
@@ -5404,10 +5373,10 @@ mod proptests {
 
             let _ = document.handle_key_event(KeyEvent::from(KeyCode::Char('^')), &mut EventContext::new());
 
-            prop_assert!(document.text.is_char_boundary(document.selection.cursor.value()));
+            prop_assert!(document.text.is_char_boundary(document.cursor().value()));
 
             let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
-            prop_assert_eq!(document.selection.cursor, expected);
+            prop_assert_eq!(document.cursor(), expected);
         }
     }
 }
