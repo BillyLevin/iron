@@ -58,7 +58,7 @@ pub(crate) enum LayerKind {
 
 /// A structure representing (unsurprisingly) a rectangular region of the
 /// interface.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rectangle {
     /// How far from the top-left of the interface that the top-left of the
     /// rectangle begins.
@@ -204,9 +204,13 @@ impl Rectangle {
     }
 
     /// Determines whether the given [`Position`] is inside the [`Rectangle`].
-    /// NOTE: being on the edge does NOT count as being inside.
+    /// NOTE: includes the left and top edges, but not the right and bottom
+    /// edges.
     pub(crate) fn contains(&self, position: &Position) -> bool {
-        self.right() > position.left() && self.bottom() > position.top()
+        self.right() > position.left()
+            && self.bottom() > position.top()
+            && self.offset().left() <= position.left()
+            && self.offset().top() <= position.top()
     }
 
     /// Gets the inner [`Rectangle`] of `self` after removing its border. If
@@ -226,6 +230,14 @@ impl Rectangle {
                 self.height() - Rows::new(2),
             ),
         })
+    }
+
+    #[cfg(test)]
+    const fn with_offset(self, offset: Position) -> Self {
+        Self {
+            dimensions: self.dimensions,
+            offset,
+        }
     }
 }
 
@@ -744,5 +756,185 @@ mod tests {
         );
         assert_eq!(rectangle.right(), Columns::new(80));
         assert_eq!(rectangle.bottom(), Rows::new(24));
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use std::{
+        cmp,
+        collections::BTreeSet,
+    };
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    type RectangleModel = BTreeSet<(Columns, Rows)>;
+
+    fn height_and_split_row_strategy(max_height: usize) -> impl Strategy<Value = (Rows, Rows)> {
+        (0..=max_height)
+            .prop_flat_map(|height| {
+                let split = prop_oneof![Just(0), Just(height), Just(height + 1), 0..(height + 1)];
+                (Just(height), split)
+            })
+            .prop_map(|(height, split)| (Rows::new(height), Rows::new(split)))
+    }
+
+    /// Represents a [`Rectangle`] as a set of cell coordinates. Used in
+    /// model-based property tests.
+    fn rectangle_model(rectangle: &Rectangle) -> RectangleModel {
+        let mut result = BTreeSet::new();
+
+        for row in Rows::new(0)..rectangle.height() {
+            let absolute_row = row + rectangle.offset.top;
+            for col in Columns::new(0)..rectangle.width() {
+                let absolute_col = col + rectangle.offset.left;
+
+                assert!(
+                    result.insert((absolute_col, absolute_row)),
+                    "must be a unique coordinate"
+                );
+            }
+        }
+
+        result
+    }
+
+    fn split_at_row_abstract(
+        model: RectangleModel,
+        absolute_split_row: Rows,
+    ) -> (RectangleModel, RectangleModel) {
+        model
+            .into_iter()
+            .partition(|&(_col, row)| row < absolute_split_row)
+    }
+
+    fn contains_abstract(model: &RectangleModel, position: Position) -> bool {
+        model.contains(&(position.left(), position.top()))
+    }
+
+    #[test]
+    fn rectangle_model_uses_absolute_coordinates() {
+        let rectangle = Rectangle::from_dimensions(Dimensions::new(Columns::new(3), Rows::new(2)))
+            .with_offset(Position::new(Columns::new(3), Rows::new(5)));
+
+        assert_eq!(
+            rectangle_model(&rectangle),
+            BTreeSet::from([
+                (Columns::new(3), Rows::new(5)),
+                (Columns::new(4), Rows::new(5)),
+                (Columns::new(5), Rows::new(5)),
+                (Columns::new(3), Rows::new(6)),
+                (Columns::new(4), Rows::new(6)),
+                (Columns::new(5), Rows::new(6)),
+            ])
+        );
+    }
+
+    proptest! {
+        #[test]
+        /// See postconditions section of the "How to Specify It!" paper.
+        fn split_at_row_postconditions(
+            (height, split) in height_and_split_row_strategy(200),
+            width in (0_usize..=200_usize).prop_map(Columns::new),
+            offset_col in (0_usize..=200_usize).prop_map(Columns::new),
+            offset_row in (0_usize..=200_usize).prop_map(Rows::new),
+        ) {
+            let offset = Position::new(offset_col, offset_row);
+
+            let rectangle = Rectangle::from_dimensions(
+                Dimensions::new(width, height)
+            ).with_offset(offset);
+
+            let (top, bottom) = rectangle.split_at_row(split);
+
+            prop_assert_eq!(top.height(), cmp::min(height, split));
+            prop_assert_eq!(top.bottom(), bottom.offset().top());
+            prop_assert_eq!(top.height() + bottom.height(), rectangle.height());
+            prop_assert_eq!(top.width(), rectangle.width());
+            prop_assert_eq!(bottom.width(), rectangle.width());
+            prop_assert_eq!(top.offset(), rectangle.offset());
+            prop_assert_eq!(bottom.offset().left(), rectangle.offset().left());
+        }
+
+        #[test]
+        /// See metamorphic properties section of the "How to Specify It!" paper.
+        fn split_at_row_commutes_with_translation(
+            (height, split) in height_and_split_row_strategy(200),
+            width in (0_usize..=200_usize).prop_map(Columns::new),
+            offset_col in (0_usize..=200_usize).prop_map(Columns::new),
+            offset_row in (0_usize..=200_usize).prop_map(Rows::new),
+            translation_col in (0_usize..=200_usize).prop_map(Columns::new),
+            translation_row in (0_usize..=200_usize).prop_map(Rows::new),
+        ) {
+            let offset = Position::new(offset_col, offset_row);
+            let translation = Position::new(translation_col, translation_row);
+
+            let rectangle = Rectangle::from_dimensions(
+                Dimensions::new(width, height)
+            ).with_offset(offset);
+
+            let translated_rectangle = Rectangle::from_dimensions(
+                Dimensions::new(width, height)
+            ).with_offset(offset.offset(translation));
+
+            let (top1, bottom1) = rectangle.split_at_row(split);
+            let top1 = top1.clone().with_offset(top1.offset().offset(translation));
+            let bottom1 = bottom1.clone().with_offset(bottom1.offset().offset(translation));
+
+            let (top2, bottom2) = translated_rectangle.split_at_row(split);
+
+            prop_assert_eq!(top1, top2);
+            prop_assert_eq!(bottom1, bottom2);
+        }
+
+        #[test]
+        /// See model-based properties section of the "How to Specify It!" paper.
+        fn split_at_row_model(
+            (height, split) in height_and_split_row_strategy(16),
+            width in (0_usize..=16_usize).prop_map(Columns::new),
+            offset_col in (0_usize..=16_usize).prop_map(Columns::new),
+            offset_row in (0_usize..=16_usize).prop_map(Rows::new),
+        ) {
+            let offset = Position::new(offset_col, offset_row);
+
+            let rectangle = Rectangle::from_dimensions(
+                Dimensions::new(width, height)
+            ).with_offset(offset);
+
+            let absolute_split = rectangle.offset.top() + split;
+
+            let model = rectangle_model(&rectangle);
+
+            let (top, bottom) = rectangle.split_at_row(split);
+
+            prop_assert_eq!(
+                split_at_row_abstract(model, absolute_split),
+                (rectangle_model(&top), rectangle_model(&bottom))
+            );
+        }
+
+        #[test]
+        /// See model-based properties section of the "How to Specify It!" paper.
+        fn contains_model(
+            height in (0_usize..=16_usize).prop_map(Rows::new),
+            width in (0_usize..=16_usize).prop_map(Columns::new),
+            offset_col in (0_usize..=16_usize).prop_map(Columns::new),
+            offset_row in (0_usize..=16_usize).prop_map(Rows::new),
+            position_col in (0_usize..=32_usize).prop_map(Columns::new),
+            position_row in (0_usize..=32_usize).prop_map(Rows::new),
+        ) {
+            let offset = Position::new(offset_col, offset_row);
+            let position = Position::new(position_col, position_row);
+
+            let rectangle = Rectangle::from_dimensions(
+                Dimensions::new(width, height)
+            ).with_offset(offset);
+
+            let model = rectangle_model(&rectangle);
+
+            prop_assert_eq!(contains_abstract(&model, position), rectangle.contains(&position));
+        }
     }
 }
