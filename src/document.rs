@@ -5313,16 +5313,44 @@ mod proptests {
             .prop_map(|(content, ending)| content + ending)
     }
 
+    fn whitespace_only_strategy() -> impl Strategy<Value = String> {
+        prop::collection::vec(
+            prop::sample::select(vec![' ', '\t', '\u{00A0}', '\u{2003}']),
+            1..80,
+        )
+        .prop_map(|chars| chars.into_iter().collect())
+    }
+
+    fn non_whitespace_char_strategy() -> impl Strategy<Value = char> {
+        prop::char::any().prop_filter("not whitespace", |ch| !ch.is_whitespace())
+    }
+
     fn current_line_strategy() -> impl Strategy<Value = String> {
+        let nonempty_content = prop_oneof![
+            whitespace_only_strategy(),
+            (
+                whitespace_only_strategy(),
+                non_whitespace_char_strategy(),
+                line_content_strategy(0..80)
+            )
+                .prop_map(|(mut whitespace, non_whitespace, rest)| {
+                    whitespace.push(non_whitespace);
+                    whitespace.push_str(&rest);
+                    whitespace
+                }),
+            (non_whitespace_char_strategy(), line_content_strategy(0..80))
+                .prop_map(|(non_whitespace, rest)| { non_whitespace.to_string() + &rest }),
+        ];
+
+        let ending = prop_oneof![
+            Just(String::new()),
+            Just("\n".to_owned()),
+            Just("\r\n".to_owned())
+        ];
+
         prop_oneof![
-            // if there's no line ending, it needs to have length at least 1, because
-            // otherwise the "line" will just be an empty string, which makes no sense
-            line_content_strategy(1..80),
-            (line_content_strategy(0..80), prop_oneof![
-                Just("\n"),
-                Just("\r\n")
-            ])
-                .prop_map(|(content, ending)| content + ending),
+            1 => prop_oneof![Just("\n".to_owned()), Just("\r\n".to_owned())],
+            3 => (nonempty_content, ending).prop_map(|(content, ending)| content + &ending)
         ]
     }
 
