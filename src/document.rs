@@ -5286,7 +5286,12 @@ mod diagnostics_tests {
 mod proptests {
     use std::io::Write as _;
 
-    use proptest::prelude::*;
+    use hegel::{
+        Generator as _,
+        PrintableGenerator,
+        TestCase,
+        generators,
+    };
 
     use super::*;
 
@@ -5296,62 +5301,78 @@ mod proptests {
             .unwrap_or(line)
     }
 
-    fn chars_no_line_break() -> impl Strategy<Value = char> {
-        any::<char>().prop_filter("not a line break", |&ch| ch != '\n' && ch != '\r')
+    fn line_content_generator() -> impl PrintableGenerator<String> {
+        generators::text().exclude_characters("\r\n").max_size(79)
     }
 
-    fn line_content_strategy(range: Range<usize>) -> impl Strategy<Value = String> {
-        prop::collection::vec(chars_no_line_break(), range)
-            .prop_map(|chars| chars.into_iter().collect())
+    fn whitespace_char_generator() -> impl PrintableGenerator<char> {
+        generators::characters().filter(|ch| !ch.is_whitespace())
     }
 
-    fn terminated_line_strategy() -> impl Strategy<Value = String> {
-        (line_content_strategy(0..80), prop_oneof![
-            Just("\n"),
-            Just("\r\n")
-        ])
-            .prop_map(|(content, ending)| content + ending)
+    fn whitespace_only_generator() -> impl PrintableGenerator<String> {
+        generators::text()
+            .alphabet(" \t\u{00A0}\u{2003}")
+            .min_size(1)
+            .max_size(79)
     }
 
-    fn whitespace_only_strategy() -> impl Strategy<Value = String> {
-        prop::collection::vec(
-            prop::sample::select(vec![' ', '\t', '\u{00A0}', '\u{2003}']),
-            1..80,
-        )
-        .prop_map(|chars| chars.into_iter().collect())
+    fn terminated_line_generator() -> impl PrintableGenerator<String> {
+        hegel::compose!(|test_case| {
+            test_case.draw(line_content_generator())
+                + test_case.draw(generators::sampled_from(&["\n", "\r\n"]))
+        })
     }
 
-    fn non_whitespace_char_strategy() -> impl Strategy<Value = char> {
-        prop::char::any().prop_filter("not whitespace", |ch| !ch.is_whitespace())
-    }
+    fn current_line(test_case: &TestCase) -> String {
+        #[derive(Debug, hegel::PrettyPrintable)]
+        enum LineKind {
+            EmptyTerminated,
+            NonEmpty,
+        }
 
-    fn current_line_strategy() -> impl Strategy<Value = String> {
-        let nonempty_content = prop_oneof![
-            whitespace_only_strategy(),
-            (
-                whitespace_only_strategy(),
-                non_whitespace_char_strategy(),
-                line_content_strategy(0..80)
-            )
-                .prop_map(|(mut whitespace, non_whitespace, rest)| {
-                    whitespace.push(non_whitespace);
-                    whitespace.push_str(&rest);
-                    whitespace
-                }),
-            (non_whitespace_char_strategy(), line_content_strategy(0..80))
-                .prop_map(|(non_whitespace, rest)| { non_whitespace.to_string() + &rest }),
-        ];
+        impl From<u8> for LineKind {
+            fn from(value: u8) -> Self {
+                match value {
+                    0 => Self::EmptyTerminated,
+                    1..=3 => Self::NonEmpty,
+                    _ => unreachable!("we don't generate higher values than this"),
+                }
+            }
+        }
 
-        let ending = prop_oneof![
-            Just(String::new()),
-            Just("\n".to_owned()),
-            Just("\r\n".to_owned())
-        ];
+        let kind = test_case.draw(
+            generators::integers::<u8>()
+                .max_value(3)
+                .map(LineKind::from),
+        );
 
-        prop_oneof![
-            1 => prop_oneof![Just("\n".to_owned()), Just("\r\n".to_owned())],
-            3 => (nonempty_content, ending).prop_map(|(content, ending)| content + &ending)
-        ]
+        match kind {
+            LineKind::EmptyTerminated => {
+                test_case
+                    .draw(generators::sampled_from(&["\n", "\r\n"]))
+                    .to_owned()
+            }
+            LineKind::NonEmpty => {
+                let nonempty_content = test_case.draw(hegel::one_of![
+                    whitespace_only_generator(),
+                    hegel::compose!(|tc| {
+                        let mut whitespace = tc.draw(whitespace_only_generator());
+                        whitespace.push(tc.draw(whitespace_char_generator()));
+                        whitespace.push_str(&tc.draw(line_content_generator()));
+                        whitespace
+                    }),
+                    hegel::compose!(|tc| {
+                        format!(
+                            "{}{}",
+                            tc.draw(generators::characters().filter(|ch| !ch.is_whitespace()),),
+                            tc.draw(line_content_generator())
+                        )
+                    })
+                ]);
+
+                nonempty_content + test_case.draw(generators::sampled_from(&["", "\n", "\r\n"]))
+            }
+        }
     }
 
     /// This is a reference implementation for finding the offset from the start
@@ -5379,32 +5400,31 @@ mod proptests {
         Document::new(temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
     }
 
-    proptest! {
-        #[test]
-        fn move_cursor_first_non_blank(
-            prefix in prop::collection::vec(terminated_line_strategy(), 0..10),
-            current in current_line_strategy(),
-            postfix in prop::collection::vec(terminated_line_strategy(), 0..10)
-        ) {
-            let prefix_text = prefix.concat();
-            let initial_cursor = prefix_text.len();
+    #[hegel::test]
+    fn move_cursor_first_non_blank(test_case: TestCase) {
+        let prefix = test_case.draw(generators::vecs(terminated_line_generator()).max_size(9));
+        let current = current_line(&test_case);
+        let postfix = test_case.draw(generators::vecs(terminated_line_generator()).max_size(9));
 
-            let postfix_text = if current.ends_with('\n') {
-                postfix.concat()
-            } else {
-                String::new()
-            };
+        let prefix_text = prefix.concat();
+        let initial_cursor = prefix_text.len();
 
-            let text = format!("{prefix_text}{current}{postfix_text}");
-            let mut document = doc(&text);
-            document.set_cursor(ByteIndex::new(initial_cursor));
+        let postfix_text = if current.ends_with('\n') {
+            postfix.concat()
+        } else {
+            String::new()
+        };
 
-            let _ = document.handle_key_event(KeyEvent::from(KeyCode::Char('^')), &mut EventContext::new());
+        let text = format!("{prefix_text}{current}{postfix_text}");
+        let mut document = doc(&text);
+        document.set_cursor(ByteIndex::new(initial_cursor));
 
-            prop_assert!(document.text.is_char_boundary(document.cursor().value()));
+        let _ =
+            document.handle_key_event(KeyEvent::from(KeyCode::Char('^')), &mut EventContext::new());
 
-            let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
-            prop_assert_eq!(document.cursor(), expected);
-        }
+        assert!(document.text.is_char_boundary(document.cursor().value()));
+
+        let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
+        assert_eq!(document.cursor(), expected);
     }
 }

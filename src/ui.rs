@@ -288,6 +288,7 @@ impl Dimensions {
 )]
 #[from(usize, u16)]
 #[into(usize)]
+#[cfg_attr(test, derive(hegel::PrettyPrintable))]
 pub(crate) struct Columns(usize);
 
 impl Columns {
@@ -400,6 +401,7 @@ impl NonZeroColumns {
 )]
 #[from(usize, u16)]
 #[into(usize)]
+#[cfg_attr(test, derive(hegel::PrettyPrintable))]
 pub(crate) struct Rows(usize);
 
 impl Rows {
@@ -766,19 +768,27 @@ mod proptests {
         collections::BTreeSet,
     };
 
-    use proptest::prelude::*;
+    use hegel::{
+        Generator as _,
+        TestCase,
+        generators,
+    };
 
     use super::*;
 
     type RectangleModel = BTreeSet<(Columns, Rows)>;
 
-    fn height_and_split_row_strategy(max_height: usize) -> impl Strategy<Value = (Rows, Rows)> {
-        (0..=max_height)
-            .prop_flat_map(|height| {
-                let split = prop_oneof![Just(0), Just(height), Just(height + 1), 0..(height + 1)];
-                (Just(height), split)
-            })
-            .prop_map(|(height, split)| (Rows::new(height), Rows::new(split)))
+    fn height_and_split_row(test_case: &TestCase, max_height: usize) -> (Rows, Rows) {
+        let height = test_case.draw(generators::integers().max_value(max_height));
+
+        let split = test_case.draw(hegel::one_of![
+            generators::just(0),
+            generators::just(height),
+            generators::just(height + 1),
+            generators::integers().max_value(height),
+        ]);
+
+        (Rows::new(height), Rows::new(split))
     }
 
     /// Represents a [`Rectangle`] as a set of cell coordinates. Used in
@@ -832,109 +842,107 @@ mod proptests {
         );
     }
 
-    proptest! {
-        #[test]
-        /// See postconditions section of the "How to Specify It!" paper.
-        fn split_at_row_postconditions(
-            (height, split) in height_and_split_row_strategy(200),
-            width in (0_usize..=200_usize).prop_map(Columns::new),
-            offset_col in (0_usize..=200_usize).prop_map(Columns::new),
-            offset_row in (0_usize..=200_usize).prop_map(Rows::new),
-        ) {
-            let offset = Position::new(offset_col, offset_row);
+    #[hegel::test]
+    /// See postconditions section of the "How to Specify It!" paper.
+    fn split_at_row_postconditions(test_case: TestCase) {
+        let (height, split) = height_and_split_row(&test_case, 200);
+        let width = test_case.draw(generators::integers().max_value(200).map(Columns::new));
+        let offset_col = test_case.draw(generators::integers().max_value(200).map(Columns::new));
+        let offset_row = test_case.draw(generators::integers().max_value(200).map(Rows::new));
 
-            let rectangle = Rectangle::from_dimensions(
-                Dimensions::new(width, height)
-            ).with_offset(offset);
+        let offset = Position::new(offset_col, offset_row);
 
-            let (top, bottom) = rectangle.split_at_row(split);
+        let rectangle =
+            Rectangle::from_dimensions(Dimensions::new(width, height)).with_offset(offset);
 
-            prop_assert_eq!(top.height(), cmp::min(height, split));
-            prop_assert_eq!(top.bottom(), bottom.offset().top());
-            prop_assert_eq!(top.height() + bottom.height(), rectangle.height());
-            prop_assert_eq!(top.width(), rectangle.width());
-            prop_assert_eq!(bottom.width(), rectangle.width());
-            prop_assert_eq!(top.offset(), rectangle.offset());
-            prop_assert_eq!(bottom.offset().left(), rectangle.offset().left());
-        }
+        let (top, bottom) = rectangle.split_at_row(split);
 
-        #[test]
-        /// See metamorphic properties section of the "How to Specify It!" paper.
-        fn split_at_row_commutes_with_translation(
-            (height, split) in height_and_split_row_strategy(200),
-            width in (0_usize..=200_usize).prop_map(Columns::new),
-            offset_col in (0_usize..=200_usize).prop_map(Columns::new),
-            offset_row in (0_usize..=200_usize).prop_map(Rows::new),
-            translation_col in (0_usize..=200_usize).prop_map(Columns::new),
-            translation_row in (0_usize..=200_usize).prop_map(Rows::new),
-        ) {
-            let offset = Position::new(offset_col, offset_row);
-            let translation = Position::new(translation_col, translation_row);
+        assert_eq!(top.height(), cmp::min(height, split));
+        assert_eq!(top.bottom(), bottom.offset().top());
+        assert_eq!(top.height() + bottom.height(), rectangle.height());
+        assert_eq!(top.width(), rectangle.width());
+        assert_eq!(bottom.width(), rectangle.width());
+        assert_eq!(top.offset(), rectangle.offset());
+        assert_eq!(bottom.offset().left(), rectangle.offset().left());
+    }
 
-            let rectangle = Rectangle::from_dimensions(
-                Dimensions::new(width, height)
-            ).with_offset(offset);
+    #[hegel::test]
+    /// See metamorphic properties section of the "How to Specify It!" paper.
+    fn split_at_row_commutes_with_translation(test_case: TestCase) {
+        let (height, split) = height_and_split_row(&test_case, 200);
+        let width = test_case.draw(generators::integers().max_value(200).map(Columns::new));
+        let offset_col = test_case.draw(generators::integers().max_value(200).map(Columns::new));
+        let offset_row = test_case.draw(generators::integers().max_value(200).map(Rows::new));
+        let translation_col =
+            test_case.draw(generators::integers().max_value(200).map(Columns::new));
+        let translation_row = test_case.draw(generators::integers().max_value(200).map(Rows::new));
+        let offset = Position::new(offset_col, offset_row);
+        let translation = Position::new(translation_col, translation_row);
 
-            let translated_rectangle = Rectangle::from_dimensions(
-                Dimensions::new(width, height)
-            ).with_offset(offset.offset(translation));
+        let rectangle =
+            Rectangle::from_dimensions(Dimensions::new(width, height)).with_offset(offset);
 
-            let (top1, bottom1) = rectangle.split_at_row(split);
-            let top1 = top1.clone().with_offset(top1.offset().offset(translation));
-            let bottom1 = bottom1.clone().with_offset(bottom1.offset().offset(translation));
+        let translated_rectangle = Rectangle::from_dimensions(Dimensions::new(width, height))
+            .with_offset(offset.offset(translation));
 
-            let (top2, bottom2) = translated_rectangle.split_at_row(split);
+        let (top1, bottom1) = rectangle.split_at_row(split);
+        let top1 = top1.clone().with_offset(top1.offset().offset(translation));
+        let bottom1 = bottom1
+            .clone()
+            .with_offset(bottom1.offset().offset(translation));
 
-            prop_assert_eq!(top1, top2);
-            prop_assert_eq!(bottom1, bottom2);
-        }
+        let (top2, bottom2) = translated_rectangle.split_at_row(split);
 
-        #[test]
-        /// See model-based properties section of the "How to Specify It!" paper.
-        fn split_at_row_model(
-            (height, split) in height_and_split_row_strategy(16),
-            width in (0_usize..=16_usize).prop_map(Columns::new),
-            offset_col in (0_usize..=16_usize).prop_map(Columns::new),
-            offset_row in (0_usize..=16_usize).prop_map(Rows::new),
-        ) {
-            let offset = Position::new(offset_col, offset_row);
+        assert_eq!(top1, top2);
+        assert_eq!(bottom1, bottom2);
+    }
 
-            let rectangle = Rectangle::from_dimensions(
-                Dimensions::new(width, height)
-            ).with_offset(offset);
+    #[hegel::test]
+    /// See model-based properties section of the "How to Specify It!" paper.
+    fn split_at_row_model(test_case: TestCase) {
+        let (height, split) = height_and_split_row(&test_case, 16);
+        let width = test_case.draw(generators::integers().max_value(16).map(Columns::new));
+        let offset_col = test_case.draw(generators::integers().max_value(16).map(Columns::new));
+        let offset_row = test_case.draw(generators::integers().max_value(16).map(Rows::new));
+        let offset = Position::new(offset_col, offset_row);
 
-            let absolute_split = rectangle.offset.top() + split;
+        let rectangle =
+            Rectangle::from_dimensions(Dimensions::new(width, height)).with_offset(offset);
 
-            let model = rectangle_model(&rectangle);
+        let absolute_split = rectangle.offset.top() + split;
 
-            let (top, bottom) = rectangle.split_at_row(split);
+        let model = rectangle_model(&rectangle);
 
-            prop_assert_eq!(
-                split_at_row_abstract(model, absolute_split),
-                (rectangle_model(&top), rectangle_model(&bottom))
-            );
-        }
+        let (top, bottom) = rectangle.split_at_row(split);
 
-        #[test]
-        /// See model-based properties section of the "How to Specify It!" paper.
-        fn contains_model(
-            height in (0_usize..=16_usize).prop_map(Rows::new),
-            width in (0_usize..=16_usize).prop_map(Columns::new),
-            offset_col in (0_usize..=16_usize).prop_map(Columns::new),
-            offset_row in (0_usize..=16_usize).prop_map(Rows::new),
-            position_col in (0_usize..=32_usize).prop_map(Columns::new),
-            position_row in (0_usize..=32_usize).prop_map(Rows::new),
-        ) {
-            let offset = Position::new(offset_col, offset_row);
-            let position = Position::new(position_col, position_row);
+        assert_eq!(
+            split_at_row_abstract(model, absolute_split),
+            (rectangle_model(&top), rectangle_model(&bottom))
+        );
+    }
 
-            let rectangle = Rectangle::from_dimensions(
-                Dimensions::new(width, height)
-            ).with_offset(offset);
+    #[hegel::test]
+    /// See model-based properties section of the "How to Specify It!" paper.
+    fn contains_model(test_case: TestCase) {
+        let height = test_case.draw(generators::integers().max_value(16).map(Rows::new));
+        let width = test_case.draw(generators::integers().max_value(16).map(Columns::new));
+        let offset_col = test_case.draw(generators::integers().max_value(16).map(Columns::new));
+        let offset_row = test_case.draw(generators::integers().max_value(16).map(Rows::new));
 
-            let model = rectangle_model(&rectangle);
+        let position_col = test_case.draw(generators::integers().max_value(32).map(Columns::new));
+        let position_row = test_case.draw(generators::integers().max_value(32).map(Rows::new));
 
-            prop_assert_eq!(contains_abstract(&model, position), rectangle.contains(&position));
-        }
+        let offset = Position::new(offset_col, offset_row);
+        let position = Position::new(position_col, position_row);
+
+        let rectangle =
+            Rectangle::from_dimensions(Dimensions::new(width, height)).with_offset(offset);
+
+        let model = rectangle_model(&rectangle);
+
+        assert_eq!(
+            contains_abstract(&model, position),
+            rectangle.contains(&position)
+        );
     }
 }
