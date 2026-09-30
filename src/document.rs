@@ -673,7 +673,12 @@ impl Document {
     fn clamp_cursor(&mut self) {
         self.set_cursor(cmp::min(
             self.cursor(),
-            ByteIndex::new(self.text.slice(..).len().saturating_sub(1)),
+            ByteIndex::new(
+                self.text
+                    .char_indices()
+                    .last()
+                    .map_or_default(|(index, _ch)| index),
+            ),
         ));
     }
 
@@ -926,7 +931,8 @@ impl Document {
                         ControlFlow::Continue(next_index)
                     }
                 }) {
-                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
+                ControlFlow::Break(index) => index,
+                ControlFlow::Continue(_) => ByteIndex::new(self.text.len()),
             }
         });
 
@@ -3741,6 +3747,54 @@ mod tests {
     }
 
     #[test]
+    fn delete_word_eof() {
+        TestCase {
+            initial_text: "0",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_eof_long() {
+        TestCase {
+            initial_text: "Hello",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_word_eof_clamp() {
+        TestCase {
+            initial_text: "é0",
+            initial_cursor: 2,
+            expected_initial_text_position: (1, 0),
+
+            keys: vec![key_event!('d'), key_event!('w')],
+
+            expected_text: "é",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn change_word_from_start() {
         TestCase {
             initial_text: "Hello world",
@@ -5400,6 +5454,88 @@ mod proptests {
         Document::new(temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
     }
 
+    fn delete_word_model(text: &str, cursor: usize) -> (String, usize) {
+        #[derive(Debug, PartialEq, Eq)]
+        enum Boundary {
+            WordPart,
+            Whitespace,
+            Other,
+        }
+
+        let boundary = |ch: char| -> Boundary {
+            if ch.is_whitespace() {
+                Boundary::Whitespace
+            } else if ch.is_alphanumeric() || ch == '_' {
+                Boundary::WordPart
+            } else {
+                Boundary::Other
+            }
+        };
+
+        let mut chars = text
+            .get(cursor..)
+            .expect("should be on valid boundary")
+            .chars();
+        let mut prev_ch = chars.next();
+        let mut delete_end = cursor + prev_ch.map_or_default(char::len_utf8);
+
+        for ch in chars {
+            if let Some(prev) = prev_ch {
+                let prev_boundary = boundary(prev);
+                let current_boundary = boundary(ch);
+
+                if prev_boundary != current_boundary && current_boundary != Boundary::Whitespace {
+                    break;
+                }
+            }
+
+            prev_ch = Some(ch);
+            delete_end += ch.len_utf8();
+        }
+
+        let mut result = text.to_owned();
+        result.replace_range(cursor..delete_end, "");
+
+        let cursor = cmp::min(
+            cursor,
+            result
+                .char_indices()
+                .last()
+                .map_or_default(|(index, _)| index),
+        );
+
+        (result, cursor)
+    }
+
+    #[test]
+    fn delete_word_model_works() {
+        let tests = [
+            [("  cat".to_owned(), 0), ("cat".to_owned(), 0)],
+            [("é cat".to_owned(), 0), ("cat".to_owned(), 0)],
+            [(String::new(), 0), (String::new(), 0)],
+            [("hello  world".to_owned(), 0), ("world".to_owned(), 0)],
+            [("hello world".to_owned(), 3), ("helworld".to_owned(), 3)],
+            [("hello\nworld".to_owned(), 0), ("world".to_owned(), 0)],
+            [("hello".to_owned(), 0), (String::new(), 0)],
+            [("hello-world".to_owned(), 0), ("-world".to_owned(), 0)],
+            [("--hello".to_owned(), 0), ("hello".to_owned(), 0)],
+            [("--  hello".to_owned(), 0), ("hello".to_owned(), 0)],
+            [("hello_world".to_owned(), 0), (String::new(), 0)],
+            [("é_猫 next".to_owned(), 0), ("next".to_owned(), 0)],
+            [("é 猫 next".to_owned(), 3), ("é next".to_owned(), 3)],
+            [(" \t\ncat".to_owned(), 0), ("cat".to_owned(), 0)],
+            [(" \t\n".to_owned(), 0), (String::new(), 0)],
+            [("hello  ".to_owned(), 0), (String::new(), 0)],
+            [("abc def".to_owned(), 4), ("abc ".to_owned(), 3)],
+            [("hello".to_owned(), 3), ("hel".to_owned(), 2)],
+            [("é猫".to_owned(), 2), ("é".to_owned(), 0)],
+        ];
+
+        for [input, expected] in tests {
+            assert_eq!(delete_word_model(&input.0, input.1), expected);
+        }
+    }
+
     #[hegel::test]
     fn move_cursor_first_non_blank(test_case: TestCase) {
         let prefix = test_case.draw(generators::vecs(terminated_line_generator()).max_size(9));
@@ -5426,5 +5562,35 @@ mod proptests {
 
         let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
         assert_eq!(document.cursor(), expected);
+    }
+
+    #[hegel::test]
+    fn delete_word(test_case: TestCase) {
+        let is_empty = test_case.draw(generators::weighted_booleans(0.1));
+
+        let (text, cursor) = if is_empty {
+            (String::new(), 0)
+        } else {
+            let prefix = test_case.draw(generators::text());
+            let suffix = test_case.draw(generators::text().min_size(1));
+            let cursor = prefix.len();
+
+            (prefix + &suffix, cursor)
+        };
+
+        let model_result = delete_word_model(&text, cursor);
+
+        let mut document = doc(&text);
+        document.set_cursor(ByteIndex::new(cursor));
+
+        for key in ['d', 'w'] {
+            let _ = document
+                .handle_key_event(KeyEvent::from(KeyCode::Char(key)), &mut EventContext::new());
+        }
+
+        assert_eq!(
+            (document.text.to_string(), document.cursor().value()),
+            model_result
+        );
     }
 }
