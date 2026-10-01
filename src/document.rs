@@ -671,15 +671,17 @@ impl Document {
 
     /// Ensures that the cursor does not go past the end of the file.
     fn clamp_cursor(&mut self) {
-        self.set_cursor(cmp::min(
-            self.cursor(),
-            ByteIndex::new(
+        let max_cursor = ByteIndex::new(match self.mode() {
+            Mode::Normal | Mode::Visual => {
                 self.text
                     .char_indices()
                     .last()
-                    .map_or_default(|(index, _ch)| index),
-            ),
-        ));
+                    .map_or_default(|(index, _ch)| index)
+            }
+            Mode::Insert => self.text.len(),
+        });
+
+        self.set_cursor(cmp::min(self.cursor(), max_cursor));
     }
 
     fn recalculate_scroll(&mut self) {
@@ -1323,15 +1325,25 @@ impl Document {
 
         let start = self.text.slice(..).line_start_byte(self.scroll_offset);
 
-        GraphemeLayoutIterator::new(
+        match GraphemeLayoutIterator::new(
             self.text.slice(start.value()..).graphemes(),
             WrapBehavior::Wrap {
                 max_width: text_width,
             },
         )
-        .find(|grapheme| start + grapheme.byte_index() >= self.cursor())
-        .map(|grapheme| grapheme.position())
-        .unwrap_or_default()
+        .try_fold(Position::default(), |_, grapheme| {
+            if start + grapheme.byte_index() >= self.cursor() {
+                ControlFlow::Break(grapheme.position())
+            } else {
+                // if we never find a matching grapheme, that means we've
+                // reached eof, and it's permissible to put the
+                // cursor at the end of the document. therefore we use
+                // `end_position` in that case.
+                ControlFlow::Continue(grapheme.end_position())
+            }
+        }) {
+            ControlFlow::Continue(position) | ControlFlow::Break(position) => position,
+        }
         .col_offset(content_layout.gutter.width())
     }
 
@@ -4126,6 +4138,22 @@ mod tests {
             expected_text: "Heyyllo",
             expected_cursor: 4,
             expected_text_position: (4, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn append_text_eof_no_newline() {
+        TestCase {
+            initial_text: "abc",
+            initial_cursor: 2,
+            expected_initial_text_position: (2, 0),
+
+            keys: vec![key_event!('a'), key_event!('X'), key_event!('Y')],
+
+            expected_text: "abcXY",
+            expected_cursor: 5,
+            expected_text_position: (5, 0),
         }
         .run();
     }
