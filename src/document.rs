@@ -5387,7 +5387,7 @@ mod proptests {
         generators::text().exclude_characters("\r\n").max_size(79)
     }
 
-    fn whitespace_char_generator() -> impl PrintableGenerator<char> {
+    fn non_whitespace_char_generator() -> impl PrintableGenerator<char> {
         generators::characters().filter(|ch| !ch.is_whitespace())
     }
 
@@ -5439,7 +5439,7 @@ mod proptests {
                     whitespace_only_generator(),
                     hegel::compose!(|tc| {
                         let mut whitespace = tc.draw(whitespace_only_generator());
-                        whitespace.push(tc.draw(whitespace_char_generator()));
+                        whitespace.push(tc.draw(non_whitespace_char_generator()));
                         whitespace.push_str(&tc.draw(line_content_generator()));
                         whitespace
                     }),
@@ -5592,7 +5592,7 @@ mod proptests {
         assert_eq!(document.cursor(), expected);
     }
 
-    #[hegel::test]
+    #[hegel::test(test_cases = 1000)]
     fn delete_word(test_case: TestCase) {
         let is_empty = test_case.draw(generators::weighted_booleans(0.1));
 
@@ -5600,13 +5600,75 @@ mod proptests {
             (String::new(), 0)
         } else {
             let prefix = test_case.draw(generators::text());
-            let suffix = test_case.draw(generators::text().min_size(1));
+            let suffix_start = test_case.draw(hegel::one_of![
+                generators::sampled_from(&[' ', '\t', '\n', '\r', '\u{00A0}', '\u{2003}']),
+                generators::characters().filter(|&ch| ch.is_alphanumeric() || ch == '_'),
+                generators::characters()
+                    .filter(|&ch| !ch.is_whitespace() && !ch.is_alphanumeric() && ch != '_'),
+            ]);
+            let suffix = test_case.draw(generators::text());
             let cursor = prefix.len();
 
-            (prefix + &suffix, cursor)
+            (format!("{prefix}{suffix_start}{suffix}"), cursor)
         };
 
-        let model_result = delete_word_model(&text, cursor);
+        if text.is_empty() {
+            test_case.event("document: empty");
+        } else {
+            test_case.event("document: non-empty");
+
+            let first_char = text
+                .get(cursor..)
+                .expect("should be on valid boundary")
+                .chars()
+                .next()
+                .unwrap();
+
+            let first_char_category = if first_char.is_whitespace() {
+                "whitespace"
+            } else if first_char.is_alphanumeric() || first_char == '_' {
+                "word-part"
+            } else {
+                "other"
+            };
+
+            test_case.event(format!("start: {first_char_category}"));
+        }
+
+        let (model_text, model_cursor) = delete_word_model(&text, cursor);
+
+        let deleted_len = text.len() - model_text.len();
+        let delete_end = cursor + deleted_len;
+        let deleted = text
+            .get(cursor..delete_end)
+            .expect("should be on valid boundary");
+
+        if !text.is_empty() {
+            if delete_end == text.len() {
+                test_case.event("stop: EOF");
+            } else {
+                let stop_char = text
+                    .get(delete_end..)
+                    .expect("should be on valid boundary")
+                    .chars()
+                    .next()
+                    .unwrap();
+
+                let stop_char_category = if stop_char.is_whitespace() {
+                    "whitespace"
+                } else if stop_char.is_alphanumeric() || stop_char == '_' {
+                    "word-part"
+                } else {
+                    "other"
+                };
+
+                test_case.event(format!("stop: {stop_char_category}"));
+            }
+        }
+
+        if deleted.chars().any(|ch| ch.len_utf8() > 1) {
+            test_case.event("deleted: contains multi-byte");
+        }
 
         let mut document = doc(&text);
         document.set_cursor(ByteIndex::new(cursor));
@@ -5618,7 +5680,7 @@ mod proptests {
 
         assert_eq!(
             (document.text.to_string(), document.cursor().value()),
-            model_result
+            (model_text, model_cursor)
         );
     }
 }
