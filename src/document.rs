@@ -5366,7 +5366,10 @@ mod diagnostics_tests {
 
 #[cfg(test)]
 mod proptests {
-    use std::io::Write as _;
+    use std::{
+        fmt::Write as _,
+        io::Write as _,
+    };
 
     use hegel::{
         Generator as _,
@@ -5376,102 +5379,6 @@ mod proptests {
     };
 
     use super::*;
-
-    fn strip_trailing_line_break(line: &str) -> &str {
-        line.strip_suffix("\r\n")
-            .or_else(|| line.strip_suffix('\n'))
-            .unwrap_or(line)
-    }
-
-    fn line_content_generator() -> impl PrintableGenerator<String> {
-        generators::text().exclude_characters("\r\n").max_size(79)
-    }
-
-    fn non_whitespace_char_generator() -> impl PrintableGenerator<char> {
-        generators::characters().filter(|ch| !ch.is_whitespace())
-    }
-
-    fn whitespace_only_generator() -> impl PrintableGenerator<String> {
-        generators::text()
-            .alphabet(" \t\u{00A0}\u{2003}")
-            .min_size(1)
-            .max_size(79)
-    }
-
-    fn terminated_line_generator() -> impl PrintableGenerator<String> {
-        hegel::compose!(|test_case| {
-            test_case.draw(line_content_generator())
-                + test_case.draw(generators::sampled_from(&["\n", "\r\n"]))
-        })
-    }
-
-    fn current_line(test_case: &TestCase) -> String {
-        #[derive(Debug, hegel::PrettyPrintable)]
-        enum LineKind {
-            EmptyTerminated,
-            NonEmpty,
-        }
-
-        impl From<u8> for LineKind {
-            fn from(value: u8) -> Self {
-                match value {
-                    0 => Self::EmptyTerminated,
-                    1..=3 => Self::NonEmpty,
-                    _ => unreachable!("we don't generate higher values than this"),
-                }
-            }
-        }
-
-        let kind = test_case.draw(
-            generators::integers::<u8>()
-                .max_value(3)
-                .map(LineKind::from),
-        );
-
-        match kind {
-            LineKind::EmptyTerminated => {
-                test_case
-                    .draw(generators::sampled_from(&["\n", "\r\n"]))
-                    .to_owned()
-            }
-            LineKind::NonEmpty => {
-                let nonempty_content = test_case.draw(hegel::one_of![
-                    whitespace_only_generator(),
-                    hegel::compose!(|tc| {
-                        let mut whitespace = tc.draw(whitespace_only_generator());
-                        whitespace.push(tc.draw(non_whitespace_char_generator()));
-                        whitespace.push_str(&tc.draw(line_content_generator()));
-                        whitespace
-                    }),
-                    hegel::compose!(|tc| {
-                        format!(
-                            "{}{}",
-                            tc.draw(generators::characters().filter(|ch| !ch.is_whitespace()),),
-                            tc.draw(line_content_generator())
-                        )
-                    })
-                ]);
-
-                nonempty_content + test_case.draw(generators::sampled_from(&["", "\n", "\r\n"]))
-            }
-        }
-    }
-
-    /// This is a reference implementation for finding the offset from the start
-    /// of a given line.
-    fn oracle_first_non_blank_offset(line: &str) -> usize {
-        let mut offset = 0;
-
-        for char in strip_trailing_line_break(line).chars() {
-            if char.is_whitespace() {
-                offset += char.len_utf8();
-            } else {
-                return offset;
-            }
-        }
-
-        0
-    }
 
     const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
 
@@ -5586,23 +5493,93 @@ mod proptests {
         (result, cursor)
     }
 
+    fn move_cursor_first_non_blank_model(text: &str, cursor: usize) -> (String, usize) {
+        let mut line_start = 0;
+
+        for (byte_index, ch) in text.char_indices() {
+            if ch != '\r' && ch != '\n' {
+                continue;
+            }
+
+            if ch == '\r' && text.get(byte_index..).unwrap().starts_with("\r\n") {
+                continue;
+            }
+
+            // we are at '\n'
+            let next_line_start = byte_index + 1;
+
+            if next_line_start > cursor {
+                break;
+            }
+
+            line_start = next_line_start;
+        }
+
+        let mut new_cursor = line_start;
+
+        for (offset, ch) in text.get(line_start..).unwrap().char_indices() {
+            if ch == '\r' || ch == '\n' {
+                break;
+            }
+
+            if !ch.is_whitespace() {
+                new_cursor = line_start + offset;
+                break;
+            }
+        }
+
+        (text.to_owned(), new_cursor)
+    }
+
     fn generate_text_and_cursor(test_case: &TestCase) -> (String, usize) {
         let is_empty = test_case.draw(generators::weighted_booleans(0.1));
 
         if is_empty {
             (String::new(), 0)
         } else {
-            let prefix = test_case.draw(generators::text());
-            let suffix_start = test_case.draw(hegel::one_of![
-                generators::sampled_from(&[' ', '\t', '\n', '\r', '\u{00A0}', '\u{2003}']),
-                generators::characters().filter(|&ch| ch.is_alphanumeric() || ch == '_'),
-                generators::characters()
-                    .filter(|&ch| !ch.is_whitespace() && !ch.is_alphanumeric() && ch != '_'),
-            ]);
-            let suffix = test_case.draw(generators::text());
-            let cursor = prefix.len();
+            let lines = test_case.draw(generators::integers::<u8>().min_value(1).max_value(5));
+            let line_index_with_cursor = test_case.draw(
+                generators::integers::<u8>()
+                    .min_value(0)
+                    .max_value(lines - 1),
+            );
 
-            (format!("{prefix}{suffix_start}{suffix}"), cursor)
+            let mut cursor = 0;
+            let mut text = String::new();
+
+            for i in 0..lines {
+                let is_last = i == lines - 1;
+
+                let prefix = test_case.draw(generators::text().exclude_characters("\r\n"));
+                let suffix_start = test_case.draw(hegel::one_of![
+                    generators::sampled_from(&[' ', '\t', '\u{00A0}', '\u{2003}']),
+                    generators::characters().filter(|&ch| ch.is_alphanumeric() || ch == '_'),
+                    generators::characters()
+                        .filter(|&ch| !ch.is_whitespace() && !ch.is_alphanumeric() && ch != '_'),
+                ]);
+                let suffix = test_case.draw(generators::text().exclude_characters("\r\n"));
+
+                let maybe_new_cursor = text.len() + prefix.len();
+
+                let newline = test_case.draw(if is_last {
+                    generators::sampled_from(&["", "\r\n", "\n"])
+                } else {
+                    generators::sampled_from(&["\r\n", "\n"])
+                });
+
+                let _ = write!(text, "{prefix}{suffix_start}{suffix}{newline}");
+
+                if i == line_index_with_cursor {
+                    let put_cursor_eol = test_case.draw(generators::weighted_booleans(0.1));
+                    if put_cursor_eol && !newline.is_empty() {
+                        cursor = text.len() - newline.len();
+                    } else {
+                        cursor = maybe_new_cursor;
+                    }
+                }
+            }
+
+            (text, cursor)
         }
     }
 
@@ -5670,34 +5647,6 @@ mod proptests {
                 "text: {text}, expected: {expected}, got: {result}"
             );
         }
-    }
-
-    #[hegel::test]
-    fn move_cursor_first_non_blank(test_case: TestCase) {
-        let prefix = test_case.draw(generators::vecs(terminated_line_generator()).max_size(9));
-        let current = current_line(&test_case);
-        let postfix = test_case.draw(generators::vecs(terminated_line_generator()).max_size(9));
-
-        let prefix_text = prefix.concat();
-        let initial_cursor = prefix_text.len();
-
-        let postfix_text = if current.ends_with('\n') {
-            postfix.concat()
-        } else {
-            String::new()
-        };
-
-        let text = format!("{prefix_text}{current}{postfix_text}");
-        let mut document = doc(&text);
-        document.set_cursor(ByteIndex::new(initial_cursor));
-
-        let _ =
-            document.handle_key_event(KeyEvent::from(KeyCode::Char('^')), &mut EventContext::new());
-
-        assert!(document.text.is_char_boundary(document.cursor().value()));
-
-        let expected = ByteIndex::new(initial_cursor + oracle_first_non_blank_offset(&current));
-        assert_eq!(document.cursor(), expected);
     }
 
     #[hegel::test(test_cases = 1000)]
@@ -5817,23 +5766,22 @@ mod proptests {
 
     #[hegel::test(test_cases = 1000)]
     fn command_sequence(test_case: TestCase) {
-        #[derive(Debug, Clone, hegel::PrettyPrintable)]
+        #[derive(Debug, Clone, hegel::DefaultGenerator)]
         enum Command {
             DeleteWord,
             MoveCursorNextWord,
+            MoveCursorFirstNonBlank,
             Insert(String),
         }
 
         let (mut text, mut cursor) = generate_text_and_cursor(&test_case);
 
+        test_case.event(format!("lines: {}", cmp::max(text.lines().count(), 1)));
+
         let commands = test_case.draw(
-            generators::vecs(hegel::one_of![
-                generators::just(Command::DeleteWord),
-                generators::just(Command::MoveCursorNextWord),
-                insertion_text_generator().map(Command::Insert),
-            ])
-            .min_size(1)
-            .max_size(20),
+            generators::vecs(generators::default::<Command>().insert(insertion_text_generator()))
+                .min_size(1)
+                .max_size(20),
         );
 
         test_case.event(format!("sequence length: {}", commands.len()));
@@ -5873,6 +5821,11 @@ mod proptests {
                     insertion_keys.push(KeyCode::Esc);
 
                     (insert_text_model(&text, &content, cursor), insertion_keys)
+                }
+                Command::MoveCursorFirstNonBlank => {
+                    (move_cursor_first_non_blank_model(&text, cursor), vec![
+                        KeyCode::Char('^'),
+                    ])
                 }
             };
 
