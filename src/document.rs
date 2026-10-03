@@ -5380,13 +5380,18 @@ mod proptests {
 
     use super::*;
 
-    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
-
-    fn doc(contents: &str) -> Document {
+    fn doc(test_case: &TestCase, contents: &str) -> Document {
         let mut temp_file = tempfile::NamedTempFile::new().unwrap();
         write!(temp_file, "{contents}").unwrap();
 
-        Document::new(temp_file.path().to_path_buf(), TEST_DIMENSIONS).unwrap()
+        let width = test_case.draw(generators::integers().min_value(1).map(Columns::new));
+        let height = test_case.draw(generators::integers().min_value(1).map(Rows::new));
+
+        Document::new(
+            temp_file.path().to_path_buf(),
+            Dimensions::new(width, height),
+        )
+        .unwrap()
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -5711,7 +5716,7 @@ mod proptests {
             test_case.event("deleted: contains multi-byte");
         }
 
-        let mut document = doc(&text);
+        let mut document = doc(&test_case, &text);
         document.set_cursor(ByteIndex::new(cursor));
 
         for key in ['d', 'w'] {
@@ -5733,7 +5738,7 @@ mod proptests {
 
         test_case.event(format!("sequence length: {command_count}"));
 
-        let mut document = doc(&text);
+        let mut document = doc(&test_case, &text);
         document.set_cursor(ByteIndex::new(cursor));
 
         for i in 0..command_count {
@@ -5786,7 +5791,7 @@ mod proptests {
 
         test_case.event(format!("sequence length: {}", commands.len()));
 
-        let mut document = doc(&text);
+        let mut document = doc(&test_case, &text);
         document.set_cursor(ByteIndex::new(cursor));
 
         for (i, command) in commands.into_iter().enumerate() {
