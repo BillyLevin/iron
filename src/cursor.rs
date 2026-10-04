@@ -1,6 +1,5 @@
 use std::{
     cmp,
-    mem,
     ops::Range,
 };
 
@@ -34,10 +33,6 @@ impl CursorState {
 
     pub(crate) const fn selection(&self) -> Selection {
         self.selection
-    }
-
-    pub(crate) const fn reverse_selection(&mut self) {
-        self.selection.reverse();
     }
 
     pub(crate) const fn desired_cursor_column(&self) -> Option<Columns> {
@@ -98,7 +93,17 @@ impl Selection {
         Self { cursor, ..self }
     }
 
-    pub(crate) const fn reverse(&mut self) {
-        mem::swap(&mut self.anchor, &mut self.cursor);
+    /// Creates a new [`Selection`] with the anchor set to the given position.
+    #[must_use]
+    pub(crate) const fn with_anchor(self, anchor: ByteIndex) -> Self {
+        Self { anchor, ..self }
+    }
+
+    #[must_use]
+    pub(crate) const fn reversed(self) -> Self {
+        Self {
+            anchor: self.cursor,
+            cursor: self.anchor,
+        }
     }
 }

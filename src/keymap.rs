@@ -119,7 +119,7 @@ impl KeyMap {
         );
         map.register(
             &[key!('z'), key!('z')],
-            DocumentAction::Movement(MovementAction::VerticallyCenter),
+            DocumentAction::Behavior(BehaviorAction::VerticallyCenter),
         );
 
         map.register(
@@ -346,7 +346,7 @@ impl KeyMap {
         );
         map.register(
             &[key!('z'), key!('z')],
-            DocumentAction::Movement(MovementAction::VerticallyCenter),
+            DocumentAction::Behavior(BehaviorAction::VerticallyCenter),
         );
 
         map.register(
@@ -485,7 +485,6 @@ pub(crate) enum MovementAction {
     MoveWordEnd,
     SelectCurrentWord,
     ReverseSelection,
-    VerticallyCenter,
     GoToPairMatch,
 }
 
@@ -530,6 +529,7 @@ pub(crate) enum BehaviorAction {
     OpenFilePicker,
     AppendText,
     OpenDiagnosticList,
+    VerticallyCenter,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -602,13 +602,10 @@ impl DocumentAction {
                 | BehaviorAction::OpenCommandList
                 | BehaviorAction::ClearInput
                 | BehaviorAction::OpenFilePicker
-                | BehaviorAction::OpenDiagnosticList,
+                | BehaviorAction::OpenDiagnosticList
+                | BehaviorAction::VerticallyCenter,
             )
-            | Self::Movement(
-                MovementAction::MoveDown
-                | MovementAction::MoveUp
-                | MovementAction::VerticallyCenter,
-            ) => false,
+            | Self::Movement(MovementAction::MoveDown | MovementAction::MoveUp) => false,
         }
     }
 
@@ -670,7 +667,7 @@ impl DocumentAction {
             Self::Behavior(BehaviorAction::OpenCommandList) => "Open command list",
             Self::Behavior(BehaviorAction::ClearInput) => "Clear current input",
             Self::Edit(EditAction::InsertTab) => "Insert tab",
-            Self::Movement(MovementAction::VerticallyCenter) => "Center cursor vertically",
+            Self::Behavior(BehaviorAction::VerticallyCenter) => "Center cursor vertically",
             Self::Behavior(BehaviorAction::OpenFilePicker) => "Open file picker",
             Self::Movement(MovementAction::GoToPairMatch) => "Go to pair match",
             Self::Behavior(BehaviorAction::OpenDiagnosticList) => "Open line diagnostics",
