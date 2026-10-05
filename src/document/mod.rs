@@ -46,7 +46,6 @@ use gen_lsp_types::{
 };
 use itertools::Itertools as _;
 use ropey::{
-    LineType,
     Rope,
     RopeSlice,
 };
@@ -58,6 +57,24 @@ use crate::{
     cursor::{
         CursorState,
         Selection,
+        go_to_last_line,
+        go_to_nth_or_first_line,
+        go_to_nth_or_last_line,
+        go_to_pair_match,
+        move_cursor_down,
+        move_cursor_first_non_blank,
+        move_cursor_left,
+        move_cursor_line_end,
+        move_cursor_line_start,
+        move_cursor_next_paragraph,
+        move_cursor_next_word_start,
+        move_cursor_prev_paragraph,
+        move_cursor_prev_word_start,
+        move_cursor_right,
+        move_cursor_up,
+        move_cursor_word_end,
+        reverse_selection,
+        select_current_word,
     },
     editor::{
         EditorAction,
@@ -99,7 +116,6 @@ use crate::{
         RightChar,
         RopeSliceExt as _,
         TAB_VISUAL_WIDTH,
-        VisualLineInfo,
         number_width,
         text_width,
     },
@@ -491,24 +507,80 @@ impl Document {
         let action_count = count.map_or(1, NonZero::get);
 
         let selection = match action {
-            MovementAction::MoveDown => self.move_cursor_down(action_count),
-            MovementAction::MoveUp => self.move_cursor_up(action_count),
-            MovementAction::MoveRight => self.move_cursor_right(action_count),
-            MovementAction::MoveLeft => self.move_cursor_left(action_count),
-            MovementAction::MoveNextWordStart => self.move_cursor_next_word_start(action_count),
-            MovementAction::MovePrevWordStart => self.move_cursor_prev_word_start(action_count),
-            MovementAction::MoveLineEnd => self.move_cursor_line_end(),
-            MovementAction::MoveLineStart => self.move_cursor_line_start(),
-            MovementAction::MoveLineFirstNonBlank => self.move_cursor_first_non_blank(),
-            MovementAction::MoveNextParagraph => self.move_cursor_next_paragraph(action_count),
-            MovementAction::MovePrevParagraph => self.move_cursor_prev_paragraph(action_count),
-            MovementAction::GoToLastLine => self.go_to_last_line(),
-            MovementAction::GoToNthOrLastLine => self.go_to_nth_or_last_line(count),
-            MovementAction::GoToNthOrFirstLine => self.go_to_nth_or_first_line(count),
-            MovementAction::MoveWordEnd => self.move_cursor_word_end(action_count),
-            MovementAction::ReverseSelection => self.reverse_selection(),
-            MovementAction::SelectCurrentWord => self.select_current_word(),
-            MovementAction::GoToPairMatch => self.go_to_pair_match(),
+            MovementAction::MoveDown => {
+                match self.content_layout().max_text_width() {
+                    Some(width) => {
+                        let target_column = self.desired_column(width);
+                        move_cursor_down(
+                            self.text.slice(..),
+                            self.selection(),
+                            target_column,
+                            width,
+                            action_count,
+                        )
+                    }
+                    None => self.selection(),
+                }
+            }
+            MovementAction::MoveUp => {
+                match self.content_layout().max_text_width() {
+                    Some(width) => {
+                        let target_column = self.desired_column(width);
+                        move_cursor_up(
+                            self.text.slice(..),
+                            self.selection(),
+                            target_column,
+                            width,
+                            action_count,
+                        )
+                    }
+                    None => self.selection(),
+                }
+            }
+            MovementAction::MoveRight => {
+                move_cursor_right(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::MoveLeft => {
+                move_cursor_left(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::MoveNextWordStart => {
+                move_cursor_next_word_start(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::MovePrevWordStart => {
+                move_cursor_prev_word_start(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::MoveLineEnd => {
+                move_cursor_line_end(self.text.slice(..), self.selection())
+            }
+            MovementAction::MoveLineStart => {
+                move_cursor_line_start(self.text.slice(..), self.selection())
+            }
+            MovementAction::MoveLineFirstNonBlank => {
+                move_cursor_first_non_blank(self.text.slice(..), self.selection())
+            }
+            MovementAction::MoveNextParagraph => {
+                move_cursor_next_paragraph(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::MovePrevParagraph => {
+                move_cursor_prev_paragraph(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::GoToLastLine => go_to_last_line(self.text.slice(..), self.selection()),
+            MovementAction::GoToNthOrLastLine => {
+                go_to_nth_or_last_line(self.text.slice(..), self.selection(), count)
+            }
+            MovementAction::GoToNthOrFirstLine => {
+                go_to_nth_or_first_line(self.text.slice(..), self.selection(), count)
+            }
+            MovementAction::MoveWordEnd => {
+                move_cursor_word_end(self.text.slice(..), self.selection(), action_count)
+            }
+            MovementAction::ReverseSelection => reverse_selection(self.selection()),
+            MovementAction::SelectCurrentWord => {
+                select_current_word(self.text.slice(..), self.selection())
+            }
+            MovementAction::GoToPairMatch => {
+                go_to_pair_match(self.text.slice(..), self.selection())
+            }
         };
 
         self.cursor_state.set_selection(selection);
@@ -546,116 +618,6 @@ impl Document {
             initial_text,
             edit,
         )));
-    }
-
-    fn move_cursor_down(&mut self, count: usize) -> Selection {
-        let Some(text_width) = self.content_layout().max_text_width() else {
-            return self.selection();
-        };
-
-        let target_column = self.desired_column(text_width);
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            VisualLineInfo::new(
-                &self.text,
-                text.line_idx_containing_byte(cursor),
-                text_width,
-            )
-            .next_at_column(cursor, target_column)
-            .unwrap_or(cursor)
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_up(&mut self, count: usize) -> Selection {
-        let Some(text_width) = self.content_layout().max_text_width() else {
-            return self.selection();
-        };
-
-        let target_column = self.desired_column(text_width);
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            VisualLineInfo::new(
-                &self.text,
-                text.line_idx_containing_byte(cursor),
-                text_width,
-            )
-            .prev_at_column(cursor, target_column)
-            .unwrap_or(cursor)
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_right(&self, count: usize) -> Selection {
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            text.next_grapheme_position(cursor)
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_left(&self, count: usize) -> Selection {
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            text.previous_grapheme_position(cursor)
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_next_word_start(&self, count: usize) -> Selection {
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            match self
-                .text
-                .slice(cursor.value()..)
-                .chars()
-                .tuple_windows()
-                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(cursor, |index, (left, right)| {
-                    let next_index = index + left.ch().len_utf8();
-
-                    if right.is_word_start(left) {
-                        ControlFlow::Break(next_index)
-                    } else {
-                        ControlFlow::Continue(next_index)
-                    }
-                }) {
-                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-            }
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_prev_word_start(&self, count: usize) -> Selection {
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            self.text
-                .slice(..cursor.value())
-                .chars_at(cursor.value())
-                .reversed()
-                .tuple_windows()
-                .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(cursor, |index, (left, right)| {
-                    let next_index = index.saturating_sub(right.ch().len_utf8());
-
-                    if right.is_word_start(left) {
-                        ControlFlow::Break(next_index)
-                    } else {
-                        ControlFlow::Continue(next_index)
-                    }
-                })
-                .break_value()
-                .unwrap_or_default()
-        });
-
-        self.selection().with_cursor(cursor)
     }
 
     /// Ensures that the cursor does not go past the end of the file.
@@ -787,124 +749,6 @@ impl Document {
 
     fn insert_newline(&self) -> Transaction {
         self.insert_char('\n')
-    }
-
-    /// Moves to the cursor to the last non-linebreak grapheme on the current
-    /// line.
-    fn move_cursor_line_end(&self) -> Selection {
-        let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.cursor());
-        let cursor = cmp::max(
-            text.line_start_byte(line_index),
-            text.previous_grapheme_position(text.line_break(line_index).position),
-        );
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_line_start(&self) -> Selection {
-        let text = self.text.slice(..);
-        let cursor = text.line_start_byte(text.line_idx_containing_byte(self.cursor()));
-
-        self.selection().with_cursor(cursor)
-    }
-
-    /// Moves the cursor to the first non-whitespace character on the current
-    /// line.
-    fn move_cursor_first_non_blank(&self) -> Selection {
-        let text = self.text.slice(..);
-        let line_index = text.line_idx_containing_byte(self.cursor());
-        let line = text.line_at(line_index);
-        let cursor = text.line_start_byte(line_index) + line.first_non_blank_offset();
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_next_paragraph(&self, count: usize) -> Selection {
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _index| {
-            let line_index = text.line_idx_containing_byte(cursor);
-
-            let line_offset = self
-                .text
-                .lines_at(line_index.value(), LineType::LF_CR)
-                .enumerate()
-                .skip_while(|&(_i, line)| line.is_whitespace())
-                .find(|&(_i, line)| line.is_whitespace())
-                .map(|(i, _line)| i);
-
-            match line_offset {
-                Some(offset) => text.line_start_byte(line_index + offset),
-                None => ByteIndex::new(text.len()),
-            }
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn move_cursor_prev_paragraph(&self, count: usize) -> Selection {
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _index| {
-            let line_index = text.line_idx_containing_byte(cursor);
-
-            let line_offset = self
-                .text
-                // NOTE: +1 because when we use `reversed()`, the iterator does not consume the
-                // line at the provided index
-                .lines_at(line_index.value() + 1, LineType::LF_CR)
-                .reversed()
-                .enumerate()
-                .skip_while(|&(_i, line)| line.is_whitespace())
-                .find(|&(_i, line)| line.is_whitespace())
-                .map(|(i, _line)| i);
-
-            match line_offset {
-                Some(offset) => text.line_start_byte(line_index.saturating_sub(offset)),
-                None => ByteIndex::new(0),
-            }
-        });
-
-        self.selection().with_cursor(cursor)
-    }
-
-    fn go_to_last_line(&self) -> Selection {
-        let text = self.text.slice(..);
-        let cursor = text.line_start_byte(text.last_line_idx());
-
-        self.selection().with_cursor(cursor)
-    }
-
-    const fn go_to_first_line(&self) -> Selection {
-        self.selection().with_cursor(ByteIndex::new(0))
-    }
-
-    fn go_to_nth_or_first_line(&self, line_number: Option<NonZeroUsize>) -> Selection {
-        if let Some(line) = line_number {
-            self.go_to_line_index(cmp::min(
-                LineIndex::new(line.get() - 1),
-                self.text.slice(..).last_line_idx(),
-            ))
-        } else {
-            self.go_to_first_line()
-        }
-    }
-
-    fn go_to_nth_or_last_line(&self, line_number: Option<NonZeroUsize>) -> Selection {
-        if let Some(line) = line_number {
-            self.go_to_line_index(cmp::min(
-                LineIndex::new(line.get() - 1),
-                self.text.slice(..).last_line_idx(),
-            ))
-        } else {
-            self.go_to_last_line()
-        }
-    }
-
-    fn go_to_line_index(&self, line: LineIndex) -> Selection {
-        self.selection()
-            .with_cursor(self.text.slice(..).line_start_byte(line))
     }
 
     fn content_layout(&self) -> ContentLayout {
@@ -1077,7 +921,11 @@ impl Document {
     }
 
     fn append_text(&mut self) {
-        self.cursor_state.set_selection(self.move_cursor_right(1));
+        self.cursor_state.set_selection(move_cursor_right(
+            self.text.slice(..),
+            self.selection(),
+            1,
+        ));
         self.insert_mode();
     }
 
@@ -1097,36 +945,6 @@ impl Document {
         };
 
         Transaction::new(edit, self.selection().with_cursor(line_break.position))
-    }
-
-    fn move_cursor_word_end(&self, count: usize) -> Selection {
-        let text = self.text.slice(..);
-
-        let cursor = (0..count).fold(self.cursor(), |cursor, _i| {
-            // we start searching at the next grapheme so that the cursor
-            // doesn't stay where it is if it's already at the end
-            // of a word (in that case, we want to go to the end of
-            // the **next** word)
-            let search_start = text.next_grapheme_position(cursor);
-
-            match self
-                .text
-                .slice(search_start.value()..)
-                .chars()
-                .tuple_windows()
-                .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-                .try_fold(search_start, |index, (left, right)| {
-                    if left.is_word_end(right) {
-                        ControlFlow::Break(index)
-                    } else {
-                        ControlFlow::Continue(index + left.ch().len_utf8())
-                    }
-                }) {
-                ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-            }
-        });
-
-        self.selection().with_cursor(cursor)
     }
 
     fn delete_to_word_end(&self, count: usize) -> Transaction {
@@ -1190,10 +1008,6 @@ impl Document {
         )
     }
 
-    const fn reverse_selection(&self) -> Selection {
-        self.selection().reversed()
-    }
-
     fn open_new_line_below(&self) -> Transaction {
         let text = self.text.slice(..);
 
@@ -1222,50 +1036,6 @@ impl Document {
             Some(TextEdit::insert(line_start, '\n')),
             self.selection().with_cursor(line_start),
         )
-    }
-
-    fn select_current_word(&self) -> Selection {
-        let current_ch = self.text.char(self.cursor().value());
-
-        let reversed_chars = self
-            .text
-            .slice(..self.cursor().value())
-            .chars_at(self.cursor().value())
-            .reversed();
-
-        let start = iter::once(current_ch)
-            .chain(reversed_chars)
-            .tuple_windows()
-            .map(|(right, left)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.cursor(), |index, (left, right)| {
-                if right.is_word_start(left) {
-                    ControlFlow::Break(index)
-                } else {
-                    ControlFlow::Continue(index.saturating_sub(left.ch().len_utf8()))
-                }
-            })
-            .break_value()
-            .unwrap_or(ByteIndex::new(0));
-
-        let end = match self
-            .text
-            .slice(self.cursor().value()..)
-            .chars()
-            .tuple_windows()
-            .map(|(left, right)| (LeftChar::new(left), RightChar::new(right)))
-            .try_fold(self.cursor(), |index, (left, right)| {
-                let next_index = index + left.ch().len_utf8();
-
-                if left.is_word_end(right) {
-                    ControlFlow::Break(index)
-                } else {
-                    ControlFlow::Continue(next_index)
-                }
-            }) {
-            ControlFlow::Continue(index) | ControlFlow::Break(index) => index,
-        };
-
-        Selection::default().with_anchor(start).with_cursor(end)
     }
 
     /// Deletes the current plus the `count` succeeding lines.
@@ -1414,51 +1184,6 @@ impl Document {
 
     pub(crate) fn set_jj_info(&mut self, info: JJInfo) {
         self.jj_info = info;
-    }
-
-    fn go_to_pair_match(&self) -> Selection {
-        let cursor = self.cursor().value();
-
-        let Some(pair) = self.text.get_byte(cursor).and_then(PairItem::new) else {
-            return self.selection();
-        };
-
-        let current = pair.as_byte();
-        let opposite = pair.opposite_as_byte();
-
-        assert_ne!(current, opposite, "current should never be opposite!");
-
-        let bytes = match pair.position {
-            PairPosition::Start => self.text.bytes_at(cursor + 1),
-            PairPosition::End => self.text.bytes_at(cursor).reversed(),
-        };
-
-        let Some(offset) = bytes
-            .enumerate()
-            .try_fold(1_u64, |depth, (offset, byte)| {
-                let next_depth = if byte == current {
-                    depth + 1
-                } else if byte == opposite {
-                    depth - 1
-                } else {
-                    depth
-                };
-
-                if next_depth == 0 {
-                    ControlFlow::Break(ByteIndex::new(offset + 1))
-                } else {
-                    ControlFlow::Continue(next_depth)
-                }
-            })
-            .break_value()
-        else {
-            return self.selection();
-        };
-
-        self.selection().with_cursor(match pair.position {
-            PairPosition::Start => self.cursor() + offset,
-            PairPosition::End => self.cursor() - offset,
-        })
     }
 
     /// Creates a snapshot of relevant data from the document to be used in
@@ -1900,104 +1625,6 @@ impl HighlightCache {
 struct HighlightRequest {
     text: Rope,
     language: Language,
-}
-
-#[derive(Debug)]
-struct PairItem {
-    kind: PairKind,
-    position: PairPosition,
-}
-
-impl PairItem {
-    const fn new(value: u8) -> Option<Self> {
-        match value {
-            b'(' => {
-                Some(Self {
-                    kind: PairKind::Paren,
-                    position: PairPosition::Start,
-                })
-            }
-            b')' => {
-                Some(Self {
-                    kind: PairKind::Paren,
-                    position: PairPosition::End,
-                })
-            }
-            b'{' => {
-                Some(Self {
-                    kind: PairKind::Brace,
-                    position: PairPosition::Start,
-                })
-            }
-            b'}' => {
-                Some(Self {
-                    kind: PairKind::Brace,
-                    position: PairPosition::End,
-                })
-            }
-            b'[' => {
-                Some(Self {
-                    kind: PairKind::Bracket,
-                    position: PairPosition::Start,
-                })
-            }
-            b']' => {
-                Some(Self {
-                    kind: PairKind::Bracket,
-                    position: PairPosition::End,
-                })
-            }
-            _ => None,
-        }
-    }
-
-    const fn as_byte(&self) -> u8 {
-        match self.position {
-            PairPosition::Start => self.kind.start_byte(),
-            PairPosition::End => self.kind.end_byte(),
-        }
-    }
-
-    const fn opposite_as_byte(&self) -> u8 {
-        match self.position {
-            PairPosition::Start => self.kind.end_byte(),
-            PairPosition::End => self.kind.start_byte(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum PairKind {
-    /// `(` or `)`.
-    Paren,
-    /// `{` or `}`.
-    Brace,
-    /// `[` or `]`.
-    Bracket,
-}
-
-impl PairKind {
-    const fn start_byte(self) -> u8 {
-        match self {
-            Self::Paren => b'(',
-            Self::Brace => b'{',
-            Self::Bracket => b'[',
-        }
-    }
-
-    const fn end_byte(self) -> u8 {
-        match self {
-            Self::Paren => b')',
-            Self::Brace => b'}',
-            Self::Bracket => b']',
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum PairPosition {
-    Start,
-    End,
 }
 
 #[derive(Debug)]

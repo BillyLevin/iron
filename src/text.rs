@@ -9,7 +9,6 @@ use std::{
 
 use ropey::{
     LineType,
-    Rope,
     RopeSlice,
 };
 use unicode_segmentation::{
@@ -343,7 +342,7 @@ impl TryFrom<u32> for LineIndex {
 
 #[derive(Debug)]
 pub(crate) struct VisualLineInfo<'text> {
-    text: &'text Rope,
+    text: RopeSlice<'text>,
     line_index: LineIndex,
     /// Byte indices of the start of the **visual** lines produced by the text
     /// line. These indices are relative to the start of the text slice.
@@ -355,17 +354,20 @@ pub(crate) struct VisualLineInfo<'text> {
 }
 
 impl<'text> VisualLineInfo<'text> {
-    pub(crate) fn new(text: &'text Rope, line_index: LineIndex, max_width: NonZeroColumns) -> Self {
+    pub(crate) fn new(
+        text: RopeSlice<'text>,
+        line_index: LineIndex,
+        max_width: NonZeroColumns,
+    ) -> Self {
         let mut visual_line_starts = Vec::new();
 
-        let text_slice = text.slice(..);
+        let start = text.line_start_byte(line_index);
 
-        let start = text_slice.line_start_byte(line_index);
-
-        for grapheme in GraphemeLayoutIterator::new(
-            text_slice.line_at(line_index).graphemes(),
-            WrapBehavior::Wrap { max_width },
-        ) {
+        for grapheme in
+            GraphemeLayoutIterator::new(text.line_at(line_index).graphemes(), WrapBehavior::Wrap {
+                max_width,
+            })
+        {
             if grapheme.position().left() == Columns::new(0) {
                 visual_line_starts.push(start + grapheme.byte_index());
             }
@@ -448,7 +450,7 @@ impl<'text> VisualLineInfo<'text> {
             .partition_point(|start_index| *start_index <= byte_index);
 
         self.visual_line_starts.get(partition).copied().or_else(|| {
-            if self.text.slice(..).last_line_idx() == self.line_index {
+            if self.text.last_line_idx() == self.line_index {
                 None
             } else {
                 Self::new(self.text, self.line_index + 1, self.max_width).top_visual_line()
