@@ -73,8 +73,8 @@ fn delete_word_model(text: &str, cursor: usize) -> (String, usize) {
     let cursor = cmp::min(
         cursor,
         result
-            .char_indices()
-            .last()
+            .grapheme_indices(true)
+            .next_back()
             .map_or_default(|(index, _)| index),
     );
 
@@ -107,9 +107,9 @@ fn move_cursor_next_word_model(text: &str, cursor: usize) -> (String, usize) {
         text.to_owned(),
         cmp::min(
             cursor,
-            text.char_indices()
-                .last()
-                .map_or_default(|(index, _ch)| index),
+            text.grapheme_indices(true)
+                .next_back()
+                .map_or_default(|(index, _)| index),
         ),
     )
 }
@@ -122,9 +122,9 @@ fn insert_text_model(text: &str, to_insert: &str, cursor: usize) -> (String, usi
     let cursor = cmp::min(
         cursor + to_insert.len(),
         result
-            .char_indices()
-            .last()
-            .map_or_default(|(index, _ch)| index),
+            .grapheme_indices(true)
+            .next_back()
+            .map_or_default(|(index, _)| index),
     );
 
     (result, cursor)

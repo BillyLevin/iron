@@ -622,15 +622,12 @@ impl Document {
 
     /// Ensures that the cursor does not go past the end of the file.
     fn clamp_cursor(&mut self) {
-        let max_cursor = ByteIndex::new(match self.mode() {
-            Mode::Normal | Mode::Visual => {
-                self.text
-                    .char_indices()
-                    .last()
-                    .map_or_default(|(index, _ch)| index)
-            }
-            Mode::Insert => self.text.len(),
-        });
+        let end = ByteIndex::new(self.text.len());
+
+        let max_cursor = match self.mode() {
+            Mode::Normal | Mode::Visual => self.text.slice(..).previous_grapheme_position(end),
+            Mode::Insert => end,
+        };
 
         self.set_cursor(cmp::min(self.cursor(), max_cursor));
     }
