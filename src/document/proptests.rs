@@ -154,12 +154,12 @@ fn move_cursor_first_non_blank_model(text: &str, cursor: usize) -> (String, usiz
 
     let mut new_cursor = line_start;
 
-    for (offset, ch) in text.get(line_start..).unwrap().char_indices() {
-        if ch == '\r' || ch == '\n' {
+    for (offset, grapheme) in text.get(line_start..).unwrap().grapheme_indices(true) {
+        if grapheme == "\r" || grapheme == "\n" || grapheme == "\r\n" {
             break;
         }
 
-        if !ch.is_whitespace() {
+        if !grapheme.trim().is_empty() {
             new_cursor = line_start + offset;
             break;
         }

@@ -3099,6 +3099,23 @@ mod tests {
     }
 
     #[test]
+    fn move_cursor_first_non_blank_grapheme_with_whitespace() {
+        TestCase {
+            // `" \u{1F3FB}"` is a single grapheme. the whitespace is part of it
+            initial_text: " \u{1F3FB}",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![key_event!('^')],
+
+            expected_text: " \u{1F3FB}",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn move_cursor_next_paragraph() {
         TestCase {
             initial_text: "hello\nworld\n\nparagraph",

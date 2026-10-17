@@ -232,9 +232,14 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
     }
 
     fn first_non_blank_offset(&self) -> ByteIndex {
-        self.char_indices()
-            .find_map(|(byte, ch)| (!ch.is_whitespace()).then(|| ByteIndex::new(byte)))
-            .unwrap_or(ByteIndex::new(0))
+        self.graphemes()
+            .scan(ByteIndex::new(0), |offset, grapheme| {
+                let start = *offset;
+                *offset += grapheme.len();
+                Some((start, grapheme))
+            })
+            .find_map(|(start, grapheme)| (!grapheme.trim().is_empty()).then_some(start))
+            .unwrap_or_default()
     }
 }
 
@@ -573,4 +578,36 @@ pub(crate) fn text_width(text: &str) -> Columns {
 /// Works out the width of an integer (one column for each digit).
 pub(crate) fn number_width(value: usize) -> Columns {
     Columns::new((value.checked_ilog10().unwrap_or(0) + 1) as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use ropey::Rope;
+
+    use super::{
+        ByteIndex,
+        RopeSliceExt as _,
+    };
+
+    #[test]
+    fn first_non_blank_offset() {
+        for (text, expected) in [
+            ("", 0),
+            ("hello", 0),
+            ("0 0", 0),
+            ("   hello", 3),
+            ("\t hello", 2),
+            ("   ", 0),
+            ("   \n", 0),
+            (" \u{1F3FB}", 0),
+            (" \u{1F3FB}x", 0),
+            ("  \u{1F3FB}x", 1),
+        ] {
+            assert_eq!(
+                Rope::from_str(text).slice(..).first_non_blank_offset(),
+                ByteIndex::new(expected),
+                "text: {text:?}"
+            );
+        }
+    }
 }
