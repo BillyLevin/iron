@@ -75,6 +75,7 @@ use crate::{
         move_cursor_word_end,
         reverse_selection,
         select_current_word,
+        visual_cursor_position,
     },
     editor::{
         EditorAction,
@@ -1091,27 +1092,12 @@ impl Document {
             return Position::default();
         };
 
-        let start = self.text.slice(..).line_start_byte(self.scroll_offset);
-
-        match GraphemeLayoutIterator::new(
-            self.text.slice(start.value()..).graphemes(),
-            WrapBehavior::Wrap {
-                max_width: text_width,
-            },
+        visual_cursor_position(
+            self.text.slice(..),
+            self.cursor(),
+            self.scroll_offset,
+            text_width,
         )
-        .try_fold(Position::default(), |_, grapheme| {
-            if start + grapheme.byte_index() >= self.cursor() {
-                ControlFlow::Break(grapheme.position())
-            } else {
-                // if we never find a matching grapheme, that means we've
-                // reached eof, and it's permissible to put the
-                // cursor at the end of the document. therefore we use
-                // `end_position` in that case.
-                ControlFlow::Continue(grapheme.end_position())
-            }
-        }) {
-            ControlFlow::Continue(position) | ControlFlow::Break(position) => position,
-        }
         .col_offset(content_layout.gutter.width())
     }
 

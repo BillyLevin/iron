@@ -15,6 +15,10 @@ use ropey::{
 };
 
 use crate::{
+    grapheme_layout::{
+        GraphemeLayoutIterator,
+        WrapBehavior,
+    },
     text::{
         ByteIndex,
         LeftChar,
@@ -26,6 +30,7 @@ use crate::{
     ui::{
         Columns,
         NonZeroColumns,
+        Position,
     },
 };
 
@@ -575,4 +580,34 @@ impl PairKind {
 enum PairPosition {
     Start,
     End,
+}
+
+/// Gets the visual position of the cursor, relative to the top-left of the
+/// rectangle that `text` is rendered into.
+pub(crate) fn visual_cursor_position(
+    text: RopeSlice<'_>,
+    cursor: ByteIndex,
+    scroll_offset: LineIndex,
+    text_width: NonZeroColumns,
+) -> Position {
+    let start = text.line_start_byte(scroll_offset);
+
+    match GraphemeLayoutIterator::new(
+        text.slice(start.value()..).graphemes(),
+        WrapBehavior::Wrap {
+            max_width: text_width,
+        },
+    )
+    .try_fold(Position::default(), |_, grapheme| {
+        if start + grapheme.byte_index() >= cursor {
+            ControlFlow::Break(grapheme.position())
+        } else {
+            // if we never find a matching grapheme, that means we've reached
+            // eof, and it's permissible to put the cursor at the end of the
+            // document. therefore we use `end_position` in that case.
+            ControlFlow::Continue(grapheme.end_position())
+        }
+    }) {
+        ControlFlow::Continue(position) | ControlFlow::Break(position) => position,
+    }
 }
