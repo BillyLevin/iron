@@ -15,7 +15,15 @@ use ropey::{
 
 use crate::{
     buffer::Buffer,
-    cursor::visual_cursor_position,
+    cursor::{
+        CursorState,
+        Selection,
+        move_cursor_down,
+        move_cursor_left,
+        move_cursor_right,
+        move_cursor_up,
+        visual_cursor_position,
+    },
     document::DiagnosticMessage,
     editor::{
         EditorAction,
@@ -52,6 +60,7 @@ pub(crate) struct DiagnosticList {
     text: Rope,
     styles: Vec<DiagnosticStyle>,
     layout: Layout,
+    cursor_state: CursorState,
 }
 
 impl DiagnosticList {
@@ -79,13 +88,56 @@ impl DiagnosticList {
             layout: Layout::new(text.slice(..), app_dimensions, diagnostics.len()),
             text,
             styles,
+            cursor_state: CursorState::default(),
         }
     }
 
-    fn apply_action(action: DiagnosticListAction, context: &mut EventContext) {
+    fn apply_action(&mut self, action: DiagnosticListAction, context: &mut EventContext) {
         match action {
             DiagnosticListAction::Close => {
                 context.push_action(EditorAction::RemoveLayer(LayerKind::DiagnosticList));
+            }
+            DiagnosticListAction::MoveLeft => {
+                self.cursor_state.set_selection(move_cursor_left(
+                    self.text.slice(..),
+                    Selection::default().with_cursor(self.cursor_state.cursor()),
+                    1,
+                ));
+            }
+            DiagnosticListAction::MoveDown => {
+                let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
+                    return;
+                };
+
+                self.cursor_state.set_selection(move_cursor_down(
+                    self.text.slice(..),
+                    Selection::default().with_cursor(self.cursor_state.cursor()),
+                    // TODO: pass in desired column when it's implemented
+                    Columns::new(0),
+                    text_width,
+                    1,
+                ));
+            }
+            DiagnosticListAction::MoveUp => {
+                let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
+                    return;
+                };
+
+                self.cursor_state.set_selection(move_cursor_up(
+                    self.text.slice(..),
+                    Selection::default().with_cursor(self.cursor_state.cursor()),
+                    // TODO: pass in desired column when it's implemented
+                    Columns::new(0),
+                    text_width,
+                    1,
+                ));
+            }
+            DiagnosticListAction::MoveRight => {
+                self.cursor_state.set_selection(move_cursor_right(
+                    self.text.slice(..),
+                    Selection::default().with_cursor(self.cursor_state.cursor()),
+                    1,
+                ));
             }
         }
     }
@@ -162,7 +214,19 @@ impl Layer for DiagnosticList {
 
                 match (key_binding.code(), key_binding.modifiers()) {
                     (KeyCode::Esc, KeyModifiers::NONE) => {
-                        Self::apply_action(DiagnosticListAction::Close, context);
+                        self.apply_action(DiagnosticListAction::Close, context);
+                    }
+                    (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                        self.apply_action(DiagnosticListAction::MoveLeft, context);
+                    }
+                    (KeyCode::Char('j'), KeyModifiers::NONE) => {
+                        self.apply_action(DiagnosticListAction::MoveDown, context);
+                    }
+                    (KeyCode::Char('k'), KeyModifiers::NONE) => {
+                        self.apply_action(DiagnosticListAction::MoveUp, context);
+                    }
+                    (KeyCode::Char('l'), KeyModifiers::NONE) => {
+                        self.apply_action(DiagnosticListAction::MoveRight, context);
                     }
                     _ => {}
                 }
@@ -190,7 +254,16 @@ impl Layer for DiagnosticList {
     }
 
     fn visual_cursor_position(&self) -> Option<Position> {
-        None
+        Some(
+            visual_cursor_position(
+                self.text.slice(..),
+                self.cursor_state.cursor(),
+                // TODO: pass in scroll offset here when implementing scrolling
+                LineIndex::new(0),
+                NonZeroColumns::new(self.layout.text.width())?,
+            )
+            .offset(self.layout.text.offset()),
+        )
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
@@ -205,6 +278,10 @@ impl Layer for DiagnosticList {
 #[derive(Debug, Clone, Copy)]
 enum DiagnosticListAction {
     Close,
+    MoveLeft,
+    MoveDown,
+    MoveUp,
+    MoveRight,
 }
 
 #[derive(Debug)]
