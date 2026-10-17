@@ -56,8 +56,19 @@ impl CursorState {
         self.selection
     }
 
-    pub(crate) const fn desired_cursor_column(&self) -> Option<Columns> {
-        self.desired_cursor_column
+    /// Gets (or inserts the current cursor column) the desired column to
+    /// navigate to on vertical cursor movement.
+    pub(crate) fn get_or_insert_desired_column(
+        &mut self,
+        text: RopeSlice<'_>,
+        text_width: NonZeroColumns,
+    ) -> Columns {
+        let cursor = self.cursor();
+
+        *self.desired_cursor_column.get_or_insert_with(|| {
+            let cursor_line = text.line_idx_containing_byte(cursor);
+            visual_cursor_position(text, cursor, cursor_line, text_width).left()
+        })
     }
 
     pub(crate) const fn set_cursor(&mut self, index: ByteIndex) {
@@ -74,10 +85,6 @@ impl CursorState {
 
     pub(crate) const fn clear_desired_column(&mut self) {
         self.desired_cursor_column = None;
-    }
-
-    pub(crate) const fn set_desired_cursor_column(&mut self, column: Columns) {
-        self.desired_cursor_column = Some(column);
     }
 }
 

@@ -455,7 +455,7 @@ impl Document {
         }
 
         if action.should_reset_desired_column() {
-            self.clear_desired_column();
+            self.cursor_state.clear_desired_column();
         }
     }
 
@@ -511,14 +511,11 @@ impl Document {
             MovementAction::MoveDown => {
                 match self.content_layout().max_text_width() {
                     Some(width) => {
-                        let target_column = self.desired_column(width);
-                        move_cursor_down(
-                            self.text.slice(..),
-                            self.selection(),
-                            target_column,
-                            width,
-                            action_count,
-                        )
+                        let text = self.text.slice(..);
+                        let target_column =
+                            self.cursor_state.get_or_insert_desired_column(text, width);
+
+                        move_cursor_down(text, self.selection(), target_column, width, action_count)
                     }
                     None => self.selection(),
                 }
@@ -526,14 +523,11 @@ impl Document {
             MovementAction::MoveUp => {
                 match self.content_layout().max_text_width() {
                     Some(width) => {
-                        let target_column = self.desired_column(width);
-                        move_cursor_up(
-                            self.text.slice(..),
-                            self.selection(),
-                            target_column,
-                            width,
-                            action_count,
-                        )
+                        let text = self.text.slice(..);
+                        let target_column =
+                            self.cursor_state.get_or_insert_desired_column(text, width);
+
+                        move_cursor_up(text, self.selection(), target_column, width, action_count)
                     }
                     None => self.selection(),
                 }
@@ -668,33 +662,6 @@ impl Document {
         let middle = self.layout_info.content_rect.height() / 2;
 
         self.scroll_offset = cursor_line.saturating_sub(middle);
-    }
-
-    /// Gets (or inserts the current cursor column) the desired column to
-    /// navigate to on vertical cursor movement.
-    fn desired_column(&mut self, max_width: NonZeroColumns) -> Columns {
-        if let Some(column) = self.cursor_state.desired_cursor_column() {
-            return column;
-        }
-
-        let text = self.text.slice(..);
-        let cursor = self.cursor();
-
-        let line_start = text.line_start_byte(text.line_idx_containing_byte(cursor));
-
-        let column = text
-            .slice(line_start.value()..cursor.value())
-            .chunks()
-            .map(text_width)
-            .sum::<Columns>()
-            .map(|cols| cols % max_width.get().value());
-
-        self.cursor_state.set_desired_cursor_column(column);
-        column
-    }
-
-    const fn clear_desired_column(&mut self) {
-        self.cursor_state.clear_desired_column();
     }
 
     const fn event_fallback(&self, key_event: KeyEvent) -> Option<DocumentAction> {

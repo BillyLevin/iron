@@ -298,10 +298,6 @@ impl Columns {
         self.0
     }
 
-    pub(crate) fn map(self, map_fn: impl FnOnce(usize) -> usize) -> Self {
-        Self(map_fn(self.0))
-    }
-
     #[must_use = "`saturating_sub` does not mutate the current value, but returns a new value"]
     pub(crate) fn saturating_sub(self, rhs: impl Into<usize>) -> Self {
         Self(self.0.saturating_sub(rhs.into()))
