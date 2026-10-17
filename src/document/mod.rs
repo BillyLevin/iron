@@ -56,25 +56,10 @@ use crate::{
     buffer::Buffer,
     cursor::{
         CursorState,
+        MovementAction,
         Selection,
-        go_to_last_line,
-        go_to_nth_or_first_line,
-        go_to_nth_or_last_line,
-        go_to_pair_match,
-        move_cursor_down,
-        move_cursor_first_non_blank,
-        move_cursor_left,
-        move_cursor_line_end,
-        move_cursor_line_start,
-        move_cursor_next_paragraph,
-        move_cursor_next_word_start,
-        move_cursor_prev_paragraph,
-        move_cursor_prev_word_start,
+        apply_movement,
         move_cursor_right,
-        move_cursor_up,
-        move_cursor_word_end,
-        reverse_selection,
-        select_current_word,
         visual_cursor_position,
     },
     editor::{
@@ -99,7 +84,6 @@ use crate::{
         KeyBinding,
         KeyMap,
         KeySequence,
-        MovementAction,
     },
     language::Language,
     lsp::{
@@ -505,80 +489,15 @@ impl Document {
     }
 
     fn handle_movement_action(&mut self, action: MovementAction, count: Option<NonZeroUsize>) {
-        let action_count = count.map_or(1, NonZero::get);
+        let text_width = self.content_layout().max_text_width();
 
-        let selection = match action {
-            MovementAction::MoveDown => {
-                match self.content_layout().max_text_width() {
-                    Some(width) => {
-                        let text = self.text.slice(..);
-                        let target_column =
-                            self.cursor_state.get_or_insert_desired_column(text, width);
-
-                        move_cursor_down(text, self.selection(), target_column, width, action_count)
-                    }
-                    None => self.selection(),
-                }
-            }
-            MovementAction::MoveUp => {
-                match self.content_layout().max_text_width() {
-                    Some(width) => {
-                        let text = self.text.slice(..);
-                        let target_column =
-                            self.cursor_state.get_or_insert_desired_column(text, width);
-
-                        move_cursor_up(text, self.selection(), target_column, width, action_count)
-                    }
-                    None => self.selection(),
-                }
-            }
-            MovementAction::MoveRight => {
-                move_cursor_right(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::MoveLeft => {
-                move_cursor_left(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::MoveNextWordStart => {
-                move_cursor_next_word_start(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::MovePrevWordStart => {
-                move_cursor_prev_word_start(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::MoveLineEnd => {
-                move_cursor_line_end(self.text.slice(..), self.selection())
-            }
-            MovementAction::MoveLineStart => {
-                move_cursor_line_start(self.text.slice(..), self.selection())
-            }
-            MovementAction::MoveLineFirstNonBlank => {
-                move_cursor_first_non_blank(self.text.slice(..), self.selection())
-            }
-            MovementAction::MoveNextParagraph => {
-                move_cursor_next_paragraph(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::MovePrevParagraph => {
-                move_cursor_prev_paragraph(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::GoToLastLine => go_to_last_line(self.text.slice(..), self.selection()),
-            MovementAction::GoToNthOrLastLine => {
-                go_to_nth_or_last_line(self.text.slice(..), self.selection(), count)
-            }
-            MovementAction::GoToNthOrFirstLine => {
-                go_to_nth_or_first_line(self.text.slice(..), self.selection(), count)
-            }
-            MovementAction::MoveWordEnd => {
-                move_cursor_word_end(self.text.slice(..), self.selection(), action_count)
-            }
-            MovementAction::ReverseSelection => reverse_selection(self.selection()),
-            MovementAction::SelectCurrentWord => {
-                select_current_word(self.text.slice(..), self.selection())
-            }
-            MovementAction::GoToPairMatch => {
-                go_to_pair_match(self.text.slice(..), self.selection())
-            }
-        };
-
-        self.cursor_state.set_selection(selection);
+        apply_movement(
+            self.text.slice(..),
+            &mut self.cursor_state,
+            action,
+            count,
+            text_width,
+        );
     }
 
     fn apply_transaction(&mut self, transaction: Transaction, context: &mut EventContext) {

@@ -618,3 +618,115 @@ pub(crate) fn visual_cursor_position(
         ControlFlow::Continue(position) | ControlFlow::Break(position) => position,
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum MovementAction {
+    MoveDown,
+    MoveUp,
+    MoveRight,
+    MoveLeft,
+    MoveNextWordStart,
+    MovePrevWordStart,
+    MoveLineStart,
+    MoveLineEnd,
+    MoveLineFirstNonBlank,
+    MoveNextParagraph,
+    MovePrevParagraph,
+    GoToLastLine,
+    GoToNthOrFirstLine,
+    GoToNthOrLastLine,
+    MoveWordEnd,
+    SelectCurrentWord,
+    ReverseSelection,
+    GoToPairMatch,
+}
+
+impl MovementAction {
+    /// The desired cursor column should be reset on all potential cursor
+    /// movements that aren't vertical (i.e. `j`/`k` commands) in order to
+    /// prevent the cursor from jumping to unexpected columns when
+    /// navigating.
+    pub(crate) const fn should_reset_desired_column(self) -> bool {
+        match self {
+            Self::MoveRight
+            | Self::MoveLeft
+            | Self::MoveNextWordStart
+            | Self::MovePrevWordStart
+            | Self::MoveLineStart
+            | Self::MoveLineEnd
+            | Self::MoveLineFirstNonBlank
+            | Self::MoveNextParagraph
+            | Self::MovePrevParagraph
+            | Self::GoToLastLine
+            | Self::GoToNthOrLastLine
+            | Self::GoToNthOrFirstLine
+            | Self::MoveWordEnd
+            | Self::ReverseSelection
+            | Self::SelectCurrentWord
+            | Self::GoToPairMatch => true,
+            Self::MoveDown | Self::MoveUp => false,
+        }
+    }
+}
+
+pub(crate) fn apply_movement(
+    text: RopeSlice<'_>,
+    cursor_state: &mut CursorState,
+    action: MovementAction,
+    count: Option<NonZeroUsize>,
+    text_width: Option<NonZeroColumns>,
+) {
+    let action_count = count.map_or(1, NonZeroUsize::get);
+    let selection = cursor_state.selection();
+
+    let updated_selection = match action {
+        MovementAction::MoveDown => {
+            match text_width {
+                Some(width) => {
+                    let target_column = cursor_state.get_or_insert_desired_column(text, width);
+                    move_cursor_down(text, selection, target_column, width, action_count)
+                }
+                None => selection,
+            }
+        }
+        MovementAction::MoveUp => {
+            match text_width {
+                Some(width) => {
+                    let target_column = cursor_state.get_or_insert_desired_column(text, width);
+                    move_cursor_up(text, selection, target_column, width, action_count)
+                }
+                None => selection,
+            }
+        }
+        MovementAction::MoveRight => move_cursor_right(text, selection, action_count),
+        MovementAction::MoveLeft => move_cursor_left(text, selection, action_count),
+        MovementAction::MoveNextWordStart => {
+            move_cursor_next_word_start(text, selection, action_count)
+        }
+        MovementAction::MovePrevWordStart => {
+            move_cursor_prev_word_start(text, selection, action_count)
+        }
+        MovementAction::MoveLineEnd => move_cursor_line_end(text, selection),
+        MovementAction::MoveLineStart => move_cursor_line_start(text, selection),
+        MovementAction::MoveLineFirstNonBlank => move_cursor_first_non_blank(text, selection),
+        MovementAction::MoveNextParagraph => {
+            move_cursor_next_paragraph(text, selection, action_count)
+        }
+        MovementAction::MovePrevParagraph => {
+            move_cursor_prev_paragraph(text, selection, action_count)
+        }
+        MovementAction::GoToLastLine => go_to_last_line(text, selection),
+        MovementAction::GoToNthOrLastLine => go_to_nth_or_last_line(text, selection, count),
+        MovementAction::GoToNthOrFirstLine => go_to_nth_or_first_line(text, selection, count),
+        MovementAction::MoveWordEnd => move_cursor_word_end(text, selection, action_count),
+        MovementAction::ReverseSelection => reverse_selection(selection),
+        MovementAction::SelectCurrentWord => select_current_word(text, selection),
+        MovementAction::GoToPairMatch => go_to_pair_match(text, selection),
+    };
+
+    cursor_state.set_selection(updated_selection);
+
+    if action.should_reset_desired_column() {
+        cursor_state.clear_desired_column();
+    }
+}

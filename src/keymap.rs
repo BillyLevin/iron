@@ -13,7 +13,10 @@ use crossterm::event::{
     KeyModifiers,
 };
 
-use crate::document::Mode;
+use crate::{
+    cursor::MovementAction,
+    document::Mode,
+};
 
 macro_rules! key {
     ($key:literal) => {
@@ -467,28 +470,6 @@ impl fmt::Display for KeyBinding {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum MovementAction {
-    MoveDown,
-    MoveUp,
-    MoveRight,
-    MoveLeft,
-    MoveNextWordStart,
-    MovePrevWordStart,
-    MoveLineStart,
-    MoveLineEnd,
-    MoveLineFirstNonBlank,
-    MoveNextParagraph,
-    MovePrevParagraph,
-    GoToLastLine,
-    GoToNthOrFirstLine,
-    GoToNthOrLastLine,
-    MoveWordEnd,
-    SelectCurrentWord,
-    ReverseSelection,
-    GoToPairMatch,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub(crate) enum EditAction {
     InsertChar(char),
     DeleteGrapheme,
@@ -546,25 +527,9 @@ impl DocumentAction {
     /// navigating.
     pub(crate) const fn should_reset_desired_column(self) -> bool {
         match self {
-            Self::Movement(
-                MovementAction::MoveRight
-                | MovementAction::MoveLeft
-                | MovementAction::MoveNextWordStart
-                | MovementAction::MovePrevWordStart
-                | MovementAction::MoveLineStart
-                | MovementAction::MoveLineEnd
-                | MovementAction::MoveLineFirstNonBlank
-                | MovementAction::MoveNextParagraph
-                | MovementAction::MovePrevParagraph
-                | MovementAction::GoToLastLine
-                | MovementAction::GoToNthOrLastLine
-                | MovementAction::GoToNthOrFirstLine
-                | MovementAction::MoveWordEnd
-                | MovementAction::ReverseSelection
-                | MovementAction::SelectCurrentWord
-                | MovementAction::GoToPairMatch,
-            )
-            | Self::Edit(
+            Self::Movement(movement_action) => movement_action.should_reset_desired_column(),
+
+            Self::Edit(
                 EditAction::InsertChar(_)
                 | EditAction::DeleteGrapheme
                 | EditAction::InsertNewline
@@ -604,8 +569,7 @@ impl DocumentAction {
                 | BehaviorAction::OpenFilePicker
                 | BehaviorAction::OpenDiagnosticList
                 | BehaviorAction::VerticallyCenter,
-            )
-            | Self::Movement(MovementAction::MoveDown | MovementAction::MoveUp) => false,
+            ) => false,
         }
     }
 
