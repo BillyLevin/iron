@@ -8,13 +8,13 @@ use crossterm::event::{
     KeyCode,
     KeyModifiers,
 };
-use ropey::Rope;
+use ropey::{
+    Rope,
+    RopeSlice,
+};
 
 use crate::{
-    buffer::{
-        Buffer,
-        DrawBorderOutcome,
-    },
+    buffer::Buffer,
     cursor::visual_cursor_position,
     document::DiagnosticMessage,
     editor::{
@@ -35,6 +35,7 @@ use crate::{
         number_width,
     },
     ui::{
+        Columns,
         Dimensions,
         Layer,
         LayerKind,
@@ -50,10 +51,11 @@ use crate::{
 pub(crate) struct DiagnosticList {
     text: Rope,
     styles: Vec<DiagnosticStyle>,
+    layout: Layout,
 }
 
 impl DiagnosticList {
-    pub(crate) fn new(diagnostics: &[DiagnosticMessage]) -> Self {
+    pub(crate) fn new(diagnostics: &[DiagnosticMessage], app_dimensions: Dimensions) -> Self {
         let (text, styles) = diagnostics.iter().fold(
             (String::new(), Vec::new()),
             |(text, mut styles), diagnostic| {
@@ -71,8 +73,11 @@ impl DiagnosticList {
             },
         );
 
+        let text = Rope::from_str(text.trim_suffix('\n'));
+
         Self {
-            text: Rope::from_str(text.trim_suffix('\n')),
+            layout: Layout::new(text.slice(..), app_dimensions, diagnostics.len()),
+            text,
             styles,
         }
     }
@@ -96,59 +101,20 @@ impl DiagnosticList {
             .get(index)
             .filter(|style| style.range.contains(&byte_index))
     }
+
+    fn resize(&mut self, dimensions: Dimensions) {
+        self.layout = Layout::new(self.text.slice(..), dimensions, self.styles.len());
+    }
 }
 
 impl Layer for DiagnosticList {
     fn render(&mut self, buffer: &mut Buffer) {
-        let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
+        buffer.clear_and_style_rectangle(&self.layout.container, Style::COMMAND_LIST);
+        buffer.draw_border(self.layout.container.clone(), Style::COMMAND_LIST_BORDER);
 
-        let max_height = app_rectangle.height();
-        let min_height = Rows::new(5);
-
-        let width = app_rectangle.width() * 8 / 10;
-        let (content_width, border_height) =
-            Rectangle::from_dimensions(Dimensions::new(width, max_height))
-                .clip_border()
-                .map_or((width, Rows::new(0)), |rectangle| {
-                    (rectangle.width(), Rows::new(2))
-                });
-
-        let gutter_width = number_width(self.styles.len()) + ". ".len();
-        let Some(text_width) = NonZeroColumns::new(content_width.saturating_sub(gutter_width))
-        else {
+        let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
             return;
         };
-
-        let content_height =
-            GraphemeLayoutIterator::new(self.text.slice(..).graphemes(), WrapBehavior::Wrap {
-                max_width: text_width,
-            })
-            .last()
-            .map_or(Rows::new(1), |grapheme| {
-                grapheme.end_position().top() + Rows::new(1)
-            });
-
-        let desired_height = content_height + border_height;
-
-        let height = cmp::min(max_height, cmp::max(min_height, desired_height));
-
-        let rectangle = app_rectangle.at_center(Dimensions::new(width, height));
-
-        buffer.clear_and_style_rectangle(&rectangle, Style::COMMAND_LIST);
-        let rectangle = match buffer.draw_border(rectangle, Style::COMMAND_LIST_BORDER) {
-            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-        };
-
-        assert_eq!(
-            rectangle.width(),
-            content_width,
-            "`content_width` must have been calculated correctly"
-        );
-
-        let (gutter_rectangle, text_rectangle) = rectangle.split_at_column(gutter_width);
-
-        buffer.clear_and_style_rectangle(&gutter_rectangle, Style::COMMAND_LIST);
 
         for (index, entry) in self.styles.iter().enumerate() {
             let row = visual_cursor_position(
@@ -161,8 +127,8 @@ impl Layer for DiagnosticList {
 
             buffer.render_span(
                 &Span::new(format!("{}. ", index + 1)),
-                &gutter_rectangle.offset().row_offset(row),
-                &gutter_rectangle,
+                &self.layout.gutter.offset().row_offset(row),
+                &self.layout.gutter,
             );
         }
 
@@ -171,7 +137,7 @@ impl Layer for DiagnosticList {
                 max_width: text_width,
             })
         {
-            if grapheme.position().top() >= text_rectangle.height() {
+            if grapheme.position().top() >= self.layout.text.height() {
                 break;
             }
 
@@ -179,7 +145,7 @@ impl Layer for DiagnosticList {
                 .style_at(grapheme.byte_index())
                 .map_or_else(Style::new, |entry| entry.style);
 
-            buffer[grapheme.position().offset(text_rectangle.offset())]
+            buffer[grapheme.position().offset(self.layout.text.offset())]
                 .set_content(grapheme.grapheme().as_str())
                 .set_style(style);
         }
@@ -208,11 +174,18 @@ impl Layer for DiagnosticList {
                 EventOutcome::Handled
             }
 
-            Event::FocusGained
-            | Event::FocusLost
-            | Event::Mouse(_)
-            | Event::Paste(_)
-            | Event::Resize(_, _) => EventOutcome::Unhandled,
+            Event::Resize(columns, rows) => {
+                self.resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
+
+                // TODO: this needs to not be `Handled` because the document
+                // needs to resize too. should add another variant to
+                // distinguish between bubbling and capturing events
+                EventOutcome::Unhandled
+            }
+
+            Event::FocusGained | Event::FocusLost | Event::Mouse(_) | Event::Paste(_) => {
+                EventOutcome::Unhandled
+            }
         }
     }
 
@@ -238,4 +211,70 @@ enum DiagnosticListAction {
 struct DiagnosticStyle {
     range: Range<ByteIndex>,
     style: Style,
+}
+
+#[derive(Debug)]
+struct Layout {
+    /// The entire diagnostic list.
+    container: Rectangle,
+    /// Gutter where diagnostics are numbered.
+    gutter: Rectangle,
+    /// Diagnostic messages.
+    text: Rectangle,
+}
+
+impl Layout {
+    const MIN_HEIGHT: Rows = Rows::new(5);
+
+    fn new(text: RopeSlice<'_>, app_dimensions: Dimensions, diagnostics_count: usize) -> Self {
+        let app_rectangle = Rectangle::from_dimensions(app_dimensions);
+
+        let max_height = app_rectangle.height();
+
+        let width = app_rectangle.width() * 8 / 10;
+
+        let (content_width, border_height) =
+            Rectangle::from_dimensions(Dimensions::new(width, max_height))
+                .clip_border()
+                .map_or((width, Rows::new(0)), |rectangle| {
+                    (rectangle.width(), Rows::new(2))
+                });
+
+        let gutter_width = number_width(diagnostics_count) + ". ".len();
+
+        let content_height = NonZeroColumns::new(content_width.saturating_sub(gutter_width))
+            .map_or(Rows::new(0), |text_width| {
+                GraphemeLayoutIterator::new(text.graphemes(), WrapBehavior::Wrap {
+                    max_width: text_width,
+                })
+                .last()
+                .map_or(Rows::new(1), |grapheme| {
+                    grapheme.end_position().top() + Rows::new(1)
+                })
+            });
+
+        let desired_height = content_height + border_height;
+
+        let height = cmp::min(max_height, cmp::max(Self::MIN_HEIGHT, desired_height));
+
+        let outer_rectangle = app_rectangle.at_center(Dimensions::new(width, height));
+
+        let inner_rectangle = outer_rectangle
+            .clip_border()
+            .unwrap_or_else(|| outer_rectangle.clone());
+
+        assert_eq!(
+            inner_rectangle.width(),
+            content_width,
+            "`content_width` must have been calculated correctly"
+        );
+
+        let (gutter_rectangle, text_rectangle) = inner_rectangle.split_at_column(gutter_width);
+
+        Self {
+            container: outer_rectangle,
+            gutter: gutter_rectangle,
+            text: text_rectangle,
+        }
+    }
 }
