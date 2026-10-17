@@ -176,7 +176,8 @@ impl Editor {
                             let diagnostics = self.document.diagnostics_for_cursor_line();
 
                             if !diagnostics.is_empty() {
-                                self.layers.push(Box::new(DiagnosticList::new(diagnostics)));
+                                self.layers
+                                    .push(Box::new(DiagnosticList::new(&diagnostics)));
                             }
                         }
                     }

@@ -1,10 +1,14 @@
-use std::cmp;
+use std::{
+    cmp,
+    range::Range,
+};
 
 use crossterm::event::{
     Event,
     KeyCode,
     KeyModifiers,
 };
+use ropey::Rope;
 
 use crate::{
     buffer::{
@@ -17,28 +21,56 @@ use crate::{
         EventContext,
         EventOutcome,
     },
+    grapheme_layout::{
+        GraphemeLayoutIterator,
+        WrapBehavior,
+    },
     keymap::KeyBinding,
     style::Style,
-    text::number_width,
+    text::{
+        ByteIndex,
+        RopeSliceExt as _,
+    },
     ui::{
         Dimensions,
         Layer,
         LayerKind,
+        NonZeroColumns,
         Position,
         Rectangle,
         Rows,
-        WrappedLineLayout,
     },
 };
 
 /// Displays a list of diagnostic information.
 pub(crate) struct DiagnosticList {
-    diagnostics: Vec<DiagnosticMessage>,
+    text: Rope,
+    styles: Vec<DiagnosticStyle>,
 }
 
 impl DiagnosticList {
-    pub(crate) const fn new(diagnostics: Vec<DiagnosticMessage>) -> Self {
-        Self { diagnostics }
+    pub(crate) fn new(diagnostics: &[DiagnosticMessage]) -> Self {
+        let (text, styles) = diagnostics.iter().fold(
+            (String::new(), Vec::new()),
+            |(text, mut styles), diagnostic| {
+                let message = diagnostic.message().trim_end();
+
+                let start = ByteIndex::new(text.len());
+                let range = Range::from(start..start + message.len());
+
+                styles.push(DiagnosticStyle {
+                    range,
+                    style: Style::diagnostic(diagnostic.severity()),
+                });
+
+                (text + message + "\n", styles)
+            },
+        );
+
+        Self {
+            text: Rope::from_str(text.trim_suffix('\n')),
+            styles,
+        }
     }
 
     fn apply_action(action: DiagnosticListAction, context: &mut EventContext) {
@@ -48,13 +80,22 @@ impl DiagnosticList {
             }
         }
     }
+
+    fn style_at(&self, byte_index: ByteIndex) -> Option<&DiagnosticStyle> {
+        let partition = self
+            .styles
+            .partition_point(|entry| entry.range.start <= byte_index);
+
+        let index = partition.checked_sub(1)?;
+
+        self.styles
+            .get(index)
+            .filter(|style| style.range.contains(&byte_index))
+    }
 }
 
 impl Layer for DiagnosticList {
     fn render(&mut self, buffer: &mut Buffer) {
-        let diagnostics_count = self.diagnostics.len();
-        let max_number_width = number_width(diagnostics_count);
-
         let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
 
         let max_height = app_rectangle.height();
@@ -68,23 +109,20 @@ impl Layer for DiagnosticList {
                     (rectangle.width(), Rows::new(2))
                 });
 
-        let lines = self
-            .diagnostics
-            .iter()
-            .enumerate()
-            .map(|(index, diagnostic)| {
-                let line_number = index + 1;
-                let padding = max_number_width - number_width(line_number);
+        let Some(text_width) = NonZeroColumns::new(content_width) else {
+            return;
+        };
 
-                let text = format!("{line_number}.{:padding$} ", "", padding = padding.value())
-                    + diagnostic.message();
-
-                (text, Style::diagnostic(diagnostic.severity()))
+        let content_height =
+            GraphemeLayoutIterator::new(self.text.slice(..).graphemes(), WrapBehavior::Wrap {
+                max_width: text_width,
+            })
+            .last()
+            .map_or(Rows::new(1), |grapheme| {
+                grapheme.end_position().top() + Rows::new(1)
             });
 
-        let line_layout = WrappedLineLayout::new(lines, content_width);
-
-        let desired_height = line_layout.height() + border_height;
+        let desired_height = content_height + border_height;
 
         let height = cmp::min(max_height, cmp::max(min_height, desired_height));
 
@@ -102,7 +140,23 @@ impl Layer for DiagnosticList {
             "`content_width` must have been calculated correctly"
         );
 
-        buffer.render_lines(line_layout.lines(), &rectangle);
+        for grapheme in
+            GraphemeLayoutIterator::new(self.text.slice(..).graphemes(), WrapBehavior::Wrap {
+                max_width: text_width,
+            })
+        {
+            if grapheme.position().top() >= rectangle.height() {
+                break;
+            }
+
+            let style = self
+                .style_at(grapheme.byte_index())
+                .map_or_else(Style::new, |entry| entry.style);
+
+            buffer[grapheme.position().offset(rectangle.offset())]
+                .set_content(grapheme.grapheme().as_str())
+                .set_style(style);
+        }
     }
 
     fn handle_event(
@@ -152,4 +206,10 @@ impl Layer for DiagnosticList {
 #[derive(Debug, Clone, Copy)]
 enum DiagnosticListAction {
     Close,
+}
+
+#[derive(Debug)]
+struct DiagnosticStyle {
+    range: Range<ByteIndex>,
+    style: Style,
 }
