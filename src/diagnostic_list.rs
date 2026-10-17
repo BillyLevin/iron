@@ -15,6 +15,7 @@ use crate::{
         Buffer,
         DrawBorderOutcome,
     },
+    cursor::visual_cursor_position,
     document::DiagnosticMessage,
     editor::{
         EditorAction,
@@ -29,7 +30,9 @@ use crate::{
     style::Style,
     text::{
         ByteIndex,
+        LineIndex,
         RopeSliceExt as _,
+        number_width,
     },
     ui::{
         Dimensions,
@@ -39,6 +42,7 @@ use crate::{
         Position,
         Rectangle,
         Rows,
+        Span,
     },
 };
 
@@ -109,7 +113,9 @@ impl Layer for DiagnosticList {
                     (rectangle.width(), Rows::new(2))
                 });
 
-        let Some(text_width) = NonZeroColumns::new(content_width) else {
+        let gutter_width = number_width(self.styles.len()) + ". ".len();
+        let Some(text_width) = NonZeroColumns::new(content_width.saturating_sub(gutter_width))
+        else {
             return;
         };
 
@@ -140,12 +146,32 @@ impl Layer for DiagnosticList {
             "`content_width` must have been calculated correctly"
         );
 
+        let (gutter_rectangle, text_rectangle) = rectangle.split_at_column(gutter_width);
+
+        buffer.clear_and_style_rectangle(&gutter_rectangle, Style::COMMAND_LIST);
+
+        for (index, entry) in self.styles.iter().enumerate() {
+            let row = visual_cursor_position(
+                self.text.slice(..),
+                entry.range.start,
+                LineIndex::new(0),
+                text_width,
+            )
+            .top();
+
+            buffer.render_span(
+                &Span::new(format!("{}. ", index + 1)),
+                &gutter_rectangle.offset().row_offset(row),
+                &gutter_rectangle,
+            );
+        }
+
         for grapheme in
             GraphemeLayoutIterator::new(self.text.slice(..).graphemes(), WrapBehavior::Wrap {
                 max_width: text_width,
             })
         {
-            if grapheme.position().top() >= rectangle.height() {
+            if grapheme.position().top() >= text_rectangle.height() {
                 break;
             }
 
@@ -153,7 +179,7 @@ impl Layer for DiagnosticList {
                 .style_at(grapheme.byte_index())
                 .map_or_else(Style::new, |entry| entry.style);
 
-            buffer[grapheme.position().offset(rectangle.offset())]
+            buffer[grapheme.position().offset(text_rectangle.offset())]
                 .set_content(grapheme.grapheme().as_str())
                 .set_style(style);
         }
