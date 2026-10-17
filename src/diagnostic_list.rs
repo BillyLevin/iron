@@ -17,11 +17,8 @@ use crate::{
     buffer::Buffer,
     cursor::{
         CursorState,
-        Selection,
-        move_cursor_down,
-        move_cursor_left,
-        move_cursor_right,
-        move_cursor_up,
+        MovementAction,
+        apply_movement,
         visual_cursor_position,
     },
     document::DiagnosticMessage,
@@ -97,47 +94,14 @@ impl DiagnosticList {
             DiagnosticListAction::Close => {
                 context.push_action(EditorAction::RemoveLayer(LayerKind::DiagnosticList));
             }
-            DiagnosticListAction::MoveLeft => {
-                self.cursor_state.set_selection(move_cursor_left(
+            DiagnosticListAction::Movement(movement_action) => {
+                apply_movement(
                     self.text.slice(..),
-                    Selection::default().with_cursor(self.cursor_state.cursor()),
-                    1,
-                ));
-            }
-            DiagnosticListAction::MoveDown => {
-                let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
-                    return;
-                };
-
-                self.cursor_state.set_selection(move_cursor_down(
-                    self.text.slice(..),
-                    Selection::default().with_cursor(self.cursor_state.cursor()),
-                    // TODO: pass in desired column when it's implemented
-                    Columns::new(0),
-                    text_width,
-                    1,
-                ));
-            }
-            DiagnosticListAction::MoveUp => {
-                let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
-                    return;
-                };
-
-                self.cursor_state.set_selection(move_cursor_up(
-                    self.text.slice(..),
-                    Selection::default().with_cursor(self.cursor_state.cursor()),
-                    // TODO: pass in desired column when it's implemented
-                    Columns::new(0),
-                    text_width,
-                    1,
-                ));
-            }
-            DiagnosticListAction::MoveRight => {
-                self.cursor_state.set_selection(move_cursor_right(
-                    self.text.slice(..),
-                    Selection::default().with_cursor(self.cursor_state.cursor()),
-                    1,
-                ));
+                    &mut self.cursor_state,
+                    movement_action,
+                    None,
+                    NonZeroColumns::new(self.layout.text.width()),
+                );
             }
         }
     }
@@ -217,16 +181,28 @@ impl Layer for DiagnosticList {
                         self.apply_action(DiagnosticListAction::Close, context);
                     }
                     (KeyCode::Char('h'), KeyModifiers::NONE) => {
-                        self.apply_action(DiagnosticListAction::MoveLeft, context);
+                        self.apply_action(
+                            DiagnosticListAction::Movement(MovementAction::MoveLeft),
+                            context,
+                        );
                     }
                     (KeyCode::Char('j'), KeyModifiers::NONE) => {
-                        self.apply_action(DiagnosticListAction::MoveDown, context);
+                        self.apply_action(
+                            DiagnosticListAction::Movement(MovementAction::MoveDown),
+                            context,
+                        );
                     }
                     (KeyCode::Char('k'), KeyModifiers::NONE) => {
-                        self.apply_action(DiagnosticListAction::MoveUp, context);
+                        self.apply_action(
+                            DiagnosticListAction::Movement(MovementAction::MoveUp),
+                            context,
+                        );
                     }
                     (KeyCode::Char('l'), KeyModifiers::NONE) => {
-                        self.apply_action(DiagnosticListAction::MoveRight, context);
+                        self.apply_action(
+                            DiagnosticListAction::Movement(MovementAction::MoveRight),
+                            context,
+                        );
                     }
                     _ => {}
                 }
@@ -278,10 +254,7 @@ impl Layer for DiagnosticList {
 #[derive(Debug, Clone, Copy)]
 enum DiagnosticListAction {
     Close,
-    MoveLeft,
-    MoveDown,
-    MoveUp,
-    MoveRight,
+    Movement(MovementAction),
 }
 
 #[derive(Debug)]
