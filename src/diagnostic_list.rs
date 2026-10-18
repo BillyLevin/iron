@@ -58,6 +58,7 @@ pub(crate) struct DiagnosticList {
     styles: Vec<DiagnosticStyle>,
     layout: Layout,
     cursor_state: CursorState,
+    scroll_offset: LineIndex,
 }
 
 impl DiagnosticList {
@@ -86,6 +87,7 @@ impl DiagnosticList {
             text,
             styles,
             cursor_state: CursorState::default(),
+            scroll_offset: LineIndex::new(0),
         }
     }
 
@@ -102,6 +104,8 @@ impl DiagnosticList {
                     None,
                     NonZeroColumns::new(self.layout.text.width()),
                 );
+
+                self.recalculate_scroll();
             }
         }
     }
@@ -120,6 +124,44 @@ impl DiagnosticList {
 
     fn resize(&mut self, dimensions: Dimensions) {
         self.layout = Layout::new(self.text.slice(..), dimensions, self.styles.len());
+        self.recalculate_scroll();
+    }
+
+    fn recalculate_scroll(&mut self) {
+        let text = self.text.slice(..);
+        let cursor_line = text.line_idx_containing_byte(self.cursor_state.cursor());
+
+        let height = self.layout.text.height();
+
+        if cursor_line < self.scroll_offset {
+            // upwards scroll
+            self.scroll_offset = cursor_line;
+        } else {
+            // move the scroll offset further down so that we don't have to scan
+            // as much of the rope when calculating the cursor
+            // position. `scroll_offset` will still be
+            // off the screen, so it won't impact the calculation
+            if cursor_line > self.scroll_offset + LineIndex::new(height.value()) {
+                self.scroll_offset = cursor_line.saturating_sub(height.value());
+            }
+
+            if let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) {
+                let cursor = visual_cursor_position(
+                    text,
+                    self.cursor_state.cursor(),
+                    self.scroll_offset,
+                    text_width,
+                );
+
+                // downwards scroll
+                if cursor.top() >= height {
+                    self.scroll_offset +=
+                        LineIndex::from(cursor.top().value() - height.value() + 1);
+                }
+            }
+        }
+
+        self.scroll_offset = cmp::min(cursor_line, self.scroll_offset);
     }
 }
 
@@ -132,33 +174,45 @@ impl Layer for DiagnosticList {
             return;
         };
 
-        for (index, entry) in self.styles.iter().enumerate() {
-            let row = visual_cursor_position(
-                self.text.slice(..),
-                entry.range.start,
-                LineIndex::new(0),
-                text_width,
+        let text = self.text.slice(..);
+        let start_byte = text.line_start_byte(self.scroll_offset);
+
+        let mut entries = self
+            .styles
+            .iter()
+            .enumerate()
+            .skip(
+                self.styles
+                    .partition_point(|entry| entry.range.start < start_byte),
             )
-            .top();
+            .peekable();
 
-            buffer.render_span(
-                &Span::new(format!("{}. ", index + 1)),
-                &self.layout.gutter.offset().row_offset(row),
-                &self.layout.gutter,
-            );
-        }
-
-        for grapheme in
-            GraphemeLayoutIterator::new(self.text.slice(..).graphemes(), WrapBehavior::Wrap {
+        for grapheme in GraphemeLayoutIterator::new(
+            text.slice(start_byte.value()..).graphemes(),
+            WrapBehavior::Wrap {
                 max_width: text_width,
-            })
-        {
-            if grapheme.position().top() >= self.layout.text.height() {
+            },
+        ) {
+            let row = grapheme.position().top();
+
+            if row >= self.layout.text.height() {
                 break;
             }
 
+            let byte_index = start_byte + grapheme.byte_index().value();
+
+            if let Some((index, _entry)) =
+                entries.next_if(|&(_index, entry)| entry.range.start <= byte_index)
+            {
+                buffer.render_span(
+                    &Span::new(format!("{}. ", index + 1)),
+                    &self.layout.gutter.offset().row_offset(row),
+                    &self.layout.gutter,
+                );
+            }
+
             let style = self
-                .style_at(grapheme.byte_index())
+                .style_at(byte_index)
                 .map_or_else(Style::new, |entry| entry.style);
 
             buffer[grapheme.position().offset(self.layout.text.offset())]
@@ -234,8 +288,7 @@ impl Layer for DiagnosticList {
             visual_cursor_position(
                 self.text.slice(..),
                 self.cursor_state.cursor(),
-                // TODO: pass in scroll offset here when implementing scrolling
-                LineIndex::new(0),
+                self.scroll_offset,
                 NonZeroColumns::new(self.layout.text.width())?,
             )
             .offset(self.layout.text.offset()),
