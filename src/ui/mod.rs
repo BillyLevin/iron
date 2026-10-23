@@ -1,3 +1,5 @@
+pub mod text_area;
+
 use std::{
     borrow::Cow,
     iter,

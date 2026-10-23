@@ -18,7 +18,6 @@ use crate::{
         CursorState,
         MovementAction,
         apply_movement,
-        visual_cursor_position,
     },
     document::Diagnostic,
     editor::{
@@ -34,7 +33,6 @@ use crate::{
     style::Style,
     text::{
         ByteIndex,
-        LineIndex,
         RopeSliceExt as _,
         number_width,
     },
@@ -49,6 +47,7 @@ use crate::{
         Rectangle,
         Rows,
         Span,
+        text_area::TextArea,
     },
 };
 
@@ -58,7 +57,6 @@ pub(crate) struct DiagnosticList {
     styles: Vec<DiagnosticStyle>,
     layout: Layout,
     cursor_state: CursorState,
-    scroll_offset: LineIndex,
 }
 
 impl DiagnosticList {
@@ -87,7 +85,6 @@ impl DiagnosticList {
             text,
             styles,
             cursor_state: CursorState::default(),
-            scroll_offset: LineIndex::new(0),
         }
     }
 
@@ -102,7 +99,7 @@ impl DiagnosticList {
                     &mut self.cursor_state,
                     movement_action,
                     None,
-                    NonZeroColumns::new(self.layout.text.width()),
+                    NonZeroColumns::new(self.layout.text.area().width()),
                 );
 
                 self.recalculate_scroll();
@@ -123,40 +120,9 @@ impl DiagnosticList {
     }
 
     fn recalculate_scroll(&mut self) {
-        let text = self.text.slice(..);
-        let cursor_line = text.line_idx_containing_byte(self.cursor_state.cursor());
-
-        let height = self.layout.text.height();
-
-        if cursor_line < self.scroll_offset {
-            // upwards scroll
-            self.scroll_offset = cursor_line;
-        } else {
-            // move the scroll offset further down so that we don't have to scan
-            // as much of the rope when calculating the cursor
-            // position. `scroll_offset` will still be
-            // off the screen, so it won't impact the calculation
-            if cursor_line > self.scroll_offset + LineIndex::new(height.value()) {
-                self.scroll_offset = cursor_line.saturating_sub(height.value());
-            }
-
-            if let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) {
-                let cursor = visual_cursor_position(
-                    text,
-                    self.cursor_state.cursor(),
-                    self.scroll_offset,
-                    text_width,
-                );
-
-                // downwards scroll
-                if cursor.top() >= height {
-                    self.scroll_offset +=
-                        LineIndex::from(cursor.top().value() - height.value() + 1);
-                }
-            }
-        }
-
-        self.scroll_offset = cmp::min(cursor_line, self.scroll_offset);
+        self.layout
+            .text
+            .recalculate_scroll(self.text.slice(..), self.cursor_state.cursor());
     }
 }
 
@@ -165,12 +131,12 @@ impl Layer for DiagnosticList {
         buffer.clear_and_style_rectangle(self.layout.container.outer(), Style::COMMAND_LIST);
         buffer.draw_border(&self.layout.container, Style::COMMAND_LIST_BORDER);
 
-        let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
+        let Some(text_width) = NonZeroColumns::new(self.layout.text.area().width()) else {
             return;
         };
 
         let text = self.text.slice(..);
-        let start_byte = text.line_start_byte(self.scroll_offset);
+        let start_byte = text.line_start_byte(self.layout.text.scroll_offset());
 
         let mut entries = self
             .styles
@@ -190,7 +156,7 @@ impl Layer for DiagnosticList {
         ) {
             let row = grapheme.position().top();
 
-            if row >= self.layout.text.height() {
+            if row >= self.layout.text.area().height() {
                 break;
             }
 
@@ -210,7 +176,7 @@ impl Layer for DiagnosticList {
                 .style_at(byte_index)
                 .map_or_else(Style::new, |entry| entry.style);
 
-            buffer[grapheme.position().offset(self.layout.text.offset())]
+            buffer[grapheme.position().offset(self.layout.text.area().offset())]
                 .set_content(grapheme.grapheme().as_str())
                 .set_style(style);
         }
@@ -268,13 +234,9 @@ impl Layer for DiagnosticList {
 
     fn visual_cursor_position(&self) -> Option<Position> {
         Some(
-            visual_cursor_position(
-                self.text.slice(..),
-                self.cursor_state.cursor(),
-                self.scroll_offset,
-                NonZeroColumns::new(self.layout.text.width())?,
-            )
-            .offset(self.layout.text.offset()),
+            self.layout
+                .text
+                .visual_cursor_position(self.text.slice(..), self.cursor_state.cursor()),
         )
     }
 
@@ -287,7 +249,8 @@ impl Layer for DiagnosticList {
     }
 
     fn resize(&mut self, app_dimensions: Dimensions) {
-        self.layout = Layout::new(self.text.slice(..), app_dimensions, self.styles.len());
+        self.layout
+            .resize(self.text.slice(..), app_dimensions, self.styles.len());
         self.recalculate_scroll();
     }
 }
@@ -311,7 +274,7 @@ struct Layout {
     /// Gutter where diagnostics are numbered.
     gutter: Rectangle,
     /// Diagnostic messages.
-    text: Rectangle,
+    text: TextArea,
 }
 
 impl Layout {
@@ -363,7 +326,21 @@ impl Layout {
         Self {
             container,
             gutter: gutter_rectangle,
-            text: text_rectangle,
+            text: TextArea::new(text_rectangle),
         }
+    }
+
+    fn resize(
+        &mut self,
+        text: RopeSlice<'_>,
+        app_dimensions: Dimensions,
+        diagnostics_count: usize,
+    ) {
+        let layout = Self::new(text, app_dimensions, diagnostics_count);
+
+        *self = Self {
+            text: self.text.with_area(layout.text.into_area()),
+            ..layout
+        };
     }
 }

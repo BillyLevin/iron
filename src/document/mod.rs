@@ -59,7 +59,6 @@ use crate::{
         Selection,
         apply_movement,
         move_cursor_right,
-        visual_cursor_position,
     },
     editor::{
         EditorAction,
@@ -117,6 +116,7 @@ use crate::{
         Span,
         WrapOutcome,
         spans_width,
+        text_area::TextArea,
     },
 };
 
@@ -128,10 +128,6 @@ pub(crate) struct Document {
     normal_keymap: KeyMap,
     insert_keymap: KeyMap,
     visual_keymap: KeyMap,
-
-    /// Number of lines from the top of the file that the buffer text should
-    /// start from.
-    scroll_offset: LineIndex,
 
     /// The keys that have been pressed which may add up to a registered
     /// keybinding. Used in the `KeyMap` lookups.
@@ -177,7 +173,6 @@ impl Document {
             normal_keymap: KeyMap::normal(),
             insert_keymap: KeyMap::insert(),
             visual_keymap: KeyMap::visual(),
-            scroll_offset: LineIndex::default(),
             key_sequence: KeySequence::new(Mode::Normal),
             language,
             file_path,
@@ -285,7 +280,7 @@ impl Document {
             },
         );
 
-        let container = &self.layout.text;
+        let container = self.layout.text.area();
 
         let hints_rectangle = container.at_bottom_right(Dimensions::new(
             cmp::min(container.width(), max_width),
@@ -523,7 +518,8 @@ impl Document {
         self.diagnostics.clear();
         self.version = self.version.next();
         self.request_highlight_refresh();
-        self.layout = Layout::new(self.text.slice(..).line_count(), self.layout.app_dimensions);
+        self.layout
+            .resize(self.text.slice(..).line_count(), self.layout.app_dimensions);
 
         context.push_action(EditorAction::DocumentChanged(LspTextEdit::new(
             initial_text,
@@ -544,40 +540,19 @@ impl Document {
     }
 
     fn recalculate_scroll(&mut self) {
-        let text = self.text.slice(..);
-        let cursor_line = text.line_idx_containing_byte(self.cursor());
-
-        let height = self.layout.text.height();
-
-        if cursor_line < self.scroll_offset {
-            // upwards scroll
-            self.scroll_offset = cursor_line;
-        } else {
-            // move the scroll offset further down so that we don't have to scan
-            // as much of the rope when calculating the cursor
-            // position. `scroll_offset` will still be
-            // off the screen, so it won't impact the calculation
-            if cursor_line > self.scroll_offset + LineIndex::new(height.value()) {
-                self.scroll_offset = cursor_line.saturating_sub(height.value());
-            }
-
-            let cursor = self.visual_cursor_position_impl();
-
-            // downwards scroll
-            if cursor.top() >= height {
-                self.scroll_offset += LineIndex::from(cursor.top().value() - height.value() + 1);
-            }
-        }
-
-        self.scroll_offset = cmp::min(cursor_line, self.scroll_offset);
+        self.layout
+            .text
+            .recalculate_scroll(self.text.slice(..), self.cursor());
     }
 
     fn center_cursor_vertically(&mut self) {
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.cursor());
-        let middle = self.layout.text.height() / 2;
+        let middle = self.layout.text.area().height() / 2;
 
-        self.scroll_offset = cursor_line.saturating_sub(middle);
+        self.layout
+            .text
+            .set_scroll_offset(cursor_line.saturating_sub(middle));
     }
 
     const fn event_fallback(&self, key_event: KeyEvent) -> Option<DocumentAction> {
@@ -963,20 +938,6 @@ impl Document {
         event_context.push_action(EditorAction::AddLayer(LayerKind::DiagnosticList));
     }
 
-    fn visual_cursor_position_impl(&self) -> Position {
-        let Some(text_width) = self.layout.max_text_width() else {
-            return Position::default();
-        };
-
-        visual_cursor_position(
-            self.text.slice(..),
-            self.cursor(),
-            self.scroll_offset,
-            text_width,
-        )
-        .offset(self.layout.text.offset())
-    }
-
     pub(crate) fn save(&self) -> anyhow::Result<()> {
         // TODO: atomic saves
         // TODO: async saves
@@ -1115,16 +1076,10 @@ impl Layer for Document {
     fn render(&mut self, buffer: &mut Buffer) {
         let text = self.text.slice(..);
 
-        debug_assert_eq!(
-            self.layout,
-            Layout::new(text.line_count(), buffer.dimensions()),
-            "layout must be updated before render"
-        );
-
-        let start_byte = text.line_start_byte(self.scroll_offset);
+        let start_byte = text.line_start_byte(self.layout.text.scroll_offset());
 
         buffer.clear_and_style_rectangle(&self.layout.gutter.area, Style::BACKGROUND);
-        buffer.clear_and_style_rectangle(&self.layout.text, Style::BACKGROUND);
+        buffer.clear_and_style_rectangle(self.layout.text.area(), Style::BACKGROUND);
 
         let Some(text_width) = self.layout.max_text_width() else {
             // if there's no room for text, there's no point rendering anything.
@@ -1133,7 +1088,7 @@ impl Layer for Document {
 
         let cursor_line = text.line_idx_containing_byte(self.cursor());
 
-        let mut line_index = self.scroll_offset;
+        let mut line_index = self.layout.text.scroll_offset();
 
         let mut highlighter = Highlighter::new(
             self.text.clone(),
@@ -1156,7 +1111,7 @@ impl Layer for Document {
                 max_width: text_width,
             },
         ) {
-            if visual_grapheme.position().top() >= self.layout.text.height() {
+            if visual_grapheme.position().top() >= self.layout.text.area().height() {
                 break;
             }
 
@@ -1170,10 +1125,12 @@ impl Layer for Document {
                 );
             }
 
-            let translated_position = visual_grapheme.position().offset(self.layout.text.offset());
+            let translated_position = visual_grapheme
+                .position()
+                .offset(self.layout.text.area().offset());
 
             debug_assert!(
-                self.layout.text.contains(&translated_position),
+                self.layout.text.area().contains(&translated_position),
                 "graphemes must be rendered inside the text area"
             );
 
@@ -1237,7 +1194,11 @@ impl Layer for Document {
     }
 
     fn visual_cursor_position(&self) -> Option<Position> {
-        Some(self.visual_cursor_position_impl())
+        Some(
+            self.layout
+                .text
+                .visual_cursor_position(self.text.slice(..), self.cursor()),
+        )
     }
 
     fn handle_internal_events(&mut self) -> EventOutcome {
@@ -1255,7 +1216,8 @@ impl Layer for Document {
     }
 
     fn resize(&mut self, app_dimensions: Dimensions) {
-        self.layout = Layout::new(self.text.slice(..).line_count(), app_dimensions);
+        self.layout
+            .resize(self.text.slice(..).line_count(), app_dimensions);
         self.recalculate_scroll();
     }
 }
@@ -1265,7 +1227,7 @@ struct Layout {
     app_dimensions: Dimensions,
 
     gutter: Gutter,
-    text: Rectangle,
+    text: TextArea,
     status_line: Rectangle,
     messages: Rectangle,
 }
@@ -1286,14 +1248,23 @@ impl Layout {
                 area: gutter_area,
                 line_number_width,
             },
-            text,
+            text: TextArea::new(text),
             status_line,
             messages,
         }
     }
 
+    fn resize(&mut self, line_count: usize, app_dimensions: Dimensions) {
+        let layout = Self::new(line_count, app_dimensions);
+
+        *self = Self {
+            text: self.text.with_area(layout.text.into_area()),
+            ..layout
+        };
+    }
+
     fn max_text_width(&self) -> Option<NonZeroColumns> {
-        NonZeroColumns::new(self.text.width())
+        NonZeroColumns::new(self.text.area().width())
     }
 }
 
@@ -1905,7 +1876,7 @@ mod tests {
         let actual = document.visual_cursor_position().unwrap();
 
         let expected = Position::new(Columns::new(expected.0), Rows::new(expected.1))
-            .offset(document.layout.text.offset());
+            .offset(document.layout.text.area().offset());
 
         assert_eq!(actual, expected, "{label} did not match");
     }
@@ -4455,7 +4426,7 @@ mod diagnostics_tests {
 
             let cell_at_column = |column: usize| -> &Cell {
                 &buffer[Position::new(Columns::new(column), Rows::new(0))
-                    .offset(document.layout.text.offset())]
+                    .offset(document.layout.text.area().offset())]
             };
 
             let assert_severity = |column: usize, severity: DiagnosticSeverity| {
