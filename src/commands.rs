@@ -1,7 +1,6 @@
 use std::cmp;
 
 use crossterm::event::{
-    Event,
     KeyCode,
     KeyModifiers,
 };
@@ -36,6 +35,7 @@ use crate::{
         Columns,
         Dimensions,
         Layer,
+        LayerEvent,
         LayerKind,
         Line,
         Position,
@@ -233,9 +233,13 @@ impl Layer for CommandList {
         );
     }
 
-    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
+    fn handle_event(
+        &mut self,
+        event: &LayerEvent,
+        event_context: &mut EventContext,
+    ) -> EventOutcome {
         match *event {
-            Event::Key(key_event) => {
+            LayerEvent::Key(key_event) => {
                 let key_binding = KeyBinding::from(key_event);
 
                 let action = match (key_binding.code(), key_binding.modifiers()) {
@@ -256,11 +260,10 @@ impl Layer for CommandList {
                 })
             }
 
-            Event::FocusGained
-            | Event::FocusLost
-            | Event::Mouse(_)
-            | Event::Paste(_)
-            | Event::Resize(_, _) => EventOutcome::Unhandled,
+            LayerEvent::FocusGained
+            | LayerEvent::FocusLost
+            | LayerEvent::Mouse(_)
+            | LayerEvent::Paste => EventOutcome::Unhandled,
         }
     }
 
@@ -274,6 +277,11 @@ impl Layer for CommandList {
 
     fn kind(&self) -> Option<LayerKind> {
         Some(LayerKind::CommandList)
+    }
+
+    fn resize(&mut self, _app_dimensions: Dimensions) {
+        // TODO: cache layout info and only recalculate here. currently, it's
+        // calculated on each `render`
     }
 }
 

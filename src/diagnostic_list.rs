@@ -4,7 +4,6 @@ use std::{
 };
 
 use crossterm::event::{
-    Event,
     KeyCode,
     KeyModifiers,
 };
@@ -40,9 +39,9 @@ use crate::{
         number_width,
     },
     ui::{
-        Columns,
         Dimensions,
         Layer,
+        LayerEvent,
         LayerKind,
         NonZeroColumns,
         Position,
@@ -120,11 +119,6 @@ impl DiagnosticList {
         self.styles
             .get(index)
             .filter(|style| style.range.contains(&byte_index))
-    }
-
-    fn resize(&mut self, dimensions: Dimensions) {
-        self.layout = Layout::new(self.text.slice(..), dimensions, self.styles.len());
-        self.recalculate_scroll();
     }
 
     fn recalculate_scroll(&mut self) {
@@ -221,13 +215,9 @@ impl Layer for DiagnosticList {
         }
     }
 
-    fn handle_event(
-        &mut self,
-        event: &crossterm::event::Event,
-        context: &mut EventContext,
-    ) -> EventOutcome {
+    fn handle_event(&mut self, event: &LayerEvent, context: &mut EventContext) -> EventOutcome {
         match *event {
-            Event::Key(key_event) => {
+            LayerEvent::Key(key_event) => {
                 let key_binding = KeyBinding::from(key_event);
 
                 match (key_binding.code(), key_binding.modifiers()) {
@@ -268,18 +258,10 @@ impl Layer for DiagnosticList {
                 EventOutcome::Handled
             }
 
-            Event::Resize(columns, rows) => {
-                self.resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
-
-                // TODO: this needs to not be `Handled` because the document
-                // needs to resize too. should add another variant to
-                // distinguish between bubbling and capturing events
-                EventOutcome::Unhandled
-            }
-
-            Event::FocusGained | Event::FocusLost | Event::Mouse(_) | Event::Paste(_) => {
-                EventOutcome::Unhandled
-            }
+            LayerEvent::FocusGained
+            | LayerEvent::FocusLost
+            | LayerEvent::Mouse(_)
+            | LayerEvent::Paste => EventOutcome::Unhandled,
         }
     }
 
@@ -301,6 +283,11 @@ impl Layer for DiagnosticList {
 
     fn kind(&self) -> Option<LayerKind> {
         Some(LayerKind::DiagnosticList)
+    }
+
+    fn resize(&mut self, app_dimensions: Dimensions) {
+        self.layout = Layout::new(self.text.slice(..), app_dimensions, self.styles.len());
+        self.recalculate_scroll();
     }
 }
 

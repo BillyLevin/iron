@@ -5,7 +5,11 @@ use std::{
     ops,
 };
 
-use crossterm::event::Event;
+use crossterm::event::{
+    Event,
+    KeyEvent,
+    MouseEvent,
+};
 
 use crate::{
     buffer::Buffer,
@@ -29,7 +33,11 @@ pub(crate) trait Layer {
     fn render(&mut self, buffer: &mut Buffer);
 
     /// Optionally handle an event if it applies to this layer.
-    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome;
+    fn handle_event(
+        &mut self,
+        event: &LayerEvent,
+        event_context: &mut EventContext,
+    ) -> EventOutcome;
 
     /// Calculate the visual cursor position. This is relative to the whole
     /// screen, not the viewport of this layer.
@@ -42,6 +50,9 @@ pub(crate) trait Layer {
     /// Get the type of this layer. This is an [`Option`] because it only
     /// applies to layers that can be added/removed.
     fn kind(&self) -> Option<LayerKind>;
+
+    /// Called when the application resizes with its new dimensions.
+    fn resize(&mut self, app_dimensions: Dimensions);
 }
 
 /// The types of layers that can be added/removed. In other words, this doesn't
@@ -52,6 +63,37 @@ pub(crate) enum LayerKind {
     CommandList,
     FilePicker,
     DiagnosticList,
+}
+
+#[derive(Debug)]
+pub(crate) enum AppEvent {
+    Resize(Dimensions),
+    Layer(LayerEvent),
+}
+
+impl From<Event> for AppEvent {
+    fn from(event: Event) -> Self {
+        match event {
+            Event::Resize(columns, rows) => {
+                Self::Resize(Dimensions::new(Columns::from(columns), Rows::from(rows)))
+            }
+            Event::FocusGained => Self::Layer(LayerEvent::FocusGained),
+            Event::FocusLost => Self::Layer(LayerEvent::FocusLost),
+            Event::Key(key_event) => Self::Layer(LayerEvent::Key(key_event)),
+            Event::Mouse(mouse_event) => Self::Layer(LayerEvent::Mouse(mouse_event)),
+            Event::Paste(_content) => Self::Layer(LayerEvent::Paste),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum LayerEvent {
+    FocusGained,
+    FocusLost,
+    Key(KeyEvent),
+    Mouse(MouseEvent),
+    // TODO: add `String` back when implementing paste
+    Paste,
 }
 
 /// A structure representing (unsurprisingly) a rectangular region of the

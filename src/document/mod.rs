@@ -34,7 +34,6 @@ use std::{
 
 use anyhow::Context as _;
 use crossterm::event::{
-    Event,
     KeyCode,
     KeyEvent,
     KeyModifiers,
@@ -109,6 +108,7 @@ use crate::{
         Columns,
         Dimensions,
         Layer,
+        LayerEvent,
         LayerKind,
         NonZeroColumns,
         Position,
@@ -241,11 +241,6 @@ impl Document {
         }
 
         EventOutcome::Handled
-    }
-
-    pub(crate) fn resize(&mut self, dimensions: Dimensions) {
-        self.layout_info = LayoutInfo::new(dimensions);
-        self.recalculate_scroll();
     }
 
     /// Displays the keybindings (if any) that are currently possible for the
@@ -1231,16 +1226,15 @@ impl Layer for Document {
         self.render_key_hint(buffer);
     }
 
-    fn handle_event(&mut self, event: &Event, event_context: &mut EventContext) -> EventOutcome {
+    fn handle_event(
+        &mut self,
+        event: &LayerEvent,
+        event_context: &mut EventContext,
+    ) -> EventOutcome {
         match *event {
-            Event::Key(key_event) => self.handle_key_event(key_event, event_context),
-            Event::Mouse(_mouse_event) => todo!(),
-            Event::Resize(columns, rows) => {
-                self.resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
-                EventOutcome::Handled
-            }
-
-            Event::FocusGained | Event::FocusLost | Event::Paste(_) => todo!(),
+            LayerEvent::Key(key_event) => self.handle_key_event(key_event, event_context),
+            LayerEvent::Mouse(_mouse_event) => todo!(),
+            LayerEvent::FocusGained | LayerEvent::FocusLost | LayerEvent::Paste => todo!(),
         }
     }
 
@@ -1260,6 +1254,11 @@ impl Layer for Document {
 
     fn kind(&self) -> Option<LayerKind> {
         None
+    }
+
+    fn resize(&mut self, app_dimensions: Dimensions) {
+        self.layout_info = LayoutInfo::new(app_dimensions);
+        self.recalculate_scroll();
     }
 }
 

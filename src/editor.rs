@@ -3,8 +3,6 @@ use std::{
     path::PathBuf,
 };
 
-use crossterm::event::Event;
-
 use crate::{
     buffer::Buffer,
     commands::CommandList,
@@ -21,12 +19,11 @@ use crate::{
         LspTextEdit,
     },
     ui::{
-        Columns,
+        AppEvent,
         Dimensions,
         Layer,
         LayerKind,
         Position,
-        Rows,
     },
 };
 
@@ -70,33 +67,34 @@ impl Editor {
             )
     }
 
-    pub(crate) fn handle_event(&mut self, event: &Event) -> EventOutcome {
+    pub(crate) fn handle_event(&mut self, event: &AppEvent) -> EventOutcome {
         puffin::profile_function!();
 
-        let mut result = EventOutcome::Unhandled;
-
-        let mut event_context = EventContext::new();
-
-        if let Event::Resize(columns, rows) = *event {
-            let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
-            self.resize(dimensions);
-            result = EventOutcome::Handled;
-        }
-
-        for layer in self.layers_mut().rev() {
-            match layer.handle_event(event, &mut event_context) {
-                EventOutcome::Handled => {
-                    result = EventOutcome::Handled;
-                    break;
-                }
-                EventOutcome::CloseApp => return EventOutcome::CloseApp,
-                EventOutcome::Unhandled => {}
+        match *event {
+            AppEvent::Resize(dimensions) => {
+                self.resize(dimensions);
+                EventOutcome::Handled
             }
-        }
+            AppEvent::Layer(ref layer_event) => {
+                let mut event_context = EventContext::new();
 
-        match result {
-            EventOutcome::Handled => self.apply_actions(event_context.actions()),
-            EventOutcome::Unhandled | EventOutcome::CloseApp => result,
+                let result = self
+                    .layers_mut()
+                    .rev()
+                    .find_map(|layer| {
+                        match layer.handle_event(layer_event, &mut event_context) {
+                            EventOutcome::Handled => Some(EventOutcome::Handled),
+                            EventOutcome::CloseApp => Some(EventOutcome::CloseApp),
+                            EventOutcome::Unhandled => None,
+                        }
+                    })
+                    .unwrap_or(EventOutcome::Unhandled);
+
+                match result {
+                    EventOutcome::Handled => self.apply_actions(event_context.actions()),
+                    EventOutcome::Unhandled | EventOutcome::CloseApp => result,
+                }
+            }
         }
     }
 
@@ -227,8 +225,12 @@ impl Editor {
         EventOutcome::Handled
     }
 
-    pub(crate) const fn resize(&mut self, dimensions: Dimensions) {
+    fn resize(&mut self, dimensions: Dimensions) {
         self.dimensions = dimensions;
+
+        for layer in self.layers_mut() {
+            layer.resize(dimensions);
+        }
     }
 
     fn save_document(&self) -> anyhow::Result<()> {

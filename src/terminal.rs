@@ -5,10 +5,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{
-        self,
-        Event,
-    },
+    event,
     style::{
         self,
         Attribute,
@@ -30,8 +27,10 @@ use crate::{
     },
     style::StyleAttributes,
     ui::{
+        AppEvent,
         Columns,
         Dimensions,
+        LayerEvent,
         Position,
         Rows,
     },
@@ -98,19 +97,20 @@ impl Terminal {
             if event::poll(Duration::from_millis(16))? {
                 puffin::profile_scope!("terminal_event");
 
-                let terminal_event = event::read()?;
+                let terminal_event = AppEvent::from(event::read()?);
 
                 match terminal_event {
-                    Event::Resize(columns, rows) => {
-                        let dimensions = Dimensions::new(Columns::from(columns), Rows::from(rows));
+                    AppEvent::Resize(dimensions) => {
                         self.buffer.resize(dimensions);
                         rerender = true;
                     }
-                    Event::FocusGained
-                    | Event::FocusLost
-                    | Event::Key(_)
-                    | Event::Mouse(_)
-                    | Event::Paste(_) => {}
+                    AppEvent::Layer(
+                        LayerEvent::FocusGained
+                        | LayerEvent::FocusLost
+                        | LayerEvent::Key(_)
+                        | LayerEvent::Mouse(_)
+                        | LayerEvent::Paste,
+                    ) => {}
                 }
 
                 match editor.handle_event(&terminal_event) {
