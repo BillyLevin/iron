@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     buffer::Buffer,
-    commands::CommandList,
+    command_list::CommandList,
     diagnostic_list::DiagnosticList,
     document::Document,
     file_picker::{

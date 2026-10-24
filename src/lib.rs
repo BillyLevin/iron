@@ -2,7 +2,7 @@
 
 pub mod args;
 pub mod buffer;
-pub mod commands;
+pub mod command_list;
 pub mod cursor;
 pub mod diagnostic_list;
 pub mod document;
