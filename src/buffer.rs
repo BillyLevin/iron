@@ -21,6 +21,7 @@ use crate::{
         Columns,
         Dimensions,
         Line,
+        MaybeBordered,
         Position,
         Rectangle,
         Rows,
@@ -73,60 +74,46 @@ impl Buffer {
 
     /// Draws a border on the edges of the given `rectangle` if there's room to
     /// do so.
-    ///
-    /// # Returns
-    ///
-    /// - The inner rectangle if a border was drawn,
-    /// - The original rectangle if the border was not drawn
-    pub(crate) fn draw_border(&mut self, rectangle: Rectangle, style: Style) -> DrawBorderOutcome {
-        let Some(inner_rectangle) = rectangle.clip_border() else {
-            return DrawBorderOutcome::NotDrawn {
-                original_rectangle: rectangle,
-            };
+    pub(crate) fn draw_border(&mut self, rectangle: &MaybeBordered, style: Style) {
+        let MaybeBordered::Bordered {
+            ref outer,
+            inner: _,
+        } = *rectangle
+        else {
+            return;
         };
 
-        assert!(
-            rectangle.width() >= Columns::new(3),
-            "rectangle must be at least 3 cells wide in order to have a border"
-        );
-        assert!(
-            rectangle.height() >= Rows::new(3),
-            "rectangle must be at least 3 cells high in order to have a border"
-        );
-
-        let top_left = rectangle.offset();
+        let top_left = outer.offset();
         self[top_left].set_content("┌").set_style(style);
 
-        for offset in Columns::new(1)..=(rectangle.width() - 2_usize) {
+        for offset in Columns::new(1)..=(outer.width() - 2_usize) {
             self[top_left.col_offset(offset)]
                 .set_content("─")
                 .set_style(style);
         }
 
-        let top_right = top_left.col_offset(rectangle.width() - 1_usize);
+        let top_right = top_left.col_offset(outer.width() - 1_usize);
         self[top_right].set_content("┐").set_style(style);
 
-        for row in Rows::new(1)..(rectangle.height() - 1_usize) {
+        for row in Rows::new(1)..(outer.height() - 1_usize) {
             let left = top_left.row_offset(row);
-            let right = left.col_offset(rectangle.width() - 1);
+            let right = left.col_offset(outer.width() - 1);
 
             self[left].set_content("│").set_style(style);
             self[right].set_content("│").set_style(style);
         }
 
-        let bottom_left = top_left.row_offset(rectangle.height() - 1_usize);
+        let bottom_left = top_left.row_offset(outer.height() - 1_usize);
         self[bottom_left].set_content("└").set_style(style);
 
-        for offset in Columns::new(1)..=(rectangle.width() - 2_usize) {
+        for offset in Columns::new(1)..=(outer.width() - 2_usize) {
             self[bottom_left.col_offset(offset)]
                 .set_content("─")
                 .set_style(style);
         }
 
-        let bottom_right = bottom_left.col_offset(rectangle.width() - 1_usize);
+        let bottom_right = bottom_left.col_offset(outer.width() - 1_usize);
         self[bottom_right].set_content("┘").set_style(style);
-
-        DrawBorderOutcome::Drawn { inner_rectangle }
     }
 
     /// Renders each given [`Span`] **in order** inside the `rectangle`. See
@@ -203,12 +190,6 @@ impl Buffer {
             (current_rectangle, rest_rectangle) = rest_rectangle.split_at_row(Rows::new(1));
         }
     }
-}
-
-#[derive(Debug)]
-pub(crate) enum DrawBorderOutcome {
-    Drawn { inner_rectangle: Rectangle },
-    NotDrawn { original_rectangle: Rectangle },
 }
 
 impl ops::Index<Position> for Buffer {
@@ -380,15 +361,11 @@ mod tests {
             buffer_dimensions.height() - Rows::new(2),
         );
 
-        let rectangle = match buffer.draw_border(
-            buffer_rectangle.at_center(rectangle_dimensions),
-            Style::COMMAND_LIST_BORDER,
-        ) {
-            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-        };
+        let rectangle = MaybeBordered::new(buffer_rectangle.at_center(rectangle_dimensions));
 
-        buffer.render_lines(&[Line::new(vec![Span::new("Hello")])], &rectangle);
+        buffer.draw_border(&rectangle, Style::COMMAND_LIST_BORDER);
+
+        buffer.render_lines(&[Line::new(vec![Span::new("Hello")])], rectangle.inner());
 
         assert_buffer_eq!(&buffer, [
             "··········",
@@ -415,15 +392,11 @@ mod tests {
             buffer_dimensions.height() - Rows::new(2),
         );
 
-        let rectangle = match buffer.draw_border(
-            buffer_rectangle.at_center(rectangle_dimensions),
-            Style::COMMAND_LIST_BORDER,
-        ) {
-            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-        };
+        let rectangle = MaybeBordered::new(buffer_rectangle.at_center(rectangle_dimensions));
 
-        buffer.render_lines(&[Line::new(vec![Span::new("Hi")])], &rectangle);
+        buffer.draw_border(&rectangle, Style::COMMAND_LIST_BORDER);
+
+        buffer.render_lines(&[Line::new(vec![Span::new("Hi")])], rectangle.inner());
 
         #[rustfmt::skip]
         assert_buffer_eq!(&buffer, [

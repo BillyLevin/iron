@@ -659,6 +659,45 @@ pub(crate) enum Alignment {
     Right,
 }
 
+/// Layout info for a rectangle that has a border if there's room for one. If
+/// the rectangle has a border, then `outer` and `inner` will have different
+/// dimensions: `outer` is the full rectangle including the border, `inner` is
+/// the area inside the border.
+#[derive(Debug)]
+pub(crate) enum MaybeBordered {
+    Bordered { outer: Rectangle, inner: Rectangle },
+    NotBordered(Rectangle),
+}
+
+impl MaybeBordered {
+    pub(crate) fn new(outer: Rectangle) -> Self {
+        match outer.clip_border() {
+            Some(inner) => Self::Bordered { outer, inner },
+            None => Self::NotBordered(outer),
+        }
+    }
+
+    pub(crate) const fn outer(&self) -> &Rectangle {
+        match *self {
+            Self::Bordered {
+                ref outer,
+                inner: _,
+            } => outer,
+            Self::NotBordered(ref rectangle) => rectangle,
+        }
+    }
+
+    pub(crate) const fn inner(&self) -> &Rectangle {
+        match *self {
+            Self::Bordered {
+                outer: _,
+                ref inner,
+            } => inner,
+            Self::NotBordered(ref rectangle) => rectangle,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,6 +785,7 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use std::{
+        assert_matches,
         cmp,
         collections::BTreeSet,
     };
@@ -926,5 +966,63 @@ mod proptests {
             contains_abstract(&model, position),
             rectangle.contains(&position)
         );
+    }
+
+    #[hegel::test]
+    fn maybe_bordered(test_case: TestCase) {
+        let dimension = hegel::one_of![
+            // biasing towards edge cases: border exists only when width/height both >= 3
+            generators::just(2_usize),
+            generators::just(3_usize),
+            generators::integers().max_value(20),
+        ];
+
+        let dimensions = Dimensions::new(
+            Columns::new(test_case.draw(&dimension)),
+            Rows::new(test_case.draw(&dimension)),
+        );
+
+        let offset = Position::new(
+            test_case.draw(generators::integers().max_value(20).map(Columns::new)),
+            test_case.draw(generators::integers().max_value(20).map(Rows::new)),
+        );
+
+        let rectangle = Rectangle::from_dimensions(dimensions).with_offset(offset);
+        let area = MaybeBordered::new(rectangle.clone());
+
+        let has_border =
+            dimensions.width() >= Columns::new(3) && dimensions.height() >= Rows::new(3);
+
+        test_case.event(if has_border {
+            "has border"
+        } else {
+            "has no border"
+        });
+
+        let model = rectangle_model(&rectangle);
+
+        let expected_inner = if has_border {
+            model
+                .into_iter()
+                .filter(|&(col, row)| {
+                    col != rectangle.offset().left()
+                        && col != rectangle.right() - 1
+                        && row != rectangle.offset().top()
+                        && row != rectangle.bottom() - 1
+                })
+                .collect()
+        } else {
+            model
+        };
+
+        assert_eq!(rectangle_model(area.inner()), expected_inner);
+        assert_eq!(area.outer(), &rectangle);
+
+        if has_border {
+            assert_matches!(area, MaybeBordered::Bordered { outer: _, inner: _ });
+        } else {
+            assert_matches!(area, MaybeBordered::NotBordered(_));
+            assert_eq!(area.inner(), &rectangle);
+        }
     }
 }

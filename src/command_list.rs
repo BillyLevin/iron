@@ -16,10 +16,7 @@ use nucleo_matcher::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
-    buffer::{
-        Buffer,
-        DrawBorderOutcome,
-    },
+    buffer::Buffer,
     editor::{
         EditorAction,
         EventContext,
@@ -38,6 +35,7 @@ use crate::{
         LayerEvent,
         LayerKind,
         Line,
+        MaybeBordered,
         Position,
         Rectangle,
         Rows,
@@ -170,32 +168,26 @@ impl Layer for CommandList {
 
         let (input_rectangle, commands_rectangle) = rectangle.split_at_row(Rows::new(3));
 
-        let input_text_rectangle =
-            match buffer.draw_border(input_rectangle, Style::COMMAND_LIST_BORDER) {
-                DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-                DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-            };
+        let input_rectangle = MaybeBordered::new(input_rectangle);
+        let commands_rectangle = MaybeBordered::new(commands_rectangle);
 
-        let commands_rectangle =
-            match buffer.draw_border(commands_rectangle, Style::COMMAND_LIST_BORDER) {
-                DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-                DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-            };
+        buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(&commands_rectangle, Style::COMMAND_LIST_BORDER);
 
         let text = self
             .search_term
-            .get(self.horizontal_scroll(&input_text_rectangle).value()..)
+            .get(self.horizontal_scroll(input_rectangle.inner()).value()..)
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
             &Span::new(text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
-            &input_text_rectangle.offset(),
-            &input_text_rectangle,
+            &input_rectangle.inner().offset(),
+            input_rectangle.inner(),
         );
 
-        self.cursor_position = Some(input_text_rectangle.offset().col_offset(cmp::min(
+        self.cursor_position = Some(input_rectangle.inner().offset().col_offset(cmp::min(
             text_width(text),
-            input_text_rectangle.width().saturating_sub(1_usize),
+            input_rectangle.inner().width().saturating_sub(1_usize),
         )));
 
         // TODO: check whether this re-allocates because of the `.collect()`
@@ -229,7 +221,7 @@ impl Layer for CommandList {
                     Line::new(vec![span])
                 })
                 .collect::<Vec<_>>(),
-            &commands_rectangle,
+            commands_rectangle.inner(),
         );
     }
 

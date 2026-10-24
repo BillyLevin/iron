@@ -28,10 +28,7 @@ use fff_search::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::{
-    buffer::{
-        Buffer,
-        DrawBorderOutcome,
-    },
+    buffer::Buffer,
     editor::{
         EditorAction,
         EventContext,
@@ -50,6 +47,7 @@ use crate::{
         LayerEvent,
         LayerKind,
         Line,
+        MaybeBordered,
         Position,
         Rectangle,
         Rows,
@@ -249,43 +247,36 @@ impl Layer for FilePicker {
 
         let (input_rectangle, list_rectangle) = rectangle.split_at_row(Rows::new(3));
 
-        let input_rectangle = match buffer.draw_border(input_rectangle, Style::COMMAND_LIST_BORDER)
-        {
-            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-        };
+        let input_rectangle = MaybeBordered::new(input_rectangle);
+
+        buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
 
         let (list_rectangle, preview_rectangle) =
             list_rectangle.split_at_column(list_rectangle.width() / 2);
 
-        let list_rectangle = match buffer.draw_border(list_rectangle, Style::COMMAND_LIST_BORDER) {
-            DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-            DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-        };
+        let list_rectangle = MaybeBordered::new(list_rectangle);
+        let preview_rectangle = MaybeBordered::new(preview_rectangle);
 
-        let preview_rectangle =
-            match buffer.draw_border(preview_rectangle, Style::COMMAND_LIST_BORDER) {
-                DrawBorderOutcome::Drawn { inner_rectangle } => inner_rectangle,
-                DrawBorderOutcome::NotDrawn { original_rectangle } => original_rectangle,
-            };
+        buffer.draw_border(&list_rectangle, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(&preview_rectangle, Style::COMMAND_LIST_BORDER);
 
         let search_text = self
             .search_term
-            .get(self.horizontal_scroll(&input_rectangle).value()..)
+            .get(self.horizontal_scroll(input_rectangle.inner()).value()..)
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
             &Span::new(search_text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
-            &input_rectangle.offset(),
-            &input_rectangle,
+            &input_rectangle.inner().offset(),
+            input_rectangle.inner(),
         );
 
-        self.cursor_position = Some(input_rectangle.offset().col_offset(cmp::min(
+        self.cursor_position = Some(input_rectangle.inner().offset().col_offset(cmp::min(
             text_width(search_text),
-            input_rectangle.width().saturating_sub(1_usize),
+            input_rectangle.inner().width().saturating_sub(1_usize),
         )));
 
-        self.recalculate_scroll(&list_rectangle);
+        self.recalculate_scroll(list_rectangle.inner());
 
         buffer.render_lines(
             &self
@@ -304,7 +295,7 @@ impl Layer for FilePicker {
                     ))
                 })
                 .collect::<Vec<_>>(),
-            &list_rectangle,
+            list_rectangle.inner(),
         );
 
         buffer.render_lines(
@@ -317,13 +308,13 @@ impl Layer for FilePicker {
                         File::open(&path.value)
                             .map(BufReader::new)?
                             .lines()
-                            .take(preview_rectangle.height().value())
+                            .take(preview_rectangle.inner().height().value())
                             .map(|line| line.map(|text| Line::new(vec![Span::new(text)])))
                             .collect::<io::Result<Vec<Line>>>()
                     },
                 )
                 .unwrap_or_else(|_| vec![Line::new(vec![Span::new("Could not display preview")])]),
-            &preview_rectangle,
+            preview_rectangle.inner(),
         );
     }
 

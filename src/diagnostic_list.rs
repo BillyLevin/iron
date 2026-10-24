@@ -43,6 +43,7 @@ use crate::{
         Layer,
         LayerEvent,
         LayerKind,
+        MaybeBordered,
         NonZeroColumns,
         Position,
         Rectangle,
@@ -161,8 +162,8 @@ impl DiagnosticList {
 
 impl Layer for DiagnosticList {
     fn render(&mut self, buffer: &mut Buffer) {
-        buffer.clear_and_style_rectangle(&self.layout.container, Style::COMMAND_LIST);
-        buffer.draw_border(self.layout.container.clone(), Style::COMMAND_LIST_BORDER);
+        buffer.clear_and_style_rectangle(self.layout.container.outer(), Style::COMMAND_LIST);
+        buffer.draw_border(&self.layout.container, Style::COMMAND_LIST_BORDER);
 
         let Some(text_width) = NonZeroColumns::new(self.layout.text.width()) else {
             return;
@@ -306,7 +307,7 @@ struct DiagnosticStyle {
 #[derive(Debug)]
 struct Layout {
     /// The entire diagnostic list.
-    container: Rectangle,
+    container: MaybeBordered,
     /// Gutter where diagnostics are numbered.
     gutter: Rectangle,
     /// Diagnostic messages.
@@ -347,22 +348,20 @@ impl Layout {
 
         let height = cmp::min(max_height, cmp::max(Self::MIN_HEIGHT, desired_height));
 
-        let outer_rectangle = app_rectangle.at_center(Dimensions::new(width, height));
+        let container = app_rectangle.at_center(Dimensions::new(width, height));
 
-        let inner_rectangle = outer_rectangle
-            .clip_border()
-            .unwrap_or_else(|| outer_rectangle.clone());
+        let container = MaybeBordered::new(container);
 
         assert_eq!(
-            inner_rectangle.width(),
+            container.inner().width(),
             content_width,
             "`content_width` must have been calculated correctly"
         );
 
-        let (gutter_rectangle, text_rectangle) = inner_rectangle.split_at_column(gutter_width);
+        let (gutter_rectangle, text_rectangle) = container.inner().split_at_column(gutter_width);
 
         Self {
-            container: outer_rectangle,
+            container,
             gutter: gutter_rectangle,
             text: text_rectangle,
         }
