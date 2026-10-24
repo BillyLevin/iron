@@ -663,7 +663,7 @@ pub(crate) enum Alignment {
 /// the rectangle has a border, then `outer` and `inner` will have different
 /// dimensions: `outer` is the full rectangle including the border, `inner` is
 /// the area inside the border.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum MaybeBordered {
     Bordered { outer: Rectangle, inner: Rectangle },
     NotBordered(Rectangle),

@@ -91,16 +91,18 @@ pub(crate) struct CommandList {
     // List of indices into `COMMANDS` of the filtered commands.
     visible_commands: Vec<usize>,
     matcher: Matcher,
+    layout: Layout,
 }
 
 impl CommandList {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(app_dimensions: Dimensions) -> Self {
         Self {
             search_term: String::new(),
             cursor_position: None,
             selected_index: 0,
             visible_commands: Vec::new(),
             matcher: Matcher::new(Config::DEFAULT),
+            layout: Layout::new(app_dimensions),
         }
     }
 
@@ -155,39 +157,41 @@ impl CommandList {
 
 impl Layer for CommandList {
     fn render(&mut self, buffer: &mut Buffer) {
+        debug_assert_eq!(
+            self.layout,
+            Layout::new(buffer.dimensions()),
+            "resizes must be handled correctly"
+        );
+
         self.cursor_position = None;
 
-        let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
+        let Layout {
+            ref container,
+            ref search_input,
+            ref commands,
+        } = self.layout;
 
-        let rectangle = app_rectangle.at_center(Dimensions::new(
-            app_rectangle.width() / 2,
-            app_rectangle.height() / 2,
-        ));
+        let input = search_input.inner();
 
-        buffer.clear_and_style_rectangle(&rectangle, Style::COMMAND_LIST);
+        buffer.clear_and_style_rectangle(container, Style::COMMAND_LIST);
 
-        let (input_rectangle, commands_rectangle) = rectangle.split_at_row(Rows::new(3));
-
-        let input_rectangle = MaybeBordered::new(input_rectangle);
-        let commands_rectangle = MaybeBordered::new(commands_rectangle);
-
-        buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
-        buffer.draw_border(&commands_rectangle, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(search_input, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(commands, Style::COMMAND_LIST_BORDER);
 
         let text = self
             .search_term
-            .get(self.horizontal_scroll(input_rectangle.inner()).value()..)
+            .get(self.horizontal_scroll(input).value()..)
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
             &Span::new(text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
-            &input_rectangle.inner().offset(),
-            input_rectangle.inner(),
+            &input.offset(),
+            input,
         );
 
-        self.cursor_position = Some(input_rectangle.inner().offset().col_offset(cmp::min(
+        self.cursor_position = Some(input.offset().col_offset(cmp::min(
             text_width(text),
-            input_rectangle.inner().width().saturating_sub(1_usize),
+            input.width().saturating_sub(1_usize),
         )));
 
         // TODO: check whether this re-allocates because of the `.collect()`
@@ -221,7 +225,7 @@ impl Layer for CommandList {
                     Line::new(vec![span])
                 })
                 .collect::<Vec<_>>(),
-            commands_rectangle.inner(),
+            commands.inner(),
         );
     }
 
@@ -271,9 +275,8 @@ impl Layer for CommandList {
         Some(LayerKind::CommandList)
     }
 
-    fn resize(&mut self, _app_dimensions: Dimensions) {
-        // TODO: cache layout info and only recalculate here. currently, it's
-        // calculated on each `render`
+    fn resize(&mut self, app_dimensions: Dimensions) {
+        self.layout = Layout::new(app_dimensions);
     }
 }
 
@@ -285,4 +288,34 @@ enum CommandListAction {
     GoToNextCommand,
     GoToPrevCommand,
     ExecuteCommand,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Layout {
+    /// The entire command list.
+    container: Rectangle,
+    search_input: MaybeBordered,
+    commands: MaybeBordered,
+}
+
+impl Layout {
+    fn new(app_dimensions: Dimensions) -> Self {
+        let app_rectangle = Rectangle::from_dimensions(app_dimensions);
+
+        let container = app_rectangle.at_center(Dimensions::new(
+            app_rectangle.width() / 2,
+            app_rectangle.height() / 2,
+        ));
+
+        let (search_input, commands) = container.split_at_row(Rows::new(3));
+
+        let search_input = MaybeBordered::new(search_input);
+        let commands = MaybeBordered::new(commands);
+
+        Self {
+            container,
+            search_input,
+            commands,
+        }
+    }
 }

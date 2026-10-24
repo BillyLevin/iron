@@ -164,7 +164,8 @@ impl Editor {
                 EditorAction::AddLayer(layer) => {
                     match layer {
                         LayerKind::CommandList => {
-                            self.layers.push(Box::new(CommandList::new()));
+                            self.layers
+                                .push(Box::new(CommandList::new(self.dimensions)));
                         }
                         LayerKind::FilePicker => {
                             self.layers
