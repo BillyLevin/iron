@@ -168,8 +168,10 @@ impl Editor {
                                 .push(Box::new(CommandList::new(self.dimensions)));
                         }
                         LayerKind::FilePicker => {
-                            self.layers
-                                .push(Box::new(FilePicker::new(self.file_index.picker())));
+                            self.layers.push(Box::new(FilePicker::new(
+                                self.file_index.picker(),
+                                self.dimensions,
+                            )));
                         }
                         LayerKind::DiagnosticList => {
                             let diagnostics = self.document.diagnostics_for_cursor_line();

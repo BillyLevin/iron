@@ -93,10 +93,11 @@ pub(crate) struct FilePicker {
     /// currently selected.
     selected_index: usize,
     scroll_offset: Rows,
+    layout: Layout,
 }
 
 impl FilePicker {
-    pub(crate) fn new(picker: SharedFilePicker) -> Self {
+    pub(crate) fn new(picker: SharedFilePicker, app_dimensions: Dimensions) -> Self {
         let mut this = Self {
             picker,
             search_term: String::new(),
@@ -104,6 +105,7 @@ impl FilePicker {
             files: Vec::new(),
             selected_index: 0,
             scroll_offset: Rows::new(0),
+            layout: Layout::new(app_dimensions),
         };
 
         this.update_files();
@@ -214,9 +216,9 @@ impl FilePicker {
         )
     }
 
-    fn recalculate_scroll(&mut self, file_list_rectangle: &Rectangle) {
+    fn recalculate_scroll(&mut self) {
         let current_row = Rows::new(self.selected_index);
-        let height = file_list_rectangle.height();
+        let height = self.layout.file_list.inner().height();
 
         if current_row < self.scroll_offset {
             // upwards scroll
@@ -234,49 +236,47 @@ impl FilePicker {
 
 impl Layer for FilePicker {
     fn render(&mut self, buffer: &mut Buffer) {
+        debug_assert_eq!(
+            self.layout,
+            Layout::new(buffer.dimensions()),
+            "resizes must be handled correctly"
+        );
+
         self.cursor_position = None;
+        self.recalculate_scroll();
 
-        let app_rectangle = Rectangle::from_dimensions(buffer.dimensions());
+        let Layout {
+            ref container,
+            ref search_input,
+            ref file_list,
+            ref preview,
+        } = self.layout;
 
-        let rectangle = app_rectangle.at_center(Dimensions::new(
-            app_rectangle.width() * 8 / 10,
-            app_rectangle.height() * 8 / 10,
-        ));
+        let input = search_input.inner();
+        let file_panel = file_list.inner();
+        let preview_panel = preview.inner();
 
-        buffer.clear_and_style_rectangle(&rectangle, Style::COMMAND_LIST);
+        buffer.clear_and_style_rectangle(container, Style::COMMAND_LIST);
 
-        let (input_rectangle, list_rectangle) = rectangle.split_at_row(Rows::new(3));
-
-        let input_rectangle = MaybeBordered::new(input_rectangle);
-
-        buffer.draw_border(&input_rectangle, Style::COMMAND_LIST_BORDER);
-
-        let (list_rectangle, preview_rectangle) =
-            list_rectangle.split_at_column(list_rectangle.width() / 2);
-
-        let list_rectangle = MaybeBordered::new(list_rectangle);
-        let preview_rectangle = MaybeBordered::new(preview_rectangle);
-
-        buffer.draw_border(&list_rectangle, Style::COMMAND_LIST_BORDER);
-        buffer.draw_border(&preview_rectangle, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(search_input, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(file_list, Style::COMMAND_LIST_BORDER);
+        buffer.draw_border(preview, Style::COMMAND_LIST_BORDER);
 
         let search_text = self
             .search_term
-            .get(self.horizontal_scroll(input_rectangle.inner()).value()..)
+            .get(self.horizontal_scroll(input).value()..)
             .expect("horizontal scroll should give a byte index on a char boundary");
 
         buffer.render_span(
             &Span::new(search_text).with_style(Style::COMMAND_LIST_INPUT_TEXT),
-            &input_rectangle.inner().offset(),
-            input_rectangle.inner(),
+            &input.offset(),
+            input,
         );
 
-        self.cursor_position = Some(input_rectangle.inner().offset().col_offset(cmp::min(
+        self.cursor_position = Some(input.offset().col_offset(cmp::min(
             text_width(search_text),
-            input_rectangle.inner().width().saturating_sub(1_usize),
+            input.width().saturating_sub(1_usize),
         )));
-
-        self.recalculate_scroll(list_rectangle.inner());
 
         buffer.render_lines(
             &self
@@ -295,7 +295,7 @@ impl Layer for FilePicker {
                     ))
                 })
                 .collect::<Vec<_>>(),
-            list_rectangle.inner(),
+            file_panel,
         );
 
         buffer.render_lines(
@@ -308,13 +308,13 @@ impl Layer for FilePicker {
                         File::open(&path.value)
                             .map(BufReader::new)?
                             .lines()
-                            .take(preview_rectangle.inner().height().value())
+                            .take(preview_panel.height().value())
                             .map(|line| line.map(|text| Line::new(vec![Span::new(text)])))
                             .collect::<io::Result<Vec<Line>>>()
                     },
                 )
                 .unwrap_or_else(|_| vec![Line::new(vec![Span::new("Could not display preview")])]),
-            preview_rectangle.inner(),
+            preview_panel,
         );
     }
 
@@ -362,9 +362,8 @@ impl Layer for FilePicker {
         Some(LayerKind::FilePicker)
     }
 
-    fn resize(&mut self, _app_dimensions: Dimensions) {
-        // TODO: cache layout info and only recalculate here. currently, it's
-        // calculated on each `render`
+    fn resize(&mut self, app_dimensions: Dimensions) {
+        self.layout = Layout::new(app_dimensions);
     }
 }
 
@@ -389,4 +388,40 @@ enum Action {
     GoToNextItem,
     GoToPrevItem,
     OpenFile,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Layout {
+    /// The entire file picker.
+    container: Rectangle,
+    search_input: MaybeBordered,
+    file_list: MaybeBordered,
+    preview: MaybeBordered,
+}
+
+impl Layout {
+    fn new(app_dimensions: Dimensions) -> Self {
+        let app_rectangle = Rectangle::from_dimensions(app_dimensions);
+
+        let container = app_rectangle.at_center(Dimensions::new(
+            app_rectangle.width() * 8 / 10,
+            app_rectangle.height() * 8 / 10,
+        ));
+
+        let (search_input, files) = container.split_at_row(Rows::new(3));
+
+        let search_input = MaybeBordered::new(search_input);
+
+        let (files, preview) = files.split_at_column(files.width() / 2);
+
+        let file_list = MaybeBordered::new(files);
+        let preview = MaybeBordered::new(preview);
+
+        Self {
+            container,
+            search_input,
+            file_list,
+            preview,
+        }
+    }
 }
