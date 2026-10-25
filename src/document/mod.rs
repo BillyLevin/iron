@@ -141,7 +141,7 @@ pub(crate) struct Document {
 
     lsp_id: DocumentLspId,
 
-    layout_info: LayoutInfo,
+    layout: Layout,
 
     /// The detected language of the document - this is based on the extension
     /// rather than the contents of the file.
@@ -164,6 +164,7 @@ pub(crate) struct Document {
 impl Document {
     pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> anyhow::Result<Self> {
         let text = Rope::from_reader(BufReader::new(File::open(&file_path)?))?;
+        let line_count = text.slice(..).line_count();
 
         let language = Language::new(&file_path);
         let lsp_id = DocumentLspId::new(&file_path, language)?;
@@ -181,7 +182,7 @@ impl Document {
             language,
             file_path,
             lsp_id,
-            layout_info: LayoutInfo::new(dimensions),
+            layout: Layout::new(line_count, dimensions),
             jj_info: JJInfo::default(),
             error: None,
             highlights: HighlightCache::new(),
@@ -284,7 +285,7 @@ impl Document {
             },
         );
 
-        let container = &self.layout_info.content_rect;
+        let container = &self.layout.text;
 
         let hints_rectangle = container.at_bottom_right(Dimensions::new(
             cmp::min(container.width(), max_width),
@@ -312,11 +313,8 @@ impl Document {
     }
 
     fn render_status_line(&self, buffer: &mut Buffer) {
-        let (status_rect, message_rect) =
-            self.layout_info.status_line_rect.split_at_row(Rows::new(1));
-
-        buffer.clear_and_style_rectangle(&status_rect, Style::STATUS_LINE);
-        buffer.clear_and_style_rectangle(&message_rect, Style::STATUS_LINE_MESSAGES);
+        buffer.clear_and_style_rectangle(&self.layout.status_line, Style::STATUS_LINE);
+        buffer.clear_and_style_rectangle(&self.layout.messages, Style::STATUS_LINE_MESSAGES);
 
         let mode_span = Span::new(format!(" {} ", self.mode())).with_style(Style::STATUS_LINE_MODE);
 
@@ -365,7 +363,10 @@ impl Document {
             }
         };
 
-        let (left_rect, right_rect) = status_rect.split_at_column(spans_width(&left_spans));
+        let (left_rect, right_rect) = self
+            .layout
+            .status_line
+            .split_at_column(spans_width(&left_spans));
 
         buffer.render_spans(&left_spans, &left_rect, Alignment::Left);
         buffer.render_spans(&right_spans, &right_rect, Alignment::Right);
@@ -373,8 +374,8 @@ impl Document {
         if let Some(ref error) = self.error {
             buffer.render_span(
                 &Span::new(error).with_style(Style::STATUS_LINE_ERROR),
-                &message_rect.offset(),
-                &message_rect,
+                &self.layout.messages.offset(),
+                &self.layout.messages,
             );
         }
     }
@@ -484,7 +485,7 @@ impl Document {
     }
 
     fn handle_movement_action(&mut self, action: MovementAction, count: Option<NonZeroUsize>) {
-        let text_width = self.content_layout().max_text_width();
+        let text_width = self.layout.max_text_width();
 
         apply_movement(
             self.text.slice(..),
@@ -522,6 +523,7 @@ impl Document {
         self.diagnostics.clear();
         self.version = self.version.next();
         self.request_highlight_refresh();
+        self.layout = Layout::new(self.text.slice(..).line_count(), self.layout.app_dimensions);
 
         context.push_action(EditorAction::DocumentChanged(LspTextEdit::new(
             initial_text,
@@ -545,7 +547,7 @@ impl Document {
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.cursor());
 
-        let height = self.layout_info.content_rect.height();
+        let height = self.layout.text.height();
 
         if cursor_line < self.scroll_offset {
             // upwards scroll
@@ -573,7 +575,7 @@ impl Document {
     fn center_cursor_vertically(&mut self) {
         let text = self.text.slice(..);
         let cursor_line = text.line_idx_containing_byte(self.cursor());
-        let middle = self.layout_info.content_rect.height() / 2;
+        let middle = self.layout.text.height() / 2;
 
         self.scroll_offset = cursor_line.saturating_sub(middle);
     }
@@ -628,11 +630,6 @@ impl Document {
 
     fn insert_newline(&self) -> Transaction {
         self.insert_char('\n')
-    }
-
-    fn content_layout(&self) -> ContentLayout {
-        self.layout_info
-            .content_layout(self.text.slice(..).line_count())
     }
 
     /// Deletes from the current cursor position up to (but not including) the
@@ -967,9 +964,7 @@ impl Document {
     }
 
     fn visual_cursor_position_impl(&self) -> Position {
-        let content_layout = self.content_layout();
-
-        let Some(text_width) = content_layout.max_text_width() else {
+        let Some(text_width) = self.layout.max_text_width() else {
             return Position::default();
         };
 
@@ -979,7 +974,7 @@ impl Document {
             self.scroll_offset,
             text_width,
         )
-        .col_offset(content_layout.gutter.width())
+        .offset(self.layout.text.offset())
     }
 
     pub(crate) fn save(&self) -> anyhow::Result<()> {
@@ -1121,14 +1116,18 @@ impl Layer for Document {
     fn render(&mut self, buffer: &mut Buffer) {
         let text = self.text.slice(..);
 
+        debug_assert_eq!(
+            self.layout,
+            Layout::new(text.line_count(), buffer.dimensions()),
+            "layout must be updated before render"
+        );
+
         let start_byte = text.line_start_byte(self.scroll_offset);
 
-        buffer.clear_and_style_rectangle(&self.layout_info.content_rect, Style::BACKGROUND);
+        buffer.clear_and_style_rectangle(&self.layout.gutter.area, Style::BACKGROUND);
+        buffer.clear_and_style_rectangle(&self.layout.text, Style::BACKGROUND);
 
-        let content_layout = self.content_layout();
-        let gutter_width = content_layout.gutter.width();
-
-        let Some(text_width) = content_layout.max_text_width() else {
+        let Some(text_width) = self.layout.max_text_width() else {
             // if there's no room for text, there's no point rendering anything.
             return;
         };
@@ -1148,7 +1147,7 @@ impl Layer for Document {
         let mut current_diagnostic = diagnostics.next();
 
         let gutter_renderer = GutterRenderer {
-            gutter: &content_layout.gutter,
+            gutter: &self.layout.gutter,
             cursor_line,
         };
 
@@ -1158,13 +1157,13 @@ impl Layer for Document {
                 max_width: text_width,
             },
         ) {
-            if visual_grapheme.position().top() >= self.layout_info.content_rect.height() {
+            if visual_grapheme.position().top() >= self.layout.text.height() {
                 break;
             }
 
             if visual_grapheme.position().left() == Columns::new(0) {
                 gutter_renderer.render(
-                    visual_grapheme.position(),
+                    visual_grapheme.position().top(),
                     visual_grapheme.wrap_status(),
                     line_index,
                     self.diagnostics.line_severity(line_index),
@@ -1172,11 +1171,11 @@ impl Layer for Document {
                 );
             }
 
-            let translated_position = visual_grapheme.position().col_offset(gutter_width);
+            let translated_position = visual_grapheme.position().offset(self.layout.text.offset());
 
-            assert!(
-                translated_position.left() >= gutter_width,
-                "filling in the gutter should've taken the position past the gutter"
+            debug_assert!(
+                self.layout.text.contains(&translated_position),
+                "graphemes must be rendered inside the text area"
             );
 
             let grapheme = visual_grapheme.grapheme();
@@ -1257,103 +1256,90 @@ impl Layer for Document {
     }
 
     fn resize(&mut self, app_dimensions: Dimensions) {
-        self.layout_info = LayoutInfo::new(app_dimensions);
+        self.layout = Layout::new(self.text.slice(..).line_count(), app_dimensions);
         self.recalculate_scroll();
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct LayoutInfo {
-    /// Size and position of the area that the file contents (including
-    /// gutters) can be rendered into.
-    content_rect: Rectangle,
-    /// Size and position of the area that the status line can be rendered
-    /// into.
-    status_line_rect: Rectangle,
+#[derive(Debug, PartialEq, Eq)]
+struct Layout {
+    app_dimensions: Dimensions,
+
+    gutter: Gutter,
+    text: Rectangle,
+    status_line: Rectangle,
+    messages: Rectangle,
 }
 
-impl LayoutInfo {
-    fn new(dimensions: Dimensions) -> Self {
-        let (content_rect, status_line_rect) = Rectangle::from_dimensions(dimensions)
-            .split_at_row(dimensions.height().saturating_sub(Rows::new(2)));
+impl Layout {
+    fn new(line_count: usize, app_dimensions: Dimensions) -> Self {
+        let (content, status_line) = Rectangle::from_dimensions(app_dimensions)
+            .split_at_row(app_dimensions.height().saturating_sub(Rows::new(2)));
+
+        let (status_line, messages) = status_line.split_at_row(Rows::new(1));
+
+        let line_number_width = Gutter::line_number_width(line_count);
+        let (gutter_area, text) = content.split_at_column(Gutter::width(line_number_width));
 
         Self {
-            content_rect,
-            status_line_rect,
-        }
-    }
-
-    fn content_layout(&self, line_count: usize) -> ContentLayout {
-        ContentLayout::new(&self.content_rect, line_count)
-    }
-}
-
-#[derive(Debug)]
-struct ContentLayout {
-    gutter: GutterRow,
-    text_width: Columns,
-}
-
-impl ContentLayout {
-    fn new(container: &Rectangle, line_count: usize) -> Self {
-        let gutter = GutterRow {
-            line_number_width: cmp::max(Columns::new(2), number_width(line_count)),
-        };
-
-        Self {
-            gutter,
-            text_width: container.width().saturating_sub(gutter.width()),
+            app_dimensions,
+            gutter: Gutter {
+                area: gutter_area,
+                line_number_width,
+            },
+            text,
+            status_line,
+            messages,
         }
     }
 
     fn max_text_width(&self) -> Option<NonZeroColumns> {
-        NonZeroColumns::new(self.text_width)
+        NonZeroColumns::new(self.text.width())
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct GutterRow {
+#[derive(Debug, PartialEq, Eq)]
+struct Gutter {
+    area: Rectangle,
     line_number_width: Columns,
 }
 
-impl GutterRow {
+impl Gutter {
     const DIAGNOSTIC_ICON: &str = "● ";
     const LINE_NUMBER_RIGHT_PADDING: Columns = Columns::new(1);
 
-    fn width(self) -> Columns {
-        text_width(Self::DIAGNOSTIC_ICON) + self.line_number_width + Self::LINE_NUMBER_RIGHT_PADDING
+    fn line_number_width(line_count: usize) -> Columns {
+        cmp::max(Columns::new(2), number_width(line_count))
+    }
+
+    fn width(line_number_width: Columns) -> Columns {
+        text_width(Self::DIAGNOSTIC_ICON) + line_number_width + Self::LINE_NUMBER_RIGHT_PADDING
     }
 }
 
 #[derive(Debug)]
 struct GutterRenderer<'gutter> {
-    gutter: &'gutter GutterRow,
+    gutter: &'gutter Gutter,
     cursor_line: LineIndex,
 }
 
 impl GutterRenderer<'_> {
     /// Renders the gutter for the current visual line (derived from line index
-    /// and wrap status). Must be called at the start of a visual line.
+    /// and wrap status) at the given `row`, relative to the top of the gutter.
     fn render(
         &self,
-        position: Position,
+        row: Rows,
         wrapped: WrapOutcome,
         current_line: LineIndex,
         severity: Option<DiagnosticSeverity>,
         buffer: &mut Buffer,
     ) {
-        assert_eq!(
-            position.left(),
-            Columns::new(0),
-            "gutter must start at the left edge of the screen"
-        );
-
         let diagnostic_contents = match (wrapped, severity) {
             // we only display gutter contents on the first visual row of a wrapped line
             (WrapOutcome::Wrapped, _) | (_, None) => {
-                " ".repeat(text_width(GutterRow::DIAGNOSTIC_ICON).value())
+                " ".repeat(text_width(Gutter::DIAGNOSTIC_ICON).value())
             }
-            (WrapOutcome::NotWrapped, Some(_)) => GutterRow::DIAGNOSTIC_ICON.to_owned(),
+            (WrapOutcome::NotWrapped, Some(_)) => Gutter::DIAGNOSTIC_ICON.to_owned(),
         };
 
         let line_number_contents = match wrapped {
@@ -1361,7 +1347,7 @@ impl GutterRenderer<'_> {
             WrapOutcome::Wrapped => {
                 " ".repeat(
                     self.gutter.line_number_width.value()
-                        + GutterRow::LINE_NUMBER_RIGHT_PADDING.value(),
+                        + Gutter::LINE_NUMBER_RIGHT_PADDING.value(),
                 )
             }
             WrapOutcome::NotWrapped => {
@@ -1373,7 +1359,7 @@ impl GutterRenderer<'_> {
 
                 format!(
                     "{line_number:>width$}{}",
-                    " ".repeat(GutterRow::LINE_NUMBER_RIGHT_PADDING.value()),
+                    " ".repeat(Gutter::LINE_NUMBER_RIGHT_PADDING.value()),
                     width = self.gutter.line_number_width.value(),
                 )
             }
@@ -1389,8 +1375,8 @@ impl GutterRenderer<'_> {
             gutter_style.merge(Style::diagnostic_icon(severity))
         });
 
-        let diagnostic_position = position;
-        let line_number_position = position.col_offset(text_width(&diagnostic_contents));
+        let diagnostic_position = self.gutter.area.offset().row_offset(row);
+        let line_number_position = diagnostic_position.col_offset(text_width(&diagnostic_contents));
 
         buffer[diagnostic_position]
             .set_content(&diagnostic_contents)
@@ -1941,7 +1927,7 @@ mod tests {
         let actual = document.visual_cursor_position().unwrap();
 
         let expected = Position::new(Columns::new(expected.0), Rows::new(expected.1))
-            .col_offset(document.content_layout().gutter.width());
+            .offset(document.layout.text.offset());
 
         assert_eq!(actual, expected, "{label} did not match");
     }
@@ -4490,8 +4476,8 @@ mod diagnostics_tests {
             document.render(&mut buffer);
 
             let cell_at_column = |column: usize| -> &Cell {
-                let gutter_width = document.content_layout().gutter.width();
-                &buffer[Position::new(Columns::new(column), Rows::new(0)).col_offset(gutter_width)]
+                &buffer[Position::new(Columns::new(column), Rows::new(0))
+                    .offset(document.layout.text.offset())]
             };
 
             let assert_severity = |column: usize, severity: DiagnosticSeverity| {
