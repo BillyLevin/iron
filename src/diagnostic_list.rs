@@ -20,7 +20,7 @@ use crate::{
         apply_movement,
         visual_cursor_position,
     },
-    document::DiagnosticMessage,
+    document::Diagnostic,
     editor::{
         EditorAction,
         EventContext,
@@ -62,7 +62,7 @@ pub(crate) struct DiagnosticList {
 }
 
 impl DiagnosticList {
-    pub(crate) fn new(diagnostics: &[DiagnosticMessage], app_dimensions: Dimensions) -> Self {
+    pub(crate) fn new(diagnostics: &[&Diagnostic], app_dimensions: Dimensions) -> Self {
         let (text, styles) = diagnostics.iter().fold(
             (String::new(), Vec::new()),
             |(text, mut styles), diagnostic| {

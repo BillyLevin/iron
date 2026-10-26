@@ -1072,9 +1072,9 @@ impl Document {
         &self.lsp_id
     }
 
-    /// A list of diagnostic messages that are part of the current cursor line.
+    /// A list of diagnostics that are part of the current cursor line.
     /// Sorted by severity first and then position.
-    pub(crate) fn diagnostics_for_cursor_line(&self) -> Vec<DiagnosticMessage> {
+    pub(crate) fn diagnostics_for_cursor_line(&self) -> Vec<&Diagnostic> {
         self.diagnostics
             .on_line(self.text.slice(..).line_idx_containing_byte(self.cursor()))
             .sorted_by_key(|diagnostic| {
@@ -1083,7 +1083,6 @@ impl Document {
                     diagnostic.byte_range.start,
                 )
             })
-            .map(DiagnosticMessage::from)
             .collect()
     }
 }
@@ -1774,6 +1773,10 @@ impl Diagnostic {
         &self.message
     }
 
+    pub(crate) const fn severity(&self) -> DiagnosticSeverity {
+        self.severity
+    }
+
     const fn severity_priority(&self) -> u8 {
         match self.severity {
             DiagnosticSeverity::Hint => 0,
@@ -1790,31 +1793,6 @@ impl Diagnostic {
 struct DiagnosticSpan {
     range: Range<ByteIndex>,
     severity: DiagnosticSeverity,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct DiagnosticMessage {
-    message: String,
-    severity: DiagnosticSeverity,
-}
-
-impl DiagnosticMessage {
-    pub(crate) fn message(&self) -> &str {
-        &self.message
-    }
-
-    pub(crate) const fn severity(&self) -> DiagnosticSeverity {
-        self.severity
-    }
-}
-
-impl From<&Diagnostic> for DiagnosticMessage {
-    fn from(diagnostic: &Diagnostic) -> Self {
-        Self {
-            message: diagnostic.message().to_owned(),
-            severity: diagnostic.severity,
-        }
-    }
 }
 
 fn lsp_to_byte_range(
