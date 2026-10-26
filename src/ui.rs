@@ -199,7 +199,8 @@ impl Rectangle {
             offset: Position::new(
                 self.width().saturating_sub(dimensions.width),
                 self.height().saturating_sub(dimensions.height),
-            ),
+            )
+            .offset(self.offset()),
             dimensions,
         }
     }
@@ -226,7 +227,7 @@ impl Rectangle {
         let available_width = self.width() - dimensions.width();
 
         Self {
-            offset: Position::new(available_width / 2, available_height / 2),
+            offset: Position::new(available_width / 2, available_height / 2).offset(self.offset()),
             dimensions,
         }
     }
@@ -779,6 +780,26 @@ mod tests {
         );
         assert_eq!(rectangle.right(), Columns::new(80));
         assert_eq!(rectangle.bottom(), Rows::new(24));
+    }
+
+    #[test]
+    fn rectangle_bottom_right_offset() {
+        let _ = color_eyre::install();
+
+        let container =
+            Rectangle::from_dimensions(Dimensions::new(Columns::new(80), Rows::new(24)))
+                .with_offset(Position::new(Columns::new(10), Rows::new(5)));
+
+        let rectangle = container.at_bottom_right(Dimensions::new(Columns::new(10), Rows::new(10)));
+
+        assert_eq!(rectangle.offset().left(), Columns::new(80));
+        assert_eq!(rectangle.offset().top(), Rows::new(19));
+        assert_eq!(
+            rectangle.dimensions,
+            Dimensions::new(Columns::new(10), Rows::new(10))
+        );
+        assert_eq!(rectangle.right(), Columns::new(90));
+        assert_eq!(rectangle.bottom(), Rows::new(29));
     }
 }
 
