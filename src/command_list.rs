@@ -64,20 +64,9 @@ struct Command {
     action: fn() -> EditorAction,
 }
 
-#[derive(Debug)]
-struct EnumeratedCommand {
-    inner: (usize, &'static Command),
-}
-
-impl EnumeratedCommand {
-    const fn new(value: (usize, &'static Command)) -> Self {
-        Self { inner: value }
-    }
-}
-
-impl AsRef<str> for EnumeratedCommand {
+impl AsRef<str> for Command {
     fn as_ref(&self) -> &str {
-        self.inner.1.name
+        self.name
     }
 }
 
@@ -88,8 +77,8 @@ pub(crate) struct CommandList {
     /// The index of [`visible_commands`](Self::visible_commands) that is
     /// currently selected.
     selected_index: usize,
-    // List of indices into `COMMANDS` of the filtered commands.
-    visible_commands: Vec<usize>,
+    /// List of references to each [`Command`] still visible after filtering.
+    visible_commands: Vec<&'static Command>,
     matcher: Matcher,
     layout: Layout,
 }
@@ -131,8 +120,7 @@ impl CommandList {
                     .unwrap_or_else(|| self.visible_commands.len().saturating_sub(1));
             }
             CommandListAction::ExecuteCommand => {
-                if let Some(i) = self.visible_commands.get(self.selected_index) {
-                    let cmd = &COMMANDS[*i];
+                if let Some(cmd) = self.visible_commands.get(self.selected_index) {
                     context.push_action((cmd.action)());
                     context.push_action(EditorAction::RemoveLayer(LayerKind::CommandList));
                 }
@@ -201,19 +189,15 @@ impl Layer for CommandList {
             CaseMatching::Ignore,
             Normalization::Smart,
         )
-        .match_list(
-            COMMANDS.iter().enumerate().map(EnumeratedCommand::new),
-            &mut self.matcher,
-        )
+        .match_list(COMMANDS, &mut self.matcher)
         .iter()
-        .map(|&(ref cmd, _score)| cmd.inner.0)
+        .map(|&(cmd, _score)| cmd)
         .collect();
 
         buffer.render_lines(
             &self
                 .visible_commands
                 .iter()
-                .map(|i| &COMMANDS[*i])
                 .enumerate()
                 .map(|(i, cmd)| {
                     let span = if i == self.selected_index {
