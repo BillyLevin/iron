@@ -303,3 +303,38 @@ pub(crate) enum EditorAction {
     OpenFile(PathBuf),
     DocumentChanged(LspTextEdit),
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        assert_screen,
+        test_harness::TestHarness,
+        ui::{
+            Columns,
+            Dimensions,
+            Rows,
+        },
+    };
+
+    #[test]
+    fn displays_basic_screen() {
+        let mut harness = TestHarness::new(
+            "hello\nthere\nworld",
+            Dimensions::new(Columns::new(24), Rows::new(6)),
+        );
+
+        assert_screen!(
+            harness,
+            "
+        ┌─────▼──────────────────┐
+        ▶   1 hello              │
+        │   1 there              │
+        │   2 world              │
+        │                        │
+        │ NORMAL  test.txt  text │
+        │                        │
+        └────────────────────────┘
+    "
+        );
+    }
+}

@@ -16,5 +16,7 @@ pub mod language;
 pub mod lsp;
 pub mod style;
 pub mod terminal;
+#[cfg(test)]
+pub mod test_harness;
 pub mod text;
 pub mod ui;

@@ -37,6 +37,17 @@ impl JJPoller {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn disabled() -> Self {
+        let (worker_tx, _) = sync::mpsc::channel();
+        let (_, result_rx) = sync::mpsc::channel();
+
+        Self {
+            worker_tx,
+            result_rx,
+        }
+    }
+
     pub(crate) fn refresh(&self) -> Option<JJInfo> {
         if let Ok(mut info) = self.result_rx.try_recv() {
             while let Ok(latest) = self.result_rx.try_recv() {
