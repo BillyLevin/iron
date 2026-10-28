@@ -37,11 +37,13 @@ pub(crate) struct Editor {
 }
 
 impl Editor {
-    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> anyhow::Result<Self> {
-        let document = Document::new(file_path.clone(), dimensions)?;
-        let lsp = LspClient::new()
-            .inspect_err(|err| log::error!("failed to start LSP client: {err}"))
-            .ok();
+    pub(crate) fn new(
+        file_path: PathBuf,
+        dimensions: Dimensions,
+        lsp: Option<LspClient>,
+        jj_poller: JJPoller,
+    ) -> anyhow::Result<Self> {
+        let document = Document::new(file_path, dimensions)?;
 
         if let Some(ref client) = lsp {
             client.document_opened(document.lsp_snapshot());
@@ -52,7 +54,7 @@ impl Editor {
             layers: vec![],
             file_index: FileIndex::new(),
             dimensions,
-            jj_poller: JJPoller::new(file_path),
+            jj_poller,
             lsp,
         })
     }

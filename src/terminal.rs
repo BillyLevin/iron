@@ -25,6 +25,8 @@ use crate::{
         Editor,
         EventOutcome,
     },
+    jujutsu::JJPoller,
+    lsp::LspClient,
     style::StyleAttributes,
     ui::{
         AppEvent,
@@ -83,7 +85,11 @@ impl Terminal {
     }
 
     fn run_event_loop(&mut self, args: Args) -> anyhow::Result<()> {
-        let mut editor = Editor::new(args.file_path, self.buffer.dimensions())?;
+        let lsp = LspClient::new()
+            .inspect_err(|err| log::error!("failed to start LSP client: {err}"))
+            .ok();
+        let jj_poller = JJPoller::new(args.file_path.clone());
+        let mut editor = Editor::new(args.file_path, self.buffer.dimensions(), lsp, jj_poller)?;
         editor.render(&mut self.buffer);
         self.draw(editor.visual_cursor_position())?;
 
