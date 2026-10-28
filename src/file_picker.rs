@@ -57,10 +57,11 @@ use crate::{
 
 pub(crate) struct FileIndex {
     picker: SharedFilePicker,
+    root: PathBuf,
 }
 
 impl FileIndex {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(root: &Path) -> Self {
         let shared_picker = SharedFilePicker::default();
         let shared_frecency = SharedFrecency::noop();
 
@@ -68,7 +69,7 @@ impl FileIndex {
             shared_picker.clone(),
             shared_frecency,
             FilePickerOptions {
-                base_path: ".".into(),
+                base_path: root.to_string_lossy().to_string(),
                 mode: FFFMode::Neovim,
                 ..Default::default()
             },
@@ -76,6 +77,7 @@ impl FileIndex {
 
         Self {
             picker: shared_picker,
+            root: root.to_path_buf(),
         }
     }
 
@@ -86,6 +88,8 @@ impl FileIndex {
 
 pub(crate) struct FilePicker {
     picker: SharedFilePicker,
+    /// The root of the [`FileIndex`].
+    root: PathBuf,
     search_term: String,
     cursor_position: Option<Position>,
     files: Vec<RelativeFilePath>,
@@ -97,9 +101,10 @@ pub(crate) struct FilePicker {
 }
 
 impl FilePicker {
-    pub(crate) fn new(picker: SharedFilePicker, app_dimensions: Dimensions) -> Self {
+    pub(crate) fn new(file_index: &FileIndex, app_dimensions: Dimensions) -> Self {
         let mut this = Self {
-            picker,
+            picker: file_index.picker(),
+            root: file_index.root.clone(),
             search_term: String::new(),
             cursor_position: None,
             files: Vec::new(),
@@ -143,7 +148,7 @@ impl FilePicker {
                 if let Some(path) = self
                     .files
                     .get(self.selected_index)
-                    .map(|path| PathBuf::from(path.value.clone()))
+                    .map(|path| self.root.join(&path.value))
                 {
                     context.push_action(EditorAction::OpenFile(path));
                     context.push_action(EditorAction::RemoveLayer(LayerKind::FilePicker));
@@ -305,7 +310,7 @@ impl Layer for FilePicker {
                 .map_or_else(
                     || Ok(vec![Line::new(vec![Span::new("No file selected")])]),
                     |path| {
-                        File::open(&path.value)
+                        File::open(self.root.join(&path.value))
                             .map(BufReader::new)?
                             .lines()
                             .take(preview_panel.height().value())

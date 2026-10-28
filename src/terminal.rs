@@ -1,6 +1,7 @@
 use std::{
     io,
     panic,
+    path::Path,
     time::Duration,
 };
 
@@ -25,6 +26,7 @@ use crate::{
         Editor,
         EventOutcome,
     },
+    file_picker::FileIndex,
     jujutsu::JJPoller,
     lsp::LspClient,
     style::StyleAttributes,
@@ -89,7 +91,13 @@ impl Terminal {
             .inspect_err(|err| log::error!("failed to start LSP client: {err}"))
             .ok();
         let jj_poller = JJPoller::new(args.file_path.clone());
-        let mut editor = Editor::new(args.file_path, self.buffer.dimensions(), lsp, jj_poller)?;
+        let mut editor = Editor::new(
+            args.file_path,
+            self.buffer.dimensions(),
+            lsp,
+            jj_poller,
+            FileIndex::new(Path::new(".")),
+        )?;
         editor.render(&mut self.buffer);
         self.draw(editor.visual_cursor_position())?;
 

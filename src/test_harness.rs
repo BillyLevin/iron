@@ -16,6 +16,7 @@ use crate::{
         Editor,
         EventOutcome,
     },
+    file_picker::FileIndex,
     jujutsu::JJPoller,
     ui::{
         AppEvent,
@@ -40,7 +41,14 @@ impl TestHarness {
         let file_path = dir.path().join(FILE_NAME);
         fs::write(&file_path, contents).unwrap();
 
-        let editor = Editor::new(file_path, dimensions, None, JJPoller::disabled()).unwrap();
+        let editor = Editor::new(
+            file_path,
+            dimensions,
+            None,
+            JJPoller::disabled(),
+            FileIndex::new(dir.path()),
+        )
+        .unwrap();
 
         Self {
             editor,

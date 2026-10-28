@@ -42,6 +42,7 @@ impl Editor {
         dimensions: Dimensions,
         lsp: Option<LspClient>,
         jj_poller: JJPoller,
+        file_index: FileIndex,
     ) -> anyhow::Result<Self> {
         let document = Document::new(file_path, dimensions)?;
 
@@ -52,7 +53,7 @@ impl Editor {
         Ok(Self {
             document,
             layers: vec![],
-            file_index: FileIndex::new(),
+            file_index,
             dimensions,
             jj_poller,
             lsp,
@@ -170,10 +171,8 @@ impl Editor {
                                 .push(Box::new(CommandList::new(self.dimensions)));
                         }
                         LayerKind::FilePicker => {
-                            self.layers.push(Box::new(FilePicker::new(
-                                self.file_index.picker(),
-                                self.dimensions,
-                            )));
+                            self.layers
+                                .push(Box::new(FilePicker::new(&self.file_index, self.dimensions)));
                         }
                         LayerKind::DiagnosticList => {
                             let diagnostics = self.document.diagnostics_for_cursor_line();
