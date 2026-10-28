@@ -4,13 +4,21 @@ use std::{
     iter,
 };
 
+use crossterm::event::{
+    Event,
+    KeyEvent,
+};
 use tempfile::TempDir;
 
 use crate::{
     buffer::Buffer,
-    editor::Editor,
+    editor::{
+        Editor,
+        EventOutcome,
+    },
     jujutsu::JJPoller,
     ui::{
+        AppEvent,
         Columns,
         Dimensions,
         Position,
@@ -39,6 +47,11 @@ impl TestHarness {
             buffer: Buffer::new(dimensions),
             _dir: dir,
         }
+    }
+
+    pub(crate) fn send_key(&mut self, key: impl Into<KeyEvent>) -> EventOutcome {
+        self.editor
+            .handle_event(&AppEvent::from(Event::Key(key.into())))
     }
 
     pub(crate) fn screen(&mut self) -> Screen {

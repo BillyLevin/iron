@@ -306,8 +306,13 @@ pub(crate) enum EditorAction {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
+    use crossterm::event::KeyCode;
+
     use crate::{
         assert_screen,
+        editor::EventOutcome,
         test_harness::TestHarness,
         ui::{
             Columns,
@@ -332,6 +337,52 @@ mod tests {
         │   2 world              │
         │                        │
         │ NORMAL  test.txt  text │
+        │                        │
+        └────────────────────────┘
+    "
+        );
+    }
+
+    #[test]
+    fn moves_cursor_and_inserts_text() {
+        let mut harness = TestHarness::new(
+            "hello\nthere\nworld",
+            Dimensions::new(Columns::new(24), Rows::new(6)),
+        );
+
+        assert_screen!(
+            harness,
+            "
+        ┌─────▼──────────────────┐
+        ▶   1 hello              │
+        │   1 there              │
+        │   2 world              │
+        │                        │
+        │ NORMAL  test.txt  text │
+        │                        │
+        └────────────────────────┘
+    "
+        );
+
+        // navigate
+        assert_matches!(harness.send_key(KeyCode::Char('j')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('l')), EventOutcome::Handled);
+
+        // enter text
+        assert_matches!(harness.send_key(KeyCode::Char('i')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('h')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('e')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('y')), EventOutcome::Handled);
+
+        assert_screen!(
+            harness,
+            "
+        ┌─────────▼──────────────┐
+        │   1 hello              │
+        ▶   2 theyhere           │
+        │   1 world              │
+        │                        │
+        │ INSERT  test.txt  text │
         │                        │
         └────────────────────────┘
     "
