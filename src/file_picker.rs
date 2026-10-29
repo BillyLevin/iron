@@ -433,12 +433,9 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
-
     use crossterm::event::KeyCode;
 
     use crate::{
-        editor::EventOutcome,
         test_harness::TestHarness,
         ui::{
             Columns,
@@ -459,8 +456,8 @@ mod tests {
             ],
         );
 
-        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+        harness.send_key(KeyCode::Char(' '));
+        harness.send_key(KeyCode::Char('p'));
 
         insta::assert_snapshot!(
             harness.screen().to_string(),
@@ -495,10 +492,11 @@ mod tests {
             ],
         );
 
-        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+        harness.send_key(KeyCode::Char(' '));
+        harness.send_key(KeyCode::Char('p'));
 
-        assert_matches!(harness.send_key(KeyCode::Down), EventOutcome::Handled);
+        harness.send_key(KeyCode::Down);
+
         insta::assert_snapshot!(
             harness.screen().to_string(),
             @"
@@ -520,8 +518,8 @@ mod tests {
         );
 
         // wraps around from top to bottom
-        assert_matches!(harness.send_key(KeyCode::Up), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Up), EventOutcome::Handled);
+        harness.send_key(KeyCode::Up);
+        harness.send_key(KeyCode::Up);
 
         insta::assert_snapshot!(
             harness.screen().to_string(),
@@ -556,13 +554,13 @@ mod tests {
             ],
         );
 
-        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+        harness.send_key(KeyCode::Char(' '));
+        harness.send_key(KeyCode::Char('p'));
 
         let search_term = "cargo";
 
         for ch in search_term.chars() {
-            assert_matches!(harness.send_key(KeyCode::Char(ch)), EventOutcome::Handled);
+            harness.send_key(KeyCode::Char(ch));
         }
 
         insta::assert_snapshot!(
@@ -586,7 +584,7 @@ mod tests {
         );
 
         for _ in 0..search_term.chars().count() {
-            assert_matches!(harness.send_key(KeyCode::Backspace), EventOutcome::Handled);
+            harness.send_key(KeyCode::Backspace);
         }
 
         insta::assert_snapshot!(
@@ -622,11 +620,11 @@ mod tests {
             ],
         );
 
-        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+        harness.send_key(KeyCode::Char(' '));
+        harness.send_key(KeyCode::Char('p'));
 
-        assert_matches!(harness.send_key(KeyCode::Down), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Enter), EventOutcome::Handled);
+        harness.send_key(KeyCode::Down);
+        harness.send_key(KeyCode::Enter);
 
         insta::assert_snapshot!(
             harness.screen().to_string(),

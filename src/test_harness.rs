@@ -36,6 +36,8 @@ const FILE_NAME: &str = "test.txt";
 pub(crate) struct TestHarness {
     editor: Editor,
     buffer: Buffer,
+    is_closed: bool,
+
     /// Stored to keep the temp dir alive.
     _dir: TempDir,
 }
@@ -70,11 +72,15 @@ impl TestHarness {
             );
         }
 
-        Self {
+        let mut this = Self {
             editor: Self::create_editor(&dir, dimensions),
             buffer: Buffer::new(dimensions),
+            is_closed: false,
             _dir: dir,
-        }
+        };
+
+        this.render();
+        this
     }
 
     fn create_editor(dir: &TempDir, dimensions: Dimensions) -> Editor {
@@ -94,15 +100,28 @@ impl TestHarness {
         .unwrap()
     }
 
-    pub(crate) fn send_key(&mut self, key: impl Into<KeyEvent>) -> EventOutcome {
-        self.editor
+    pub(crate) fn send_key(&mut self, key: impl Into<KeyEvent>) {
+        assert!(
+            !self.is_closed,
+            "no more keys should be sent once the editor is closed"
+        );
+
+        match self
+            .editor
             .handle_event(&AppEvent::from(Event::Key(key.into())))
+        {
+            EventOutcome::Handled => self.render(),
+            EventOutcome::Unhandled => {}
+            EventOutcome::CloseApp => self.is_closed = true,
+        }
     }
 
-    pub(crate) fn screen(&mut self) -> Screen {
+    fn render(&mut self) {
         self.buffer.clear();
         self.editor.render(&mut self.buffer);
+    }
 
+    pub(crate) fn screen(&self) -> Screen {
         let width = self.buffer.dimensions().width().value();
 
         let rows = self

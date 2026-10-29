@@ -305,12 +305,10 @@ pub(crate) enum EditorAction {
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
 
     use crossterm::event::KeyCode;
 
     use crate::{
-        editor::EventOutcome,
         test_harness::TestHarness,
         ui::{
             Columns,
@@ -321,7 +319,7 @@ mod tests {
 
     #[test]
     fn displays_basic_screen() {
-        let mut harness = TestHarness::new(
+        let harness = TestHarness::new(
             "hello\nthere\nworld",
             Dimensions::new(Columns::new(24), Rows::new(6)),
         );
@@ -363,14 +361,14 @@ mod tests {
         );
 
         // navigate
-        assert_matches!(harness.send_key(KeyCode::Char('j')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('l')), EventOutcome::Handled);
+        harness.send_key(KeyCode::Char('j'));
+        harness.send_key(KeyCode::Char('l'));
 
         // enter text
-        assert_matches!(harness.send_key(KeyCode::Char('i')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('h')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('e')), EventOutcome::Handled);
-        assert_matches!(harness.send_key(KeyCode::Char('y')), EventOutcome::Handled);
+        harness.send_key(KeyCode::Char('i'));
+        harness.send_key(KeyCode::Char('h'));
+        harness.send_key(KeyCode::Char('e'));
+        harness.send_key(KeyCode::Char('y'));
 
         insta::assert_snapshot!(
             harness.screen().to_string(),
