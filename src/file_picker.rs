@@ -430,3 +430,222 @@ impl Layout {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::assert_matches;
+
+    use crossterm::event::KeyCode;
+
+    use crate::{
+        editor::EventOutcome,
+        test_harness::TestHarness,
+        ui::{
+            Columns,
+            Dimensions,
+            Rows,
+        },
+    };
+
+    #[test]
+    fn file_picker_opens() {
+        let mut harness = TestHarness::with_files(
+            "hello\nthere\nworld",
+            Dimensions::new(Columns::new(46), Rows::new(12)),
+            [
+                ("main.rs", "fn main() {}"),
+                ("README.md", "# hello"),
+                ("Cargo.toml", "[package]\nname = \"iron\""),
+            ],
+        );
+
+        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
+        ┌──────▼───────────────────────────────────────┐
+        │   1 hello                                    │
+        │   1 ┌──────────────────────────────────┐     │
+        ▶   2 │                                  │     │
+        │     └──────────────────────────────────┘     │
+        │     ┌────────────────┐┌────────────────┐     │
+        │     │main.rs         ││fn main() {}    │     │
+        │     │README.md       ││                │     │
+        │     │Cargo.toml      ││                │     │
+        │     │test.txt        ││                │     │
+        │     └────────────────┘└────────────────┘     │
+        │ NORMAL  test.txt                        text │
+        │                                              │
+        └──────────────────────────────────────────────┘
+        "
+        );
+    }
+
+    #[test]
+    fn file_picker_navigates_with_arrows() {
+        let mut harness = TestHarness::with_files(
+            "hello\nthere\nworld",
+            Dimensions::new(Columns::new(46), Rows::new(12)),
+            [
+                ("main.rs", "fn main() {}"),
+                ("README.md", "# hello"),
+                ("Cargo.toml", "[package]\nname = \"iron\""),
+            ],
+        );
+
+        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+
+        assert_matches!(harness.send_key(KeyCode::Down), EventOutcome::Handled);
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
+        ┌──────▼───────────────────────────────────────┐
+        │   1 hello                                    │
+        │   1 ┌──────────────────────────────────┐     │
+        ▶   2 │                                  │     │
+        │     └──────────────────────────────────┘     │
+        │     ┌────────────────┐┌────────────────┐     │
+        │     │main.rs         ││# hello         │     │
+        │     │README.md       ││                │     │
+        │     │Cargo.toml      ││                │     │
+        │     │test.txt        ││                │     │
+        │     └────────────────┘└────────────────┘     │
+        │ NORMAL  test.txt                        text │
+        │                                              │
+        └──────────────────────────────────────────────┘
+        "
+        );
+
+        // wraps around from top to bottom
+        assert_matches!(harness.send_key(KeyCode::Up), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Up), EventOutcome::Handled);
+
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
+        ┌──────▼───────────────────────────────────────┐
+        │   1 hello                                    │
+        │   1 ┌──────────────────────────────────┐     │
+        ▶   2 │                                  │     │
+        │     └──────────────────────────────────┘     │
+        │     ┌────────────────┐┌────────────────┐     │
+        │     │main.rs         ││hello           │     │
+        │     │README.md       ││there           │     │
+        │     │Cargo.toml      ││world           │     │
+        │     │test.txt        ││                │     │
+        │     └────────────────┘└────────────────┘     │
+        │ NORMAL  test.txt                        text │
+        │                                              │
+        └──────────────────────────────────────────────┘
+        "
+        );
+    }
+
+    #[test]
+    fn file_picker_filters_on_search() {
+        let mut harness = TestHarness::with_files(
+            "hello\nthere\nworld",
+            Dimensions::new(Columns::new(46), Rows::new(12)),
+            [
+                ("main.rs", "fn main() {}"),
+                ("README.md", "# hello"),
+                ("Cargo.toml", "[package]\nname = \"iron\""),
+            ],
+        );
+
+        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+
+        let search_term = "cargo";
+
+        for ch in search_term.chars() {
+            assert_matches!(harness.send_key(KeyCode::Char(ch)), EventOutcome::Handled);
+        }
+
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @r#"
+        ┌───────────▼──────────────────────────────────┐
+        │   1 hello                                    │
+        │   1 ┌──────────────────────────────────┐     │
+        ▶   2 │cargo                             │     │
+        │     └──────────────────────────────────┘     │
+        │     ┌────────────────┐┌────────────────┐     │
+        │     │Cargo.toml      ││[package]       │     │
+        │     │                ││name = "iron"   │     │
+        │     │                ││                │     │
+        │     │                ││                │     │
+        │     └────────────────┘└────────────────┘     │
+        │ NORMAL  test.txt                        text │
+        │                                              │
+        └──────────────────────────────────────────────┘
+        "#
+        );
+
+        for _ in 0..search_term.chars().count() {
+            assert_matches!(harness.send_key(KeyCode::Backspace), EventOutcome::Handled);
+        }
+
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
+        ┌──────▼───────────────────────────────────────┐
+        │   1 hello                                    │
+        │   1 ┌──────────────────────────────────┐     │
+        ▶   2 │                                  │     │
+        │     └──────────────────────────────────┘     │
+        │     ┌────────────────┐┌────────────────┐     │
+        │     │main.rs         ││fn main() {}    │     │
+        │     │README.md       ││                │     │
+        │     │Cargo.toml      ││                │     │
+        │     │test.txt        ││                │     │
+        │     └────────────────┘└────────────────┘     │
+        │ NORMAL  test.txt                        text │
+        │                                              │
+        └──────────────────────────────────────────────┘
+        "
+        );
+    }
+
+    #[test]
+    fn file_picker_opens_files() {
+        let mut harness = TestHarness::with_files(
+            "hello\nthere\nworld",
+            Dimensions::new(Columns::new(46), Rows::new(12)),
+            [
+                ("main.rs", "fn main() {}"),
+                ("README.md", "# hello\nthis is some markdown"),
+                ("Cargo.toml", "[package]\nname = \"iron\""),
+            ],
+        );
+
+        assert_matches!(harness.send_key(KeyCode::Char(' ')), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Char('p')), EventOutcome::Handled);
+
+        assert_matches!(harness.send_key(KeyCode::Down), EventOutcome::Handled);
+        assert_matches!(harness.send_key(KeyCode::Enter), EventOutcome::Handled);
+
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
+        ┌─────▼────────────────────────────────────────┐
+        ▶   1 # hello                                  │
+        │   1 this is some markdown                    │
+        │                                              │
+        │                                              │
+        │                                              │
+        │                                              │
+        │                                              │
+        │                                              │
+        │                                              │
+        │                                              │
+        │ NORMAL  README.md                       text │
+        │                                              │
+        └──────────────────────────────────────────────┘
+        "
+        );
+    }
+}

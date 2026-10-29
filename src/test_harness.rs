@@ -2,6 +2,11 @@ use std::{
     fmt,
     fs,
     iter,
+    path::Path,
+    time::{
+        Duration,
+        SystemTime,
+    },
 };
 
 use crossterm::event::{
@@ -37,24 +42,56 @@ pub(crate) struct TestHarness {
 
 impl TestHarness {
     pub(crate) fn new(contents: &str, dimensions: Dimensions) -> Self {
-        let dir = TempDir::new().unwrap();
-        let file_path = dir.path().join(FILE_NAME);
-        fs::write(&file_path, contents).unwrap();
+        Self::with_files(contents, dimensions, iter::empty())
+    }
 
-        let editor = Editor::new(
-            file_path,
-            dimensions,
-            None,
-            JJPoller::disabled(),
-            FileIndex::new(dir.path()),
-        )
-        .unwrap();
+    /// Create a temporary directory with at least one file (with `contents`),
+    /// plus optionally other `files` too.
+    pub(crate) fn with_files<'file>(
+        contents: &str,
+        dimensions: Dimensions,
+        files: impl IntoIterator<Item = (&'file str, &'file str)>,
+    ) -> Self {
+        let dir = TempDir::new().unwrap();
+
+        create_file(
+            &dir.path().join(FILE_NAME),
+            contents,
+            SystemTime::UNIX_EPOCH,
+        );
+
+        let files: Vec<_> = files.into_iter().collect();
+
+        for (seconds, (name, file_contents)) in (1..=files.len()).rev().zip(files) {
+            create_file(
+                &dir.path().join(name),
+                file_contents,
+                SystemTime::UNIX_EPOCH + Duration::from_secs(seconds as u64),
+            );
+        }
 
         Self {
-            editor,
+            editor: Self::create_editor(&dir, dimensions),
             buffer: Buffer::new(dimensions),
             _dir: dir,
         }
+    }
+
+    fn create_editor(dir: &TempDir, dimensions: Dimensions) -> Editor {
+        let file_index = FileIndex::new(dir.path());
+        assert!(
+            file_index.picker().wait_for_scan(Duration::from_secs(5)),
+            "file index scan timed out"
+        );
+
+        Editor::new(
+            dir.path().join(FILE_NAME),
+            dimensions,
+            None,
+            JJPoller::disabled(),
+            file_index,
+        )
+        .unwrap()
     }
 
     pub(crate) fn send_key(&mut self, key: impl Into<KeyEvent>) -> EventOutcome {
@@ -88,6 +125,19 @@ impl TestHarness {
             cursor: self.editor.visual_cursor_position(),
         }
     }
+}
+
+/// Creates and writes to a file. Also sets the given `modified` time because
+/// FFF orders items with the same search score based on their modified time, so
+/// this allows us to make this deterministic for tests.
+fn create_file(path: &Path, contents: &str, modified: SystemTime) {
+    fs::write(path, contents).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
 }
 
 /// Representation of the rendered [`Editor`]. Does not have style information.
