@@ -121,6 +121,10 @@ impl TestHarness {
         self.editor.render(&mut self.buffer);
     }
 
+    pub(crate) const fn is_closed(&self) -> bool {
+        self.is_closed
+    }
+
     pub(crate) fn screen(&self) -> Screen {
         let width = self.buffer.dimensions().width().value();
 
