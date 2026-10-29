@@ -111,21 +111,3 @@ impl fmt::Display for Screen {
         write!(f, "└{}┘", "─".repeat(width))
     }
 }
-
-#[macro_export]
-macro_rules! assert_screen {
-    ($harness:expr, $expected:expr $(,)?) => {{
-        let actual = $harness.screen().to_string();
-        let expected = $expected
-            .lines()
-            .map(str::trim_start)
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(
-            actual == expected,
-            "screen did not match\n\nexpected:\n{expected}\n\nactual:\n{actual}\n"
-        );
-    }};
-}

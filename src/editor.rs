@@ -311,7 +311,6 @@ mod tests {
     use crossterm::event::KeyCode;
 
     use crate::{
-        assert_screen,
         editor::EventOutcome,
         test_harness::TestHarness,
         ui::{
@@ -328,9 +327,9 @@ mod tests {
             Dimensions::new(Columns::new(24), Rows::new(6)),
         );
 
-        assert_screen!(
-            harness,
-            "
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
         ┌─────▼──────────────────┐
         ▶   1 hello              │
         │   1 there              │
@@ -350,9 +349,9 @@ mod tests {
             Dimensions::new(Columns::new(24), Rows::new(6)),
         );
 
-        assert_screen!(
-            harness,
-            "
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
         ┌─────▼──────────────────┐
         ▶   1 hello              │
         │   1 there              │
@@ -374,9 +373,9 @@ mod tests {
         assert_matches!(harness.send_key(KeyCode::Char('e')), EventOutcome::Handled);
         assert_matches!(harness.send_key(KeyCode::Char('y')), EventOutcome::Handled);
 
-        assert_screen!(
-            harness,
-            "
+        insta::assert_snapshot!(
+            harness.screen().to_string(),
+            @"
         ┌─────────▼──────────────┐
         │   1 hello              │
         ▶   2 theyhere           │

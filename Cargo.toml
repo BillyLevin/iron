@@ -79,4 +79,5 @@ unwrap_used = "allow"
 [dev-dependencies]
 color-eyre = "0.6.5"
 hegeltest = "0.47.4"
+insta = "1.49.0"
 tempfile = "3.27.0"
