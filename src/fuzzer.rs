@@ -14,6 +14,7 @@ use crate::{
     ui::{
         Columns,
         Dimensions,
+        Rectangle,
         Rows,
     },
 };
@@ -61,6 +62,18 @@ impl Fuzzer {
         );
 
         self.harness.send_key(KeyEvent::new(code, modifiers));
+    }
+
+    #[invariant]
+    fn cursor_always_on_screen(&self, _test_case: TestCase) {
+        let screen = self.harness.screen();
+        let cursor = screen.cursor();
+        let dimensions = screen.dimensions();
+
+        assert!(
+            Rectangle::from_dimensions(dimensions).contains(&cursor),
+            "cursor at {cursor:?} is outside the screen ({dimensions:?})"
+        );
     }
 }
 

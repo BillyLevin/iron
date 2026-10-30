@@ -28,6 +28,7 @@ use crate::{
         Columns,
         Dimensions,
         Position,
+        Rows,
     },
 };
 
@@ -171,6 +172,16 @@ pub(crate) struct Screen {
     rows: Vec<String>,
     width: Columns,
     cursor: Position,
+}
+
+impl Screen {
+    pub(crate) const fn cursor(&self) -> Position {
+        self.cursor
+    }
+
+    pub(crate) const fn dimensions(&self) -> Dimensions {
+        Dimensions::new(self.width, Rows::new(self.rows.len()))
+    }
 }
 
 impl fmt::Display for Screen {
