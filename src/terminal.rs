@@ -205,7 +205,7 @@ pub(crate) fn draw(
 
         crossterm::queue!(out, style::Print(cell.content()))?;
 
-        buffer_index += cell.width().value();
+        buffer_index += cell.width().get().value();
     }
 
     crossterm::queue!(

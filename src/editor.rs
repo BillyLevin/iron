@@ -384,4 +384,30 @@ mod tests {
     "
         );
     }
+
+    #[test]
+    #[expect(
+        clippy::unicode_not_nfc,
+        reason = "it's the point of the test that it displays correctly, so i want to see it"
+    )]
+    fn zero_width_graphemes_display_as_dotted_circle() {
+        let mut harness = TestHarness::new(
+            "\u{301}x\n\u{200B}\na\u{200B}\na\u{301}",
+            Dimensions::new(Columns::new(24), Rows::new(6)),
+        );
+
+        harness.send_key(KeyCode::Char('w'));
+        harness.send_key(KeyCode::Char('w'));
+
+        insta::assert_snapshot!(harness.screen().to_string(), @"
+        ┌─────▼──────────────────┐
+        │   1 ◌x                 │
+        ▶   2 ◌                  │
+        │   1 a◌                 │
+        │   2 á                  │
+        │ NORMAL  test.txt  text │
+        │                        │
+        └────────────────────────┘
+        ");
+    }
 }

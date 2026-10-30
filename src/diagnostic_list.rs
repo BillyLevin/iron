@@ -177,7 +177,7 @@ impl Layer for DiagnosticList {
                 .map_or_else(Style::new, |entry| entry.style);
 
             buffer[grapheme.position().offset(self.layout.text.area().offset())]
-                .set_content(grapheme.grapheme().as_str())
+                .set_content(grapheme.grapheme().display())
                 .set_style(style);
         }
     }

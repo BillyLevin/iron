@@ -49,6 +49,7 @@ use ropey::{
     RopeSlice,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_width::UnicodeWidthStr as _;
 use url::Url;
 
 use crate::{
@@ -303,7 +304,7 @@ impl Document {
             }
 
             buffer[visual_grapheme.position().offset(hints_rectangle.offset())]
-                .set_content(visual_grapheme.grapheme().as_str());
+                .set_content(visual_grapheme.grapheme().display());
         }
     }
 
@@ -1163,7 +1164,7 @@ impl Layer for Document {
                 );
 
             buffer[translated_position]
-                .set_content(grapheme.as_str())
+                .set_content(grapheme.display())
                 .set_style(style);
 
             if matches!(self.mode(), Mode::Visual)
@@ -1362,6 +1363,7 @@ impl GutterRenderer<'_> {
 pub(crate) enum Grapheme<'grapheme> {
     LineBreak,
     Tab,
+    ZeroWidth,
     Text(&'grapheme str),
 }
 
@@ -1375,12 +1377,17 @@ const fn tab_str() -> &'static str {
 impl Grapheme<'_> {
     const TAB_STR: &'static str = tab_str();
 
-    pub(crate) const fn as_str(&self) -> &str {
+    pub(crate) const fn display(&self) -> &str {
         match *self {
             Grapheme::LineBreak => " ",
             Grapheme::Tab => Self::TAB_STR,
+            Grapheme::ZeroWidth => "\u{25cc}",
             Grapheme::Text(text) => text,
         }
+    }
+
+    pub(crate) fn width(&self) -> Columns {
+        Columns::new(self.display().width())
     }
 }
 
@@ -1389,6 +1396,7 @@ impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
         match value {
             "\n" | "\r\n" => Self::LineBreak,
             "\t" => Self::Tab,
+            _ if value.width() == 0 => Self::ZeroWidth,
             _ => Self::Text(value),
         }
     }

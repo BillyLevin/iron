@@ -21,10 +21,7 @@ use crate::{
         EventOutcome,
     },
     style::Style,
-    text::{
-        TAB_VISUAL_WIDTH,
-        text_width,
-    },
+    text::text_width,
 };
 
 /// A visual layer in the UI. The app can have multiple layers that are
@@ -531,15 +528,9 @@ impl Position {
                     top: self.top + Rows::new(1),
                 }
             }
-            Grapheme::Text(text) => {
+            Grapheme::Tab | Grapheme::Text(_) | Grapheme::ZeroWidth => {
                 Self {
-                    left: self.left + text_width(text),
-                    top: self.top,
-                }
-            }
-            Grapheme::Tab => {
-                Self {
-                    left: self.left + TAB_VISUAL_WIDTH,
+                    left: self.left + grapheme.width(),
                     top: self.top,
                 }
             }
@@ -552,7 +543,7 @@ impl Position {
         grapheme: &Grapheme,
         max_width: NonZeroColumns,
     ) -> (Self, WrapOutcome) {
-        if self.left() + text_width(grapheme.as_str()) <= max_width.get() {
+        if self.left() + grapheme.width() <= max_width.get() {
             (*self, WrapOutcome::NotWrapped)
         } else {
             (

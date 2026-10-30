@@ -188,19 +188,17 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
         let mut column = Columns::new(0);
         let mut byte_index = ByteIndex::new(0);
 
-        for grapheme in self.graphemes().map(Grapheme::from) {
+        for raw in self.graphemes() {
             if column >= target_column {
                 break;
             }
 
+            let grapheme = Grapheme::from(raw);
+
             match grapheme {
                 Grapheme::LineBreak => break,
-                Grapheme::Tab => {
-                    column += TAB_VISUAL_WIDTH;
-                    byte_index += '\t'.len_utf8();
-                }
-                Grapheme::Text(raw) => {
-                    column += text_width(raw);
+                Grapheme::Tab | Grapheme::ZeroWidth | Grapheme::Text(_) => {
+                    column += grapheme.width();
                     byte_index += raw.len();
                 }
             }
@@ -562,16 +560,10 @@ pub(crate) struct LineBreakOutcome {
 
 pub(crate) const TAB_VISUAL_WIDTH: Columns = Columns::new(4);
 
-/// Wrapper around [`unicode_width::UnicodeWidthStr`] that treats tabs as the
-/// width that we display them as.
+/// Display width of the given text.
 pub(crate) fn text_width(text: &str) -> Columns {
     text.graphemes(true)
-        .map(|grapheme| {
-            match grapheme {
-                "\t" => TAB_VISUAL_WIDTH,
-                g => Columns::new(unicode_width::UnicodeWidthStr::width(g)),
-            }
-        })
+        .map(|grapheme| Grapheme::from(grapheme).width())
         .sum()
 }
 

@@ -5,6 +5,7 @@ use std::{
 
 use crossterm::style::Color;
 use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     grapheme_layout::{
@@ -15,13 +16,13 @@ use crate::{
         Style,
         StyleAttributes,
     },
-    text::text_width,
     ui::{
         Alignment,
         Columns,
         Dimensions,
         Line,
         MaybeBordered,
+        NonZeroColumns,
         Position,
         Rectangle,
         Rows,
@@ -168,7 +169,7 @@ impl Buffer {
 
             let cell = &mut self[current_position];
 
-            cell.set_content(grapheme.grapheme().as_str());
+            cell.set_content(grapheme.grapheme().display());
             cell.set_style(span.style());
 
             end_position = grapheme.end_position();
@@ -210,6 +211,7 @@ impl ops::IndexMut<Position> for Buffer {
 #[derive(Debug, Clone)]
 pub(crate) struct Cell {
     content: String,
+    width: NonZeroColumns,
     foreground: Color,
     background: Color,
     underline_color: Color,
@@ -217,9 +219,10 @@ pub(crate) struct Cell {
 }
 
 impl Cell {
-    pub(crate) fn new(content: &str) -> Self {
+    fn empty() -> Self {
         Self {
-            content: String::from(content),
+            content: " ".to_owned(),
+            width: NonZeroColumns::new(Columns::new(1)).expect("1 is more than 0"),
             foreground: Color::Reset,
             background: Color::Reset,
             underline_color: Color::Reset,
@@ -248,8 +251,14 @@ impl Cell {
     }
 
     pub(crate) fn set_content(&mut self, text: &str) -> &mut Self {
+        // TODO: instead of manually maintaining the invariant that `text` has a
+        // nonempty width, we should use a newtype for this.
+        let width =
+            NonZeroColumns::new(Columns::new(text.width())).expect("text must not be zero-width");
+
         self.content.clear();
         self.content.push_str(text);
+        self.width = width;
         self
     }
 
@@ -271,8 +280,8 @@ impl Cell {
         self
     }
 
-    pub(crate) fn width(&self) -> Columns {
-        text_width(&self.content)
+    pub(crate) const fn width(&self) -> NonZeroColumns {
+        self.width
     }
 
     pub(crate) fn reset(&mut self) -> &mut Self {
@@ -283,7 +292,7 @@ impl Cell {
 
 impl Default for Cell {
     fn default() -> Self {
-        Self::new(" ")
+        Self::empty()
     }
 }
 
@@ -336,7 +345,7 @@ mod tests {
 
                     while cell_index < cells.len() {
                         let cell = &cells[cell_index];
-                        let cell_width = cell.width().value();
+                        let cell_width = cell.width().get().value();
 
                         assert!(cell_width > 0, "buffer cells must have a non-zero width");
 

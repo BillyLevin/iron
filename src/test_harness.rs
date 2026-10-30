@@ -145,7 +145,7 @@ impl TestHarness {
             .chunks(width)
             .map(|cells| {
                 iter::successors(cells.first().map(|cell| (0, cell)), |&(index, cell)| {
-                    let next = index + cell.width().value();
+                    let next = index + cell.width().get().value();
                     cells.get(next).map(|next_cell| (next, next_cell))
                 })
                 .map(|(_, cell)| cell.content())
