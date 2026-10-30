@@ -150,69 +150,76 @@ impl Terminal {
     }
 
     fn draw(&mut self, cursor_position: Position) -> io::Result<()> {
-        crossterm::execute!(self.out, BeginSynchronizedUpdate)?;
+        draw(&mut self.out, &self.buffer, cursor_position)
+    }
+}
 
-        crossterm::queue!(self.out, crossterm::cursor::MoveTo(0, 0))?;
+pub(crate) fn draw(
+    out: &mut impl io::Write,
+    buffer: &Buffer,
+    cursor_position: Position,
+) -> io::Result<()> {
+    crossterm::execute!(out, BeginSynchronizedUpdate)?;
 
-        let cells = self.buffer.cells();
-        let mut buffer_index = 0;
+    crossterm::queue!(out, crossterm::cursor::MoveTo(0, 0))?;
 
-        let mut fg = Color::Reset;
-        let mut bg = Color::Reset;
-        let mut underline_color = Color::Reset;
-        let mut attributes = StyleAttributes::empty();
+    let cells = buffer.cells();
+    let mut buffer_index = 0;
 
-        while buffer_index < cells.len() {
-            let cell = &cells[buffer_index];
+    let mut fg = Color::Reset;
+    let mut bg = Color::Reset;
+    let mut underline_color = Color::Reset;
+    let mut attributes = StyleAttributes::empty();
 
-            if let new_fg = cell.foreground()
-                && new_fg != fg
-            {
-                fg = new_fg;
-                crossterm::queue!(self.out, style::SetForegroundColor(fg))?;
-            }
+    while buffer_index < cells.len() {
+        let cell = &cells[buffer_index];
 
-            if let new_bg = cell.background()
-                && new_bg != bg
-            {
-                bg = new_bg;
-                crossterm::queue!(self.out, style::SetBackgroundColor(bg))?;
-            }
-
-            if let new_underline_color = cell.underline_color()
-                && new_underline_color != underline_color
-            {
-                underline_color = new_underline_color;
-                crossterm::queue!(self.out, style::SetUnderlineColor(underline_color))?;
-            }
-
-            if let new_attributes = cell.attributes()
-                && new_attributes != attributes
-            {
-                let diff = attributes_diff(attributes, new_attributes);
-                attributes = new_attributes;
-                crossterm::queue!(self.out, style::SetAttributes(diff))?;
-            }
-
-            crossterm::queue!(self.out, style::Print(cell.content()))?;
-
-            buffer_index += cell.width().value();
+        if let new_fg = cell.foreground()
+            && new_fg != fg
+        {
+            fg = new_fg;
+            crossterm::queue!(out, style::SetForegroundColor(fg))?;
         }
 
-        crossterm::queue!(
-            self.out,
-            crossterm::cursor::MoveTo(
-                u16::try_from(cursor_position.left().value())
-                    .expect("cursor column should be <= u16::MAX"),
-                u16::try_from(cursor_position.top().value())
-                    .expect("cursor row should be <= u16::MAX"),
-            ),
-        )?;
+        if let new_bg = cell.background()
+            && new_bg != bg
+        {
+            bg = new_bg;
+            crossterm::queue!(out, style::SetBackgroundColor(bg))?;
+        }
 
-        crossterm::execute!(self.out, EndSynchronizedUpdate)?;
+        if let new_underline_color = cell.underline_color()
+            && new_underline_color != underline_color
+        {
+            underline_color = new_underline_color;
+            crossterm::queue!(out, style::SetUnderlineColor(underline_color))?;
+        }
 
-        Ok(())
+        if let new_attributes = cell.attributes()
+            && new_attributes != attributes
+        {
+            let diff = attributes_diff(attributes, new_attributes);
+            attributes = new_attributes;
+            crossterm::queue!(out, style::SetAttributes(diff))?;
+        }
+
+        crossterm::queue!(out, style::Print(cell.content()))?;
+
+        buffer_index += cell.width().value();
     }
+
+    crossterm::queue!(
+        out,
+        crossterm::cursor::MoveTo(
+            u16::try_from(cursor_position.left().value())
+                .expect("cursor column should be <= u16::MAX"),
+            u16::try_from(cursor_position.top().value()).expect("cursor row should be <= u16::MAX"),
+        ),
+    )?;
+
+    crossterm::execute!(out, EndSynchronizedUpdate)?;
+
+    Ok(())
 }
 
 /// Calculates all of the [`Attributes`] that need to be queued to the terminal

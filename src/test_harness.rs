@@ -1,6 +1,7 @@
 use std::{
     fmt,
     fs,
+    io,
     iter,
     path::Path,
     time::{
@@ -23,6 +24,7 @@ use crate::{
     },
     file_picker::FileIndex,
     jujutsu::JJPoller,
+    terminal,
     ui::{
         AppEvent,
         Columns,
@@ -120,6 +122,14 @@ impl TestHarness {
     fn render(&mut self) {
         self.buffer.clear();
         self.editor.render(&mut self.buffer);
+
+        // TODO: actually do something with this :)
+        terminal::draw(
+            &mut io::sink(),
+            &self.buffer,
+            self.editor.visual_cursor_position(),
+        )
+        .unwrap();
     }
 
     pub(crate) const fn is_closed(&self) -> bool {
