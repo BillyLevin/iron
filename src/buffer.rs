@@ -1,5 +1,6 @@
 use std::{
     cmp,
+    iter,
     ops,
 };
 
@@ -50,8 +51,19 @@ impl Buffer {
         self.dimensions = dimensions;
     }
 
-    pub(crate) fn cells(&self) -> &[Cell] {
-        &self.cells
+    /// The cells that actually need to be drawn to the terminal, skipping ones
+    /// that are already covered by wider graphemes. Split up into visual
+    /// rows.
+    pub(crate) fn visual_cells(&self) -> impl Iterator<Item = impl Iterator<Item = &Cell>> {
+        self.cells
+            .chunks(self.dimensions.width().value())
+            .map(|row| {
+                iter::successors(row.first().map(|cell| (0, cell)), |&(index, cell)| {
+                    let next = index + cell.width().get().value();
+                    row.get(next).map(|next_cell| (next, next_cell))
+                })
+                .map(|(_index, cell)| cell)
+            })
     }
 
     pub(crate) const fn dimensions(&self) -> Dimensions {
@@ -333,28 +345,10 @@ mod tests {
     }
 
     fn rendered_buffer(buffer: &Buffer) -> TestRenderedBuffer {
-        let row_width = buffer.dimensions().width().value();
-
         TestRenderedBuffer(
             buffer
-                .cells()
-                .chunks(row_width)
-                .map(|cells| {
-                    let mut row = String::new();
-                    let mut cell_index = 0;
-
-                    while cell_index < cells.len() {
-                        let cell = &cells[cell_index];
-                        let cell_width = cell.width().get().value();
-
-                        assert!(cell_width > 0, "buffer cells must have a non-zero width");
-
-                        row.push_str(&cell.content().replace(' ', "·"));
-                        cell_index += cell_width;
-                    }
-
-                    row
-                })
+                .visual_cells()
+                .map(|row| row.map(|cell| cell.content().replace(' ', "·")).collect())
                 .collect(),
         )
     }

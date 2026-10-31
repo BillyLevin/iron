@@ -17,7 +17,10 @@ use crossterm::event::{
 use tempfile::TempDir;
 
 use crate::{
-    buffer::Buffer,
+    buffer::{
+        Buffer,
+        Cell,
+    },
     editor::{
         Editor,
         EventOutcome,
@@ -27,10 +30,8 @@ use crate::{
     terminal,
     ui::{
         AppEvent,
-        Columns,
         Dimensions,
         Position,
-        Rows,
     },
 };
 
@@ -137,25 +138,15 @@ impl TestHarness {
     }
 
     pub(crate) fn screen(&self) -> Screen {
-        let width = self.buffer.dimensions().width().value();
-
         let rows = self
             .buffer
-            .cells()
-            .chunks(width)
-            .map(|cells| {
-                iter::successors(cells.first().map(|cell| (0, cell)), |&(index, cell)| {
-                    let next = index + cell.width().get().value();
-                    cells.get(next).map(|next_cell| (next, next_cell))
-                })
-                .map(|(_, cell)| cell.content())
-                .collect()
-            })
+            .visual_cells()
+            .map(|row| row.map(Cell::content).collect())
             .collect();
 
         Screen {
             rows,
-            width: self.buffer.dimensions().width(),
+            dimensions: self.buffer.dimensions(),
             cursor: self.editor.visual_cursor_position(),
         }
     }
@@ -180,7 +171,7 @@ fn create_file(path: &Path, contents: &str, modified: SystemTime) {
 /// respectively.
 pub(crate) struct Screen {
     rows: Vec<String>,
-    width: Columns,
+    dimensions: Dimensions,
     cursor: Position,
 }
 
@@ -190,13 +181,13 @@ impl Screen {
     }
 
     pub(crate) const fn dimensions(&self) -> Dimensions {
-        Dimensions::new(self.width, Rows::new(self.rows.len()))
+        self.dimensions
     }
 }
 
 impl fmt::Display for Screen {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let width = self.width.value();
+        let width = self.dimensions.width().value();
         let cursor_col = self.cursor.left().value();
         let cursor_row = self.cursor.top().value();
 

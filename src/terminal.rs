@@ -163,17 +163,12 @@ pub(crate) fn draw(
 
     crossterm::queue!(out, crossterm::cursor::MoveTo(0, 0))?;
 
-    let cells = buffer.cells();
-    let mut buffer_index = 0;
-
     let mut fg = Color::Reset;
     let mut bg = Color::Reset;
     let mut underline_color = Color::Reset;
     let mut attributes = StyleAttributes::empty();
 
-    while buffer_index < cells.len() {
-        let cell = &cells[buffer_index];
-
+    for cell in buffer.visual_cells().flatten() {
         if let new_fg = cell.foreground()
             && new_fg != fg
         {
@@ -204,8 +199,6 @@ pub(crate) fn draw(
         }
 
         crossterm::queue!(out, style::Print(cell.content()))?;
-
-        buffer_index += cell.width().get().value();
     }
 
     crossterm::queue!(
