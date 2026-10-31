@@ -16,9 +16,9 @@ use unicode_segmentation::{
     GraphemeIncomplete,
     UnicodeSegmentation as _,
 };
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    document::Grapheme,
     grapheme_layout::{
         GraphemeLayoutIterator,
         WrapBehavior,
@@ -558,7 +558,46 @@ pub(crate) struct LineBreakOutcome {
     pub(crate) has_linebreak: bool,
 }
 
-pub(crate) const TAB_VISUAL_WIDTH: Columns = Columns::new(4);
+const TAB_VISUAL_WIDTH: Columns = Columns::new(4);
+
+#[derive(Debug)]
+pub(crate) enum Grapheme<'grapheme> {
+    LineBreak,
+    Tab,
+    ZeroWidth,
+    Text(&'grapheme str),
+}
+
+impl Grapheme<'_> {
+    const TAB_STR: &'static str = match str::from_utf8(&[b' '; TAB_VISUAL_WIDTH.value()]) {
+        Ok(s) => s,
+        Err(_) => unreachable!(),
+    };
+
+    pub(crate) const fn display(&self) -> &str {
+        match *self {
+            Grapheme::LineBreak => " ",
+            Grapheme::Tab => Self::TAB_STR,
+            Grapheme::ZeroWidth => "\u{25cc}",
+            Grapheme::Text(text) => text,
+        }
+    }
+
+    pub(crate) fn width(&self) -> Columns {
+        Columns::new(self.display().width())
+    }
+}
+
+impl<'grapheme> From<&'grapheme str> for Grapheme<'grapheme> {
+    fn from(value: &'grapheme str) -> Self {
+        match value {
+            "\n" | "\r\n" => Self::LineBreak,
+            "\t" => Self::Tab,
+            _ if value.width() == 0 => Self::ZeroWidth,
+            _ => Self::Text(value),
+        }
+    }
+}
 
 /// Display width of the given text.
 pub(crate) fn text_width(text: &str) -> Columns {

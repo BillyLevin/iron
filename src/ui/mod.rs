@@ -15,13 +15,15 @@ use crossterm::event::{
 
 use crate::{
     buffer::Buffer,
-    document::Grapheme,
     editor::{
         EventContext,
         EventOutcome,
     },
     style::Style,
-    text::text_width,
+    text::{
+        Grapheme,
+        text_width,
+    },
 };
 
 /// A visual layer in the UI. The app can have multiple layers that are

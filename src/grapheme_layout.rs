@@ -1,6 +1,8 @@
 use crate::{
-    document::Grapheme,
-    text::ByteIndex,
+    text::{
+        ByteIndex,
+        Grapheme,
+    },
     ui::{
         NonZeroColumns,
         Position,
