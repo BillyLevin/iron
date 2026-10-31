@@ -13,7 +13,6 @@ use crate::{
     test_harness::TestHarness,
     ui::{
         Columns,
-        Dimensions,
         EditorDimensions,
         Rectangle,
         Rows,
@@ -65,7 +64,15 @@ impl Fuzzer {
         self.harness.send_key(KeyEvent::new(code, modifiers));
     }
 
-    #[invariant]
+    #[rule]
+    fn resize(&mut self, test_case: TestCase) {
+        test_case.assume(!self.harness.is_closed());
+
+        let dimensions = draw_dimensions(&test_case);
+        self.harness.resize(dimensions);
+    }
+
+    #[invariant(always_run)]
     fn cursor_always_on_screen(&self, _test_case: TestCase) {
         let screen = self.harness.screen();
         let cursor = screen.cursor();
@@ -78,12 +85,13 @@ impl Fuzzer {
     }
 }
 
+fn draw_dimensions(test_case: &TestCase) -> EditorDimensions {
+    EditorDimensions::draw(test_case, Columns::new(100), Rows::new(40))
+}
+
 #[hegel::test]
 fn fuzz_editor(test_case: TestCase) {
-    let harness = TestHarness::new(
-        "hello\nthere\nworld",
-        EditorDimensions::new(Dimensions::new(Columns::new(40), Rows::new(10))).unwrap(),
-    );
+    let harness = TestHarness::new("hello\nthere\nworld", draw_dimensions(&test_case));
 
     hegel::stateful::machine(Fuzzer { harness }).run(test_case);
 }

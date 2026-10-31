@@ -1,4 +1,5 @@
 use std::{
+    assert_matches,
     fmt,
     fs,
     io,
@@ -148,6 +149,16 @@ impl TestHarness {
             dimensions: self.buffer.dimensions(),
             cursor: self.editor.visual_cursor_position(),
         }
+    }
+
+    pub(crate) fn resize(&mut self, dimensions: EditorDimensions) {
+        self.buffer.resize(dimensions.get());
+        assert_matches!(
+            self.editor.handle_event(&AppEvent::Resize(dimensions)),
+            EventOutcome::Handled
+        );
+
+        self.render();
     }
 }
 
