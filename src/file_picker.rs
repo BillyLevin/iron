@@ -43,6 +43,7 @@ use crate::{
     ui::{
         Columns,
         Dimensions,
+        EditorDimensions,
         Layer,
         LayerEvent,
         LayerKind,
@@ -101,7 +102,7 @@ pub(crate) struct FilePicker {
 }
 
 impl FilePicker {
-    pub(crate) fn new(file_index: &FileIndex, app_dimensions: Dimensions) -> Self {
+    pub(crate) fn new(file_index: &FileIndex, editor_dimensions: EditorDimensions) -> Self {
         let mut this = Self {
             picker: file_index.picker(),
             root: file_index.root.clone(),
@@ -110,7 +111,7 @@ impl FilePicker {
             files: Vec::new(),
             selected_index: 0,
             scroll_offset: Rows::new(0),
-            layout: Layout::new(app_dimensions),
+            layout: Layout::new(editor_dimensions.get()),
         };
 
         this.update_files();
@@ -367,8 +368,8 @@ impl Layer for FilePicker {
         Some(LayerKind::FilePicker)
     }
 
-    fn resize(&mut self, app_dimensions: Dimensions) {
-        self.layout = Layout::new(app_dimensions);
+    fn resize(&mut self, editor_dimensions: EditorDimensions) {
+        self.layout = Layout::new(editor_dimensions.get());
     }
 }
 
@@ -440,6 +441,7 @@ mod tests {
         ui::{
             Columns,
             Dimensions,
+            EditorDimensions,
             Rows,
         },
     };
@@ -448,7 +450,7 @@ mod tests {
     fn file_picker_opens() {
         let mut harness = TestHarness::with_files(
             "hello\nthere\nworld",
-            Dimensions::new(Columns::new(46), Rows::new(12)),
+            EditorDimensions::new(Dimensions::new(Columns::new(46), Rows::new(12))).unwrap(),
             [
                 ("main.rs", "fn main() {}"),
                 ("README.md", "# hello"),
@@ -484,7 +486,7 @@ mod tests {
     fn file_picker_navigates_with_arrows() {
         let mut harness = TestHarness::with_files(
             "hello\nthere\nworld",
-            Dimensions::new(Columns::new(46), Rows::new(12)),
+            EditorDimensions::new(Dimensions::new(Columns::new(46), Rows::new(12))).unwrap(),
             [
                 ("main.rs", "fn main() {}"),
                 ("README.md", "# hello"),
@@ -546,7 +548,7 @@ mod tests {
     fn file_picker_filters_on_search() {
         let mut harness = TestHarness::with_files(
             "hello\nthere\nworld",
-            Dimensions::new(Columns::new(46), Rows::new(12)),
+            EditorDimensions::new(Dimensions::new(Columns::new(46), Rows::new(12))).unwrap(),
             [
                 ("main.rs", "fn main() {}"),
                 ("README.md", "# hello"),
@@ -612,7 +614,7 @@ mod tests {
     fn file_picker_opens_files() {
         let mut harness = TestHarness::with_files(
             "hello\nthere\nworld",
-            Dimensions::new(Columns::new(46), Rows::new(12)),
+            EditorDimensions::new(Dimensions::new(Columns::new(46), Rows::new(12))).unwrap(),
             [
                 ("main.rs", "fn main() {}"),
                 ("README.md", "# hello\nthis is some markdown"),

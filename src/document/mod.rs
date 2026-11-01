@@ -106,6 +106,7 @@ use crate::{
         Alignment,
         Columns,
         Dimensions,
+        EditorDimensions,
         Layer,
         LayerEvent,
         LayerKind,
@@ -158,7 +159,10 @@ pub(crate) struct Document {
 }
 
 impl Document {
-    pub(crate) fn new(file_path: PathBuf, dimensions: Dimensions) -> anyhow::Result<Self> {
+    pub(crate) fn new(
+        file_path: PathBuf,
+        editor_dimensions: EditorDimensions,
+    ) -> anyhow::Result<Self> {
         let text = Rope::from_reader(BufReader::new(File::open(&file_path)?))?;
         let line_count = text.slice(..).line_count();
 
@@ -177,7 +181,7 @@ impl Document {
             language,
             file_path,
             lsp_id,
-            layout: Layout::new(line_count, dimensions),
+            layout: Layout::new(line_count, editor_dimensions),
             jj_info: JJInfo::default(),
             error: None,
             highlights: HighlightCache::new(),
@@ -518,8 +522,10 @@ impl Document {
         self.diagnostics.clear();
         self.version = self.version.next();
         self.request_highlight_refresh();
-        self.layout
-            .resize(self.text.slice(..).line_count(), self.layout.app_dimensions);
+        self.layout.resize(
+            self.text.slice(..).line_count(),
+            self.layout.editor_dimensions,
+        );
 
         context.push_action(EditorAction::DocumentChanged(LspTextEdit::new(
             initial_text,
@@ -1215,16 +1221,16 @@ impl Layer for Document {
         None
     }
 
-    fn resize(&mut self, app_dimensions: Dimensions) {
+    fn resize(&mut self, editor_dimensions: EditorDimensions) {
         self.layout
-            .resize(self.text.slice(..).line_count(), app_dimensions);
+            .resize(self.text.slice(..).line_count(), editor_dimensions);
         self.recalculate_scroll();
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct Layout {
-    app_dimensions: Dimensions,
+    editor_dimensions: EditorDimensions,
 
     gutter: Gutter,
     text: TextArea,
@@ -1233,9 +1239,10 @@ struct Layout {
 }
 
 impl Layout {
-    fn new(line_count: usize, app_dimensions: Dimensions) -> Self {
-        let (content, status_line) = Rectangle::from_dimensions(app_dimensions)
-            .split_at_row(app_dimensions.height().saturating_sub(Rows::new(2)));
+    fn new(line_count: usize, editor_dimensions: EditorDimensions) -> Self {
+        let dimensions = editor_dimensions.get();
+        let (content, status_line) = Rectangle::from_dimensions(dimensions)
+            .split_at_row(dimensions.height().saturating_sub(Rows::new(2)));
 
         let (status_line, messages) = status_line.split_at_row(Rows::new(1));
 
@@ -1243,7 +1250,7 @@ impl Layout {
         let (gutter_area, text) = content.split_at_column(Gutter::width(line_number_width));
 
         Self {
-            app_dimensions,
+            editor_dimensions,
             gutter: Gutter {
                 area: gutter_area,
                 line_number_width,
@@ -1254,8 +1261,8 @@ impl Layout {
         }
     }
 
-    fn resize(&mut self, line_count: usize, app_dimensions: Dimensions) {
-        let layout = Self::new(line_count, app_dimensions);
+    fn resize(&mut self, line_count: usize, editor_dimensions: EditorDimensions) {
+        let layout = Self::new(line_count, editor_dimensions);
 
         *self = Self {
             text: self.text.with_area(layout.text.into_area()),
@@ -1787,7 +1794,8 @@ mod tests {
         };
     }
 
-    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
+    const TEST_DIMENSIONS: EditorDimensions =
+        EditorDimensions::new(Dimensions::new(Columns::new(80), Rows::new(24))).unwrap();
 
     struct TestCase<'text> {
         initial_text: &'text str,
@@ -4316,7 +4324,8 @@ mod diagnostics_tests {
         style::StyleAttributes,
     };
 
-    const TEST_DIMENSIONS: Dimensions = Dimensions::new(Columns::new(80), Rows::new(24));
+    const TEST_DIMENSIONS: EditorDimensions =
+        EditorDimensions::new(Dimensions::new(Columns::new(80), Rows::new(24))).unwrap();
 
     fn doc(contents: &str) -> Document {
         let mut temp_file = tempfile::NamedTempFile::new().unwrap();
@@ -4385,7 +4394,7 @@ mod diagnostics_tests {
             let doc_text = "hello, world!";
             let mut document = doc_with_diagnostics(doc_text, &input);
 
-            let mut buffer = Buffer::new(TEST_DIMENSIONS);
+            let mut buffer = Buffer::new(TEST_DIMENSIONS.get());
             document.render(&mut buffer);
 
             let cell_at_column = |column: usize| -> &Cell {
@@ -4742,7 +4751,7 @@ mod diagnostics_tests {
             },
         ]);
 
-        let mut buffer = Buffer::new(TEST_DIMENSIONS);
+        let mut buffer = Buffer::new(TEST_DIMENSIONS.get());
         document.render(&mut buffer);
 
         let gutter_0 = &buffer[Position::new(0_usize.into(), 0_usize.into())];

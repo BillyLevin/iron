@@ -10,10 +10,7 @@ use std::{
     },
 };
 
-use crossterm::event::{
-    Event,
-    KeyEvent,
-};
+use crossterm::event::KeyEvent;
 use tempfile::TempDir;
 
 use crate::{
@@ -31,6 +28,8 @@ use crate::{
     ui::{
         AppEvent,
         Dimensions,
+        EditorDimensions,
+        LayerEvent,
         Position,
     },
 };
@@ -47,7 +46,7 @@ pub(crate) struct TestHarness {
 }
 
 impl TestHarness {
-    pub(crate) fn new(contents: &str, dimensions: Dimensions) -> Self {
+    pub(crate) fn new(contents: &str, dimensions: EditorDimensions) -> Self {
         Self::with_files(contents, dimensions, iter::empty())
     }
 
@@ -55,7 +54,7 @@ impl TestHarness {
     /// plus optionally other `files` too.
     pub(crate) fn with_files<'file>(
         contents: &str,
-        dimensions: Dimensions,
+        dimensions: EditorDimensions,
         files: impl IntoIterator<Item = (&'file str, &'file str)>,
     ) -> Self {
         let dir = TempDir::new().unwrap();
@@ -78,7 +77,7 @@ impl TestHarness {
 
         let mut this = Self {
             editor: Self::create_editor(&dir, dimensions),
-            buffer: Buffer::new(dimensions),
+            buffer: Buffer::new(dimensions.get()),
             is_closed: false,
             _dir: dir,
         };
@@ -87,7 +86,7 @@ impl TestHarness {
         this
     }
 
-    fn create_editor(dir: &TempDir, dimensions: Dimensions) -> Editor {
+    fn create_editor(dir: &TempDir, dimensions: EditorDimensions) -> Editor {
         let file_index = FileIndex::new(dir.path());
         assert!(
             file_index.picker().wait_for_scan(Duration::from_secs(5)),
@@ -112,7 +111,7 @@ impl TestHarness {
 
         match self
             .editor
-            .handle_event(&AppEvent::from(Event::Key(key.into())))
+            .handle_event(&AppEvent::Layer(LayerEvent::Key(key.into())))
         {
             EventOutcome::Handled => self.render(),
             EventOutcome::Unhandled => {}

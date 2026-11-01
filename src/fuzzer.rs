@@ -14,6 +14,7 @@ use crate::{
     ui::{
         Columns,
         Dimensions,
+        EditorDimensions,
         Rectangle,
         Rows,
     },
@@ -81,7 +82,7 @@ impl Fuzzer {
 fn fuzz_editor(test_case: TestCase) {
     let harness = TestHarness::new(
         "hello\nthere\nworld",
-        Dimensions::new(Columns::new(40), Rows::new(10)),
+        EditorDimensions::new(Dimensions::new(Columns::new(40), Rows::new(10))).unwrap(),
     );
 
     hegel::stateful::machine(Fuzzer { harness }).run(test_case);

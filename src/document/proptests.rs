@@ -16,14 +16,10 @@ fn doc(test_case: &TestCase, contents: &str) -> Document {
     let mut temp_file = tempfile::NamedTempFile::new().unwrap();
     write!(temp_file, "{contents}").unwrap();
 
-    let width = test_case.draw(generators::integers().min_value(1).map(Columns::new));
-    let height = test_case.draw(generators::integers().min_value(1).map(Rows::new));
+    let dimensions =
+        EditorDimensions::draw(test_case, Columns::new(usize::MAX), Rows::new(usize::MAX));
 
-    Document::new(
-        temp_file.path().to_path_buf(),
-        Dimensions::new(width, height),
-    )
-    .unwrap()
+    Document::new(temp_file.path().to_path_buf(), dimensions).unwrap()
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -12,6 +12,8 @@ use crossterm::event::{
     KeyEvent,
     MouseEvent,
 };
+#[cfg(test)]
+use hegel::TestCase;
 
 use crate::{
     buffer::Buffer,
@@ -53,7 +55,7 @@ pub(crate) trait Layer {
     fn kind(&self) -> Option<LayerKind>;
 
     /// Called when the application resizes with its new dimensions.
-    fn resize(&mut self, app_dimensions: Dimensions);
+    fn resize(&mut self, editor_dimensions: EditorDimensions);
 }
 
 /// The types of layers that can be added/removed. In other words, this doesn't
@@ -68,23 +70,8 @@ pub(crate) enum LayerKind {
 
 #[derive(Debug)]
 pub(crate) enum AppEvent {
-    Resize(Dimensions),
+    Resize(EditorDimensions),
     Layer(LayerEvent),
-}
-
-impl From<Event> for AppEvent {
-    fn from(event: Event) -> Self {
-        match event {
-            Event::Resize(columns, rows) => {
-                Self::Resize(Dimensions::new(Columns::from(columns), Rows::from(rows)))
-            }
-            Event::FocusGained => Self::Layer(LayerEvent::FocusGained),
-            Event::FocusLost => Self::Layer(LayerEvent::FocusLost),
-            Event::Key(key_event) => Self::Layer(LayerEvent::Key(key_event)),
-            Event::Mouse(mouse_event) => Self::Layer(LayerEvent::Mouse(mouse_event)),
-            Event::Paste(_content) => Self::Layer(LayerEvent::Paste),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -95,6 +82,19 @@ pub(crate) enum LayerEvent {
     Mouse(MouseEvent),
     // TODO: add `String` back when implementing paste
     Paste,
+}
+
+impl LayerEvent {
+    pub(crate) fn from_terminal_event(event: Event) -> Option<Self> {
+        match event {
+            Event::Resize(_, _) => None,
+            Event::FocusGained => Some(Self::FocusGained),
+            Event::FocusLost => Some(Self::FocusLost),
+            Event::Key(key_event) => Some(Self::Key(key_event)),
+            Event::Mouse(mouse_event) => Some(Self::Mouse(mouse_event)),
+            Event::Paste(_content) => Some(Self::Paste),
+        }
+    }
 }
 
 /// A structure representing (unsurprisingly) a rectangular region of the
@@ -310,15 +310,58 @@ impl Dimensions {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EditorDimensions(Dimensions);
+
+impl EditorDimensions {
+    pub(crate) const MIN: Self =
+        Self::new(Dimensions::new(Self::MIN_WIDTH, Self::MIN_HEIGHT)).unwrap();
+    const MIN_HEIGHT: Rows = Rows::new(5);
+    const MIN_WIDTH: Columns = Columns::new(12);
+
+    pub(crate) const fn new(dimensions: Dimensions) -> Option<Self> {
+        if dimensions.width >= Self::MIN_WIDTH && dimensions.height >= Self::MIN_HEIGHT {
+            Some(Self(dimensions))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) const fn get(&self) -> Dimensions {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn draw(test_case: &TestCase, max_width: Columns, max_height: Rows) -> Self {
+        use hegel::{
+            Generator as _,
+            generators,
+        };
+
+        let width = test_case.draw(
+            generators::integers()
+                .min_value(Self::MIN_WIDTH.value())
+                .max_value(max_width.value())
+                .map(Columns::new),
+        );
+
+        let height = test_case.draw(
+            generators::integers()
+                .min_value(Self::MIN_HEIGHT.value())
+                .max_value(max_height.value())
+                .map(Rows::new),
+        );
+
+        Self::new(Dimensions::new(width, height))
+            .expect("generated dimensions aren't smaller than the minimum")
+    }
+}
+
 #[derive(
     Debug,
     Clone,
     Copy,
     Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
     derive_more::From,
     derive_more::Add,
     derive_more::AddAssign,
@@ -328,6 +371,7 @@ impl Dimensions {
     derive_more::Mul,
     derive_more::Into,
 )]
+#[derive_const(PartialEq, Eq, PartialOrd, Ord)]
 #[from(usize, u16)]
 #[into(usize)]
 #[cfg_attr(test, derive(hegel::PrettyPrintable))]
@@ -425,10 +469,6 @@ impl NonZeroColumns {
     Clone,
     Copy,
     Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
     derive_more::From,
     derive_more::Add,
     derive_more::AddAssign,
@@ -437,6 +477,7 @@ impl NonZeroColumns {
     derive_more::Into,
     derive_more::Mul,
 )]
+#[derive_const(PartialEq, Eq, PartialOrd, Ord)]
 #[from(usize, u16)]
 #[into(usize)]
 #[cfg_attr(test, derive(hegel::PrettyPrintable))]

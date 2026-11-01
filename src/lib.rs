@@ -1,4 +1,4 @@
-#![feature(step_trait)]
+#![feature(const_cmp, const_trait_impl, derive_const, step_trait)]
 
 pub mod args;
 pub mod buffer;

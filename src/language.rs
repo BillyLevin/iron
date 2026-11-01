@@ -25,7 +25,7 @@ impl Language {
             .unwrap_or(Self::Text)
     }
 
-    fn from_extension(extension: &str) -> Option<Self> {
+    const fn from_extension(extension: &str) -> Option<Self> {
         match extension {
             "rs" => Some(Self::Rust),
             "toml" => Some(Self::Toml),
@@ -33,7 +33,7 @@ impl Language {
         }
     }
 
-    fn from_file_name(file_name: &str) -> Option<Self> {
+    const fn from_file_name(file_name: &str) -> Option<Self> {
         match file_name {
             "Cargo.lock" => Some(Self::Toml),
             _ => None,

@@ -20,7 +20,7 @@ use crate::{
     },
     ui::{
         AppEvent,
-        Dimensions,
+        EditorDimensions,
         Layer,
         LayerKind,
         Position,
@@ -31,7 +31,7 @@ pub(crate) struct Editor {
     document: Document,
     layers: Vec<Box<dyn Layer>>,
     file_index: FileIndex,
-    dimensions: Dimensions,
+    dimensions: EditorDimensions,
     jj_poller: JJPoller,
     lsp: Option<LspClient>,
 }
@@ -39,7 +39,7 @@ pub(crate) struct Editor {
 impl Editor {
     pub(crate) fn new(
         file_path: PathBuf,
-        dimensions: Dimensions,
+        dimensions: EditorDimensions,
         lsp: Option<LspClient>,
         jj_poller: JJPoller,
         file_index: FileIndex,
@@ -229,7 +229,7 @@ impl Editor {
         EventOutcome::Handled
     }
 
-    fn resize(&mut self, dimensions: Dimensions) {
+    fn resize(&mut self, dimensions: EditorDimensions) {
         self.dimensions = dimensions;
 
         for layer in self.layers_mut() {
@@ -313,6 +313,7 @@ mod tests {
         ui::{
             Columns,
             Dimensions,
+            EditorDimensions,
             Rows,
         },
     };
@@ -321,7 +322,7 @@ mod tests {
     fn displays_basic_screen() {
         let harness = TestHarness::new(
             "hello\nthere\nworld",
-            Dimensions::new(Columns::new(24), Rows::new(6)),
+            EditorDimensions::new(Dimensions::new(Columns::new(24), Rows::new(6))).unwrap(),
         );
 
         insta::assert_snapshot!(
@@ -343,7 +344,7 @@ mod tests {
     fn moves_cursor_and_inserts_text() {
         let mut harness = TestHarness::new(
             "hello\nthere\nworld",
-            Dimensions::new(Columns::new(24), Rows::new(6)),
+            EditorDimensions::new(Dimensions::new(Columns::new(24), Rows::new(6))).unwrap(),
         );
 
         insta::assert_snapshot!(
@@ -393,7 +394,7 @@ mod tests {
     fn zero_width_graphemes_display_as_dotted_circle() {
         let mut harness = TestHarness::new(
             "\u{301}x\n\u{200B}\na\u{200B}\na\u{301}",
-            Dimensions::new(Columns::new(24), Rows::new(6)),
+            EditorDimensions::new(Dimensions::new(Columns::new(24), Rows::new(6))).unwrap(),
         );
 
         harness.send_key(KeyCode::Char('w'));

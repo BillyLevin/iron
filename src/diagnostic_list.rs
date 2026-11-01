@@ -38,6 +38,7 @@ use crate::{
     },
     ui::{
         Dimensions,
+        EditorDimensions,
         Layer,
         LayerEvent,
         LayerKind,
@@ -60,7 +61,7 @@ pub(crate) struct DiagnosticList {
 }
 
 impl DiagnosticList {
-    pub(crate) fn new(diagnostics: &[&Diagnostic], app_dimensions: Dimensions) -> Self {
+    pub(crate) fn new(diagnostics: &[&Diagnostic], editor_dimensions: EditorDimensions) -> Self {
         let (text, styles) = diagnostics.iter().fold(
             (String::new(), Vec::new()),
             |(text, mut styles), diagnostic| {
@@ -81,7 +82,7 @@ impl DiagnosticList {
         let text = Rope::from_str(text.trim_suffix('\n'));
 
         Self {
-            layout: Layout::new(text.slice(..), app_dimensions, diagnostics.len()),
+            layout: Layout::new(text.slice(..), editor_dimensions.get(), diagnostics.len()),
             text,
             styles,
             cursor_state: CursorState::default(),
@@ -248,9 +249,12 @@ impl Layer for DiagnosticList {
         Some(LayerKind::DiagnosticList)
     }
 
-    fn resize(&mut self, app_dimensions: Dimensions) {
-        self.layout
-            .resize(self.text.slice(..), app_dimensions, self.styles.len());
+    fn resize(&mut self, editor_dimensions: EditorDimensions) {
+        self.layout.resize(
+            self.text.slice(..),
+            editor_dimensions.get(),
+            self.styles.len(),
+        );
         self.recalculate_scroll();
     }
 }

@@ -31,6 +31,7 @@ use crate::{
     ui::{
         Columns,
         Dimensions,
+        EditorDimensions,
         Layer,
         LayerEvent,
         LayerKind,
@@ -84,14 +85,14 @@ pub(crate) struct CommandList {
 }
 
 impl CommandList {
-    pub(crate) fn new(app_dimensions: Dimensions) -> Self {
+    pub(crate) fn new(editor_dimensions: EditorDimensions) -> Self {
         Self {
             search_term: String::new(),
             cursor_position: None,
             selected_index: 0,
             visible_commands: Vec::new(),
             matcher: Matcher::new(Config::DEFAULT),
-            layout: Layout::new(app_dimensions),
+            layout: Layout::new(editor_dimensions.get()),
         }
     }
 
@@ -259,8 +260,8 @@ impl Layer for CommandList {
         Some(LayerKind::CommandList)
     }
 
-    fn resize(&mut self, app_dimensions: Dimensions) {
-        self.layout = Layout::new(app_dimensions);
+    fn resize(&mut self, editor_dimensions: EditorDimensions) {
+        self.layout = Layout::new(editor_dimensions.get());
     }
 }
 

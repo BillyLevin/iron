@@ -6,7 +6,10 @@ use std::{
 };
 
 use crossterm::{
-    event,
+    event::{
+        self,
+        Event,
+    },
     style::{
         self,
         Attribute,
@@ -34,6 +37,7 @@ use crate::{
         AppEvent,
         Columns,
         Dimensions,
+        EditorDimensions,
         LayerEvent,
         Position,
         Rows,
@@ -91,46 +95,46 @@ impl Terminal {
             .inspect_err(|err| log::error!("failed to start LSP client: {err}"))
             .ok();
         let jj_poller = JJPoller::new(args.file_path.clone());
+
         let mut editor = Editor::new(
             args.file_path,
-            self.buffer.dimensions(),
+            self.editor_dimensions().unwrap_or(EditorDimensions::MIN),
             lsp,
             jj_poller,
             FileIndex::new(Path::new(".")),
         )?;
-        editor.render(&mut self.buffer);
-        self.draw(editor.visual_cursor_position())?;
+
+        self.render(&mut editor)?;
 
         loop {
             puffin::GlobalProfiler::lock().new_frame();
-
-            self.buffer.clear();
 
             let mut rerender = false;
 
             if event::poll(Duration::from_millis(16))? {
                 puffin::profile_scope!("terminal_event");
 
-                let terminal_event = AppEvent::from(event::read()?);
+                let terminal_event = event::read()?;
 
-                match terminal_event {
-                    AppEvent::Resize(dimensions) => {
-                        self.buffer.resize(dimensions);
-                        rerender = true;
+                let app_event = if let Event::Resize(columns, rows) = terminal_event {
+                    self.buffer
+                        .resize(Dimensions::new(Columns::from(columns), Rows::from(rows)));
+
+                    rerender = true;
+
+                    self.editor_dimensions().map(AppEvent::Resize)
+                } else {
+                    self.editor_dimensions()
+                        .and_then(|_| LayerEvent::from_terminal_event(terminal_event))
+                        .map(AppEvent::Layer)
+                };
+
+                if let Some(app_event) = app_event {
+                    match editor.handle_event(&app_event) {
+                        EventOutcome::Handled => rerender = true,
+                        EventOutcome::Unhandled => {}
+                        EventOutcome::CloseApp => break,
                     }
-                    AppEvent::Layer(
-                        LayerEvent::FocusGained
-                        | LayerEvent::FocusLost
-                        | LayerEvent::Key(_)
-                        | LayerEvent::Mouse(_)
-                        | LayerEvent::Paste,
-                    ) => {}
-                }
-
-                match editor.handle_event(&terminal_event) {
-                    EventOutcome::Handled => rerender = true,
-                    EventOutcome::Unhandled => {}
-                    EventOutcome::CloseApp => break,
                 }
             }
 
@@ -141,16 +145,28 @@ impl Terminal {
             }
 
             if rerender {
-                editor.render(&mut self.buffer);
-                self.draw(editor.visual_cursor_position())?;
+                self.render(&mut editor)?;
             }
         }
 
         Ok(())
     }
 
-    fn draw(&mut self, cursor_position: Position) -> io::Result<()> {
-        draw(&mut self.out, &self.buffer, cursor_position)
+    const fn editor_dimensions(&self) -> Option<EditorDimensions> {
+        EditorDimensions::new(self.buffer.dimensions())
+    }
+
+    fn render(&mut self, editor: &mut Editor) -> io::Result<()> {
+        self.buffer.clear();
+
+        let is_too_small = self.editor_dimensions().is_none();
+
+        if is_too_small {
+            draw(&mut self.out, &self.buffer, Position::default())
+        } else {
+            editor.render(&mut self.buffer);
+            draw(&mut self.out, &self.buffer, editor.visual_cursor_position())
+        }
     }
 }
 
