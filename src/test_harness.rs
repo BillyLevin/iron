@@ -160,6 +160,10 @@ impl TestHarness {
 
         self.render();
     }
+
+    pub(crate) fn editor(&self) -> &Editor {
+        &self.editor
+    }
 }
 
 /// Creates and writes to a file. Also sets the given `modified` time because

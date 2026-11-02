@@ -955,7 +955,7 @@ impl Document {
         self.key_sequence.clear();
     }
 
-    const fn mode(&self) -> Mode {
+    pub(crate) const fn mode(&self) -> Mode {
         self.key_sequence.mode()
     }
 
@@ -1355,7 +1355,7 @@ impl GutterRenderer<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     Normal,
     Insert,

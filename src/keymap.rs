@@ -188,6 +188,25 @@ impl KeyMap {
 
         Some(current)
     }
+
+    #[cfg(test)]
+    pub(crate) fn bindings(&self) -> Vec<Vec<KeyBinding>> {
+        use std::iter;
+
+        match *self {
+            Self::BindingPart { map } => {
+                map.iter()
+                    .flat_map(|&(key, ref keymap)| {
+                        keymap
+                            .bindings()
+                            .into_iter()
+                            .map(move |keys| iter::once(key).chain(keys).collect())
+                    })
+                    .collect()
+            }
+            Self::Action(_) => vec![Vec::new()],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

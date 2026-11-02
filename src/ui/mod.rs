@@ -332,6 +332,7 @@ impl EditorDimensions {
     }
 
     #[cfg(test)]
+    #[hegel::test_helper]
     pub(crate) fn draw(test_case: &TestCase, max_width: Columns, max_height: Rows) -> Self {
         use hegel::{
             Generator as _,

@@ -260,6 +260,11 @@ impl Editor {
 
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) const fn document(&self) -> &Document {
+        &self.document
+    }
 }
 
 #[derive(Debug)]
