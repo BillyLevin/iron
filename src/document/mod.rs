@@ -126,10 +126,6 @@ pub(crate) struct Document {
     text: Rope,
     cursor_state: CursorState,
 
-    normal_keymap: KeyMap,
-    insert_keymap: KeyMap,
-    visual_keymap: KeyMap,
-
     /// The keys that have been pressed which may add up to a registered
     /// keybinding. Used in the `KeyMap` lookups.
     key_sequence: KeySequence,
@@ -174,9 +170,6 @@ impl Document {
         let this = Self {
             text,
             cursor_state: CursorState::default(),
-            normal_keymap: KeyMap::normal(),
-            insert_keymap: KeyMap::insert(),
-            visual_keymap: KeyMap::visual(),
             key_sequence: KeySequence::new(Mode::Normal),
             language,
             file_path,
@@ -201,11 +194,7 @@ impl Document {
         key_event: KeyEvent,
         context: &mut EventContext,
     ) -> EventOutcome {
-        let keymap = match self.mode() {
-            Mode::Normal => &self.normal_keymap,
-            Mode::Insert => &self.insert_keymap,
-            Mode::Visual => &self.visual_keymap,
-        };
+        let keymap = KeyMap::for_mode(self.mode());
 
         self.key_sequence.push(KeyBinding::from(key_event));
 
@@ -254,13 +243,9 @@ impl Document {
             return;
         }
 
-        let keymap = match self.mode() {
-            Mode::Normal => &self.normal_keymap,
-            Mode::Insert => &self.insert_keymap,
-            Mode::Visual => &self.visual_keymap,
-        };
+        let keymap = KeyMap::for_mode(self.mode());
 
-        let Some(&KeyMap::BindingPart { ref map }) = keymap.get(&keys) else {
+        let Some(&KeyMap::BindingPart { map }) = keymap.get(&keys) else {
             return;
         };
 

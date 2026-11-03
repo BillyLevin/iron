@@ -19,342 +19,158 @@ use crate::{
 
 macro_rules! key {
     ($key:literal) => {
-        KeyBinding::from(KeyCode::Char($key))
+        KeyBinding::new(KeyCode::Char($key))
     };
 
     ($key:ident) => {
-        KeyBinding::from(KeyCode::$key)
+        KeyBinding::new(KeyCode::$key)
     };
 }
 
+macro_rules! action {
+    (Movement($action:ident)) => {
+        DocumentAction::Movement(MovementAction::$action)
+    };
+
+    (Edit($action:ident)) => {
+        DocumentAction::Edit(EditAction::$action)
+    };
+
+    (Behavior($action:ident)) => {
+        DocumentAction::Behavior(BehaviorAction::$action)
+    };
+}
+
+macro_rules! keymap {
+    (@node { $($inner:tt)* }) => {
+        keymap!($($inner)*)
+    };
+
+    (@node $kind:ident $action:ident) => {
+        KeyMap::Action(action!($kind($action)))
+    };
+
+    ($($key:tt => $node:tt $(($action:ident))?),* $(,)?) => {
+        KeyMap::BindingPart {
+            map: &[$((key!($key), keymap!(@node $node $($action)?))),*],
+        }
+    };
+}
+
+static NORMAL: KeyMap = keymap! {
+    'j' => Movement(MoveDown),
+    'k' => Movement(MoveUp),
+    'l' => Movement(MoveRight),
+    'h' => Movement(MoveLeft),
+    'w' => Movement(MoveNextWordStart),
+    'b' => Movement(MovePrevWordStart),
+    'i' => Behavior(SwitchToInsertMode),
+    'v' => Behavior(SwitchToVisualMode),
+    '$' => Movement(MoveLineEnd),
+    '0' => Movement(MoveLineStart),
+    '^' => Movement(MoveLineFirstNonBlank),
+    '}' => Movement(MoveNextParagraph),
+    '{' => Movement(MovePrevParagraph),
+    'a' => Behavior(AppendText),
+    'A' => Edit(AppendTextLineEnd),
+    'e' => Movement(MoveWordEnd),
+    'o' => Edit(OpenLineBelow),
+    'O' => Edit(OpenLineAbove),
+    ':' => Behavior(OpenCommandList),
+    'z' => {
+        'z' => Behavior(VerticallyCenter),
+    },
+    'g' => {
+        'e' => Movement(GoToLastLine),
+        'g' => Movement(GoToNthOrFirstLine),
+    },
+    'G' => Movement(GoToNthOrLastLine),
+    'd' => {
+        'w' => Edit(DeleteWord),
+        '$' => Edit(DeleteToLineEnd),
+        '0' => Edit(DeleteToLineStart),
+        '^' => Edit(DeleteToLineFirstNonBlank),
+        'd' => Edit(DeleteLine),
+        'i' => {
+            'w' => Edit(DeleteWholeWord),
+        },
+        'b' => Edit(DeleteToPrevWordStart),
+        'e' => Edit(DeleteToWordEnd),
+        'j' => Edit(DeleteDown),
+        'k' => Edit(DeleteUp),
+    },
+    'c' => {
+        'w' => Edit(ChangeWord),
+        '$' => Edit(ChangeToLineEnd),
+        '0' => Edit(ChangeToLineStart),
+        '^' => Edit(ChangeToLineFirstNonBlank),
+        'c' => Edit(ChangeLine),
+        'i' => {
+            'w' => Edit(ChangeWholeWord),
+        },
+        'b' => Edit(ChangeToPrevWordStart),
+        'e' => Edit(ChangeToWordEnd),
+    },
+    ' ' => {
+        'p' => Behavior(OpenFilePicker),
+        'e' => Behavior(OpenDiagnosticList),
+    },
+    Esc => Behavior(ClearInput),
+    '%' => Movement(GoToPairMatch),
+};
+
+static INSERT: KeyMap = keymap! {
+    Backspace => Edit(DeleteGrapheme),
+    Esc => Behavior(SwitchToNormalMode),
+    Enter => Edit(InsertNewline),
+    Tab => Edit(InsertTab),
+};
+
+static VISUAL: KeyMap = keymap! {
+    Esc => Behavior(SwitchToNormalMode),
+    'j' => Movement(MoveDown),
+    'k' => Movement(MoveUp),
+    'l' => Movement(MoveRight),
+    'h' => Movement(MoveLeft),
+    'w' => Movement(MoveNextWordStart),
+    'b' => Movement(MovePrevWordStart),
+    '$' => Movement(MoveLineEnd),
+    '0' => Movement(MoveLineStart),
+    '^' => Movement(MoveLineFirstNonBlank),
+    '}' => Movement(MoveNextParagraph),
+    '{' => Movement(MovePrevParagraph),
+    'e' => Movement(MoveWordEnd),
+    'o' => Movement(ReverseSelection),
+    'g' => {
+        'e' => Movement(GoToLastLine),
+        'g' => Movement(GoToNthOrFirstLine),
+    },
+    'G' => Movement(GoToNthOrLastLine),
+    'd' => Edit(DeleteSelection),
+    'c' => Edit(ChangeSelection),
+    'i' => {
+        'w' => Movement(SelectCurrentWord),
+    },
+    ':' => Behavior(OpenCommandList),
+    'z' => {
+        'z' => Behavior(VerticallyCenter),
+    },
+    '%' => Movement(GoToPairMatch),
+};
+
 #[derive(Debug)]
 pub(crate) enum KeyMap {
-    BindingPart { map: Vec<(KeyBinding, Self)> },
+    BindingPart { map: &'static [(KeyBinding, Self)] },
     Action(DocumentAction),
 }
 
 impl KeyMap {
-    const fn new() -> Self {
-        Self::BindingPart { map: Vec::new() }
-    }
-
-    pub(crate) fn normal() -> Self {
-        let mut map = Self::new();
-
-        map.register(
-            &[key!('j')],
-            DocumentAction::Movement(MovementAction::MoveDown),
-        );
-        map.register(
-            &[key!('k')],
-            DocumentAction::Movement(MovementAction::MoveUp),
-        );
-        map.register(
-            &[key!('l')],
-            DocumentAction::Movement(MovementAction::MoveRight),
-        );
-        map.register(
-            &[key!('h')],
-            DocumentAction::Movement(MovementAction::MoveLeft),
-        );
-        map.register(
-            &[key!('w')],
-            DocumentAction::Movement(MovementAction::MoveNextWordStart),
-        );
-        map.register(
-            &[key!('b')],
-            DocumentAction::Movement(MovementAction::MovePrevWordStart),
-        );
-        map.register(
-            &[key!('i')],
-            DocumentAction::Behavior(BehaviorAction::SwitchToInsertMode),
-        );
-        map.register(
-            &[key!('v')],
-            DocumentAction::Behavior(BehaviorAction::SwitchToVisualMode),
-        );
-        map.register(
-            &[key!('$')],
-            DocumentAction::Movement(MovementAction::MoveLineEnd),
-        );
-        map.register(
-            &[key!('0')],
-            DocumentAction::Movement(MovementAction::MoveLineStart),
-        );
-        map.register(
-            &[key!('^')],
-            DocumentAction::Movement(MovementAction::MoveLineFirstNonBlank),
-        );
-        map.register(
-            &[key!('}')],
-            DocumentAction::Movement(MovementAction::MoveNextParagraph),
-        );
-        map.register(
-            &[key!('{')],
-            DocumentAction::Movement(MovementAction::MovePrevParagraph),
-        );
-        map.register(
-            &[key!('a')],
-            DocumentAction::Behavior(BehaviorAction::AppendText),
-        );
-        map.register(
-            &[key!('A')],
-            DocumentAction::Edit(EditAction::AppendTextLineEnd),
-        );
-        map.register(
-            &[key!('e')],
-            DocumentAction::Movement(MovementAction::MoveWordEnd),
-        );
-        map.register(
-            &[key!('o')],
-            DocumentAction::Edit(EditAction::OpenLineBelow),
-        );
-        map.register(
-            &[key!('O')],
-            DocumentAction::Edit(EditAction::OpenLineAbove),
-        );
-        map.register(
-            &[key!(':')],
-            DocumentAction::Behavior(BehaviorAction::OpenCommandList),
-        );
-        map.register(
-            &[key!('z'), key!('z')],
-            DocumentAction::Behavior(BehaviorAction::VerticallyCenter),
-        );
-
-        map.register(
-            &[key!('g'), key!('e')],
-            DocumentAction::Movement(MovementAction::GoToLastLine),
-        );
-        map.register(
-            &[key!('g'), key!('g')],
-            DocumentAction::Movement(MovementAction::GoToNthOrFirstLine),
-        );
-        map.register(
-            &[key!('G')],
-            DocumentAction::Movement(MovementAction::GoToNthOrLastLine),
-        );
-
-        map.register(
-            &[key!('d'), key!('w')],
-            DocumentAction::Edit(EditAction::DeleteWord),
-        );
-        map.register(
-            &[key!('d'), key!('$')],
-            DocumentAction::Edit(EditAction::DeleteToLineEnd),
-        );
-        map.register(
-            &[key!('d'), key!('0')],
-            DocumentAction::Edit(EditAction::DeleteToLineStart),
-        );
-        map.register(
-            &[key!('d'), key!('^')],
-            DocumentAction::Edit(EditAction::DeleteToLineFirstNonBlank),
-        );
-        map.register(
-            &[key!('d'), key!('d')],
-            DocumentAction::Edit(EditAction::DeleteLine),
-        );
-        map.register(
-            &[key!('d'), key!('i'), key!('w')],
-            DocumentAction::Edit(EditAction::DeleteWholeWord),
-        );
-        map.register(
-            &[key!('d'), key!('b')],
-            DocumentAction::Edit(EditAction::DeleteToPrevWordStart),
-        );
-        map.register(
-            &[key!('d'), key!('e')],
-            DocumentAction::Edit(EditAction::DeleteToWordEnd),
-        );
-        map.register(
-            &[key!('d'), key!('j')],
-            DocumentAction::Edit(EditAction::DeleteDown),
-        );
-        map.register(
-            &[key!('d'), key!('k')],
-            DocumentAction::Edit(EditAction::DeleteUp),
-        );
-
-        map.register(
-            &[key!('c'), key!('w')],
-            DocumentAction::Edit(EditAction::ChangeWord),
-        );
-        map.register(
-            &[key!('c'), key!('$')],
-            DocumentAction::Edit(EditAction::ChangeToLineEnd),
-        );
-        map.register(
-            &[key!('c'), key!('0')],
-            DocumentAction::Edit(EditAction::ChangeToLineStart),
-        );
-        map.register(
-            &[key!('c'), key!('^')],
-            DocumentAction::Edit(EditAction::ChangeToLineFirstNonBlank),
-        );
-        map.register(
-            &[key!('c'), key!('c')],
-            DocumentAction::Edit(EditAction::ChangeLine),
-        );
-        map.register(
-            &[key!('c'), key!('i'), key!('w')],
-            DocumentAction::Edit(EditAction::ChangeWholeWord),
-        );
-        map.register(
-            &[key!('c'), key!('b')],
-            DocumentAction::Edit(EditAction::ChangeToPrevWordStart),
-        );
-        map.register(
-            &[key!('c'), key!('e')],
-            DocumentAction::Edit(EditAction::ChangeToWordEnd),
-        );
-
-        map.register(
-            &[key!(' '), key!('p')],
-            DocumentAction::Behavior(BehaviorAction::OpenFilePicker),
-        );
-
-        map.register(
-            &[key!(' '), key!('e')],
-            DocumentAction::Behavior(BehaviorAction::OpenDiagnosticList),
-        );
-
-        map.register(
-            &[key!(Esc)],
-            DocumentAction::Behavior(BehaviorAction::ClearInput),
-        );
-
-        map.register(
-            &[key!('%')],
-            DocumentAction::Movement(MovementAction::GoToPairMatch),
-        );
-
-        map
-    }
-
-    pub(crate) fn insert() -> Self {
-        let mut map = Self::new();
-
-        map.register(
-            &[key!(Backspace)],
-            DocumentAction::Edit(EditAction::DeleteGrapheme),
-        );
-        map.register(
-            &[key!(Esc)],
-            DocumentAction::Behavior(BehaviorAction::SwitchToNormalMode),
-        );
-        map.register(
-            &[key!(Enter)],
-            DocumentAction::Edit(EditAction::InsertNewline),
-        );
-        map.register(&[key!(Tab)], DocumentAction::Edit(EditAction::InsertTab));
-
-        map
-    }
-
-    pub(crate) fn visual() -> Self {
-        let mut map = Self::new();
-
-        map.register(
-            &[key!(Esc)],
-            DocumentAction::Behavior(BehaviorAction::SwitchToNormalMode),
-        );
-
-        map.register(
-            &[key!('j')],
-            DocumentAction::Movement(MovementAction::MoveDown),
-        );
-        map.register(
-            &[key!('k')],
-            DocumentAction::Movement(MovementAction::MoveUp),
-        );
-        map.register(
-            &[key!('l')],
-            DocumentAction::Movement(MovementAction::MoveRight),
-        );
-        map.register(
-            &[key!('h')],
-            DocumentAction::Movement(MovementAction::MoveLeft),
-        );
-        map.register(
-            &[key!('w')],
-            DocumentAction::Movement(MovementAction::MoveNextWordStart),
-        );
-        map.register(
-            &[key!('b')],
-            DocumentAction::Movement(MovementAction::MovePrevWordStart),
-        );
-        map.register(
-            &[key!('$')],
-            DocumentAction::Movement(MovementAction::MoveLineEnd),
-        );
-        map.register(
-            &[key!('0')],
-            DocumentAction::Movement(MovementAction::MoveLineStart),
-        );
-        map.register(
-            &[key!('^')],
-            DocumentAction::Movement(MovementAction::MoveLineFirstNonBlank),
-        );
-        map.register(
-            &[key!('}')],
-            DocumentAction::Movement(MovementAction::MoveNextParagraph),
-        );
-        map.register(
-            &[key!('{')],
-            DocumentAction::Movement(MovementAction::MovePrevParagraph),
-        );
-        map.register(
-            &[key!('e')],
-            DocumentAction::Movement(MovementAction::MoveWordEnd),
-        );
-        map.register(
-            &[key!('o')],
-            DocumentAction::Movement(MovementAction::ReverseSelection),
-        );
-
-        map.register(
-            &[key!('g'), key!('e')],
-            DocumentAction::Movement(MovementAction::GoToLastLine),
-        );
-        map.register(
-            &[key!('g'), key!('g')],
-            DocumentAction::Movement(MovementAction::GoToNthOrFirstLine),
-        );
-        map.register(
-            &[key!('G')],
-            DocumentAction::Movement(MovementAction::GoToNthOrLastLine),
-        );
-
-        map.register(
-            &[key!('d')],
-            DocumentAction::Edit(EditAction::DeleteSelection),
-        );
-        map.register(
-            &[key!('c')],
-            DocumentAction::Edit(EditAction::ChangeSelection),
-        );
-
-        map.register(
-            &[key!('i'), key!('w')],
-            DocumentAction::Movement(MovementAction::SelectCurrentWord),
-        );
-
-        map.register(
-            &[key!(':')],
-            DocumentAction::Behavior(BehaviorAction::OpenCommandList),
-        );
-        map.register(
-            &[key!('z'), key!('z')],
-            DocumentAction::Behavior(BehaviorAction::VerticallyCenter),
-        );
-
-        map.register(
-            &[key!('%')],
-            DocumentAction::Movement(MovementAction::GoToPairMatch),
-        );
-
-        map
+    pub(crate) const fn for_mode(mode: Mode) -> &'static Self {
+        match mode {
+            Mode::Normal => &NORMAL,
+            Mode::Insert => &INSERT,
+            Mode::Visual => &VISUAL,
+        }
     }
 
     pub(crate) fn get(&self, keys: &[KeyBinding]) -> Option<&Self> {
@@ -362,7 +178,7 @@ impl KeyMap {
 
         for key in keys {
             current = match *current {
-                Self::BindingPart { ref map } => {
+                Self::BindingPart { map } => {
                     map.iter()
                         .find_map(|&(ref binding, ref keymap)| (binding == key).then_some(keymap))
                 }
@@ -371,43 +187,6 @@ impl KeyMap {
         }
 
         Some(current)
-    }
-
-    fn register(&mut self, keys: &[KeyBinding], action: DocumentAction) {
-        match *keys {
-            [] => {}
-            [key] => {
-                match *self {
-                    Self::BindingPart { ref mut map } => {
-                        debug_assert!(
-                            !map.iter().any(|&(binding, _)| binding == key),
-                            "no duplicates allowed: {key}"
-                        );
-                        map.push((key, Self::Action(action)));
-                    }
-                    // TODO: should we error rather than silently ignore? can the types be
-                    // reworked so that this is impossible in the first place?
-                    Self::Action(_) => {}
-                }
-            }
-            [key, ref rest @ ..] => {
-                match *self {
-                    Self::BindingPart { ref mut map } => {
-                        let entry_index = map.iter().position(|&(ref binding, _)| *binding == key);
-
-                        let entry = match entry_index {
-                            Some(i) => &mut map[i].1,
-                            None => &mut map.push_mut((key, Self::new())).1,
-                        };
-
-                        entry.register(rest, action);
-                    }
-                    // TODO: should we error rather than silently ignore? can the types be
-                    // reworked so that this is impossible in the first place?
-                    Self::Action(_) => {}
-                }
-            }
-        }
     }
 }
 
@@ -418,21 +197,19 @@ pub(crate) struct KeyBinding {
 }
 
 impl KeyBinding {
+    const fn new(code: KeyCode) -> Self {
+        Self {
+            code,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
     pub(crate) const fn code(&self) -> KeyCode {
         self.code
     }
 
     pub(crate) const fn modifiers(&self) -> KeyModifiers {
         self.modifiers
-    }
-}
-
-impl From<KeyCode> for KeyBinding {
-    fn from(code: KeyCode) -> Self {
-        Self {
-            code,
-            modifiers: KeyModifiers::empty(),
-        }
     }
 }
 
@@ -729,6 +506,30 @@ impl fmt::Display for KeySequence {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_duplicate_bindings() {
+        fn check(keymap: &KeyMap, path: &[KeyBinding]) {
+            let KeyMap::BindingPart { map } = *keymap else {
+                return;
+            };
+
+            for (index, &(key, ref node)) in map.iter().enumerate() {
+                let path = [path, &[key]].concat();
+
+                assert!(
+                    map[..index].iter().all(|&(other, _)| other != key),
+                    "duplicate binding for {path:?}",
+                );
+
+                check(node, &path);
+            }
+        }
+
+        for mode in [Mode::Normal, Mode::Insert, Mode::Visual] {
+            check(KeyMap::for_mode(mode), &[]);
+        }
+    }
 
     #[test]
     fn parse_key_sequence() {
