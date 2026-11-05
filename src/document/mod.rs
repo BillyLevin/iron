@@ -654,19 +654,24 @@ impl Document {
         let line_index = text.line_idx_containing_byte(self.cursor());
         let line = text.line_at(line_index);
 
-        let offset: ByteIndex = line
-            .chars()
-            .take_while(|ch| ch.is_whitespace())
-            .map(|ch| ByteIndex::new(ch.len_utf8()))
-            .sum();
+        let cursor = self.cursor();
+        let start = text.line_start_byte(line_index) + line.first_non_blank_offset();
 
-        let start = text.line_start_byte(line_index) + offset;
+        let delete_range = match cursor.cmp(&start) {
+            cmp::Ordering::Less => cursor..start,
+            cmp::Ordering::Equal => return Transaction::new(None, self.selection()),
+            cmp::Ordering::Greater => {
+                let range = text.inclusive_to_exclusive_range(start..=cursor);
+                //  this is to prevent deleting a line break
+                range.start..cmp::min(range.end, text.line_break(line_index).position)
+            }
+        };
+
+        let new_cursor = delete_range.start;
 
         Transaction::new(
-            Some(TextEdit::delete(
-                text.inclusive_to_exclusive_range(start..=self.cursor()),
-            )),
-            self.selection().with_cursor(start),
+            Some(TextEdit::delete(delete_range)),
+            self.selection().with_cursor(new_cursor),
         )
     }
 
@@ -3389,6 +3394,38 @@ mod tests {
     }
 
     #[test]
+    fn delete_to_line_first_non_blank_forwards() {
+        TestCase {
+            initial_text: "  Hello!",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![key_event!('d'), key_event!('^')],
+
+            expected_text: "Hello!",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn delete_to_line_first_non_blank_empty_line() {
+        TestCase {
+            initial_text: "\nHello!",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![key_event!('d'), key_event!('^')],
+
+            expected_text: "\nHello!",
+            expected_cursor: 0,
+            expected_text_position: (0, 0),
+        }
+        .run();
+    }
+
+    #[test]
     fn delete_line() {
         TestCase {
             initial_text: "Hello there!\nNext line!",
@@ -3700,6 +3737,48 @@ mod tests {
             expected_text: "Hello there!\n     yo!!",
             expected_cursor: 21,
             expected_text_position: (8, 1),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_line_first_non_blank_forwards() {
+        TestCase {
+            initial_text: "  Hello!",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('^'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "hiHello!",
+            expected_cursor: 2,
+            expected_text_position: (2, 0),
+        }
+        .run();
+    }
+
+    #[test]
+    fn change_to_line_first_non_blank_empty_line() {
+        TestCase {
+            initial_text: "\nHello!",
+            initial_cursor: 0,
+            expected_initial_text_position: (0, 0),
+
+            keys: vec![
+                key_event!('c'),
+                key_event!('^'),
+                key_event!('h'),
+                key_event!('i'),
+            ],
+
+            expected_text: "hi\nHello!",
+            expected_cursor: 2,
+            expected_text_position: (2, 0),
         }
         .run();
     }
