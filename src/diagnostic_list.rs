@@ -103,6 +103,14 @@ impl DiagnosticList {
                     NonZeroColumns::new(self.layout.text.area().width()),
                 );
 
+                let max_cursor = self
+                    .text
+                    .slice(..)
+                    .previous_grapheme_position(ByteIndex::new(self.text.len()));
+
+                self.cursor_state
+                    .set_cursor(cmp::min(self.cursor_state.cursor(), max_cursor));
+
                 self.recalculate_scroll();
             }
         }
