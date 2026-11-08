@@ -314,6 +314,7 @@ mod tests {
             Columns,
             Dimensions,
             EditorDimensions,
+            Rectangle,
             Rows,
         },
     };
@@ -410,5 +411,26 @@ mod tests {
         │                        │
         └────────────────────────┘
         ");
+    }
+
+    #[test]
+    fn cursor_stays_on_screen_when_eof_wraps() {
+        let mut harness = TestHarness::new("", EditorDimensions::MIN);
+        let initial_screen = harness.screen();
+        let text_start = initial_screen.cursor();
+        let text_width = initial_screen.dimensions().width() - text_start.left();
+
+        assert!(text_width > Columns::new(0));
+
+        // insert text until cursor is one past the right edge. this should
+        // cause it to wrap onto the next row
+        harness.send_key(KeyCode::Char('i'));
+        for _ in 0..text_width.value() {
+            harness.send_key(KeyCode::Char('a'));
+        }
+
+        let screen = harness.screen();
+        assert!(Rectangle::from_dimensions(screen.dimensions()).contains(&screen.cursor()));
+        assert_eq!(screen.cursor(), text_start.row_offset(Rows::new(1)));
     }
 }

@@ -21,6 +21,7 @@ use crate::{
     },
     text::{
         ByteIndex,
+        Grapheme,
         LeftChar,
         LineIndex,
         RightChar,
@@ -615,7 +616,13 @@ pub(crate) fn visual_cursor_position(
             ControlFlow::Continue(grapheme.end_position())
         }
     }) {
-        ControlFlow::Continue(position) | ControlFlow::Break(position) => position,
+        ControlFlow::Continue(position) => {
+            // if reached eof, we need to make sure the cursor wraps correctly
+            // if it happens to be one past the right edge of the
+            // screen
+            position.wrap(&Grapheme::from(" "), text_width).0
+        }
+        ControlFlow::Break(position) => position,
     }
 }
 
@@ -728,5 +735,29 @@ pub(crate) fn apply_movement(
 
     if action.should_reset_desired_column() {
         cursor_state.clear_desired_column();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ropey::Rope;
+
+    use super::*;
+    use crate::ui::Rows;
+
+    #[test]
+    fn eof_wraps_at_edge_of_screen() {
+        let text = Rope::from("a");
+        let text_width = NonZeroColumns::new(Columns::new(1)).unwrap();
+
+        assert_eq!(
+            visual_cursor_position(
+                text.slice(..),
+                ByteIndex::new(1),
+                LineIndex::new(0),
+                text_width,
+            ),
+            Position::new(Columns::new(0), Rows::new(1)),
+        );
     }
 }
