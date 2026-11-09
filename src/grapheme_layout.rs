@@ -1,7 +1,11 @@
+use ropey::RopeSlice;
+
 use crate::{
     text::{
         ByteIndex,
         Grapheme,
+        LineIndex,
+        RopeSliceExt as _,
     },
     ui::{
         NonZeroColumns,
@@ -9,6 +13,26 @@ use crate::{
         WrapOutcome,
     },
 };
+
+/// Byte index corresponding to the start of a visual row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RowStart(ByteIndex);
+
+impl RowStart {
+    /// The given `index` should already have been determined to be the start of
+    /// a row.
+    pub(crate) const fn new_unchecked(index: ByteIndex) -> Self {
+        Self(index)
+    }
+
+    pub(crate) fn from_line(text: RopeSlice<'_>, line: LineIndex) -> Self {
+        Self(text.line_start_byte(line))
+    }
+
+    pub(crate) const fn byte_index(self) -> ByteIndex {
+        self.0
+    }
+}
 
 pub(crate) struct GraphemeLayoutIterator<'text, Graphemes>
 where
@@ -29,6 +53,13 @@ where
             position: Position::default(),
             byte_index: ByteIndex::new(0),
             wrap_behavior,
+        }
+    }
+
+    pub(crate) fn starting_at(self, start: RowStart) -> Self {
+        Self {
+            byte_index: start.byte_index(),
+            ..self
         }
     }
 }

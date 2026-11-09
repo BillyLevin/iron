@@ -438,4 +438,25 @@ mod tests {
         assert!(Rectangle::from_dimensions(screen.dimensions()).contains(&screen.cursor()));
         assert_eq!(screen.cursor(), text_start.row_offset(Rows::new(1)));
     }
+
+    #[test]
+    fn cursor_stays_on_screen_for_lines_taller_than_screen() {
+        let dimensions = EditorDimensions::MIN;
+        let text_width = {
+            let harness = TestHarness::new("", dimensions);
+            let screen = harness.screen();
+            screen.dimensions().width() - screen.cursor().left()
+        };
+        let height = dimensions.get().height();
+
+        // when wrapped, this single line is taller than the editor
+        let contents = "a".repeat(text_width.value() * height.value() + 1);
+        let mut harness = TestHarness::new(&contents, dimensions);
+
+        harness.send_key(KeyCode::Char('$'));
+
+        let screen = harness.screen();
+        let cursor = screen.cursor();
+        assert!(Rectangle::from_dimensions(screen.dimensions()).contains(&cursor));
+    }
 }

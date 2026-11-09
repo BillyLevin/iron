@@ -21,6 +21,7 @@ use unicode_width::UnicodeWidthStr as _;
 use crate::{
     grapheme_layout::{
         GraphemeLayoutIterator,
+        RowStart,
         WrapBehavior,
     },
     ui::{
@@ -58,7 +59,7 @@ pub(crate) trait RopeSliceExt<'rope> {
     /// given byte index.
     fn next_grapheme_position(&self, from: ByteIndex) -> ByteIndex;
 
-    fn graphemes(&self) -> impl Iterator<Item = &'rope str>;
+    fn graphemes(&self) -> impl Iterator<Item = &'rope str> + use<'rope, Self>;
 
     fn line_count(&self) -> usize;
 
@@ -85,6 +86,20 @@ pub(crate) trait RopeSliceExt<'rope> {
     /// Gets the byte offset of the first non-whitespace character in the slice,
     /// or 0 if it's all whitespace.
     fn first_non_blank_offset(&self) -> ByteIndex;
+
+    /// Gets the byte index of the start of the visual row that contains the
+    /// given `byte_index`.
+    fn row_start_containing_byte(&self, byte_index: ByteIndex, width: NonZeroColumns) -> RowStart;
+
+    /// Byte indices of the start of the **visual** lines (rows) produced by the
+    /// text line. These indices are relative to the start of the text slice.
+    ///
+    /// A line can have multiple rows due to text wrapping.
+    fn row_starts_for_line(
+        &self,
+        line_index: LineIndex,
+        text_width: NonZeroColumns,
+    ) -> impl Iterator<Item = RowStart>;
 }
 
 impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
@@ -155,7 +170,7 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
             .map_or(0, str::len)
     }
 
-    fn graphemes(&self) -> impl Iterator<Item = &'rope str> {
+    fn graphemes(&self) -> impl Iterator<Item = &'rope str> + use<'rope> {
         self.chunks().flat_map(|chunk| chunk.graphemes(true))
     }
 
@@ -238,6 +253,32 @@ impl<'rope> RopeSliceExt<'rope> for RopeSlice<'rope> {
             })
             .find_map(|(start, grapheme)| (!grapheme.trim().is_empty()).then_some(start))
             .unwrap_or_default()
+    }
+
+    fn row_start_containing_byte(
+        &self,
+        byte_index: ByteIndex,
+        text_width: NonZeroColumns,
+    ) -> RowStart {
+        let line = self.line_idx_containing_byte(byte_index);
+
+        self.row_starts_for_line(line, text_width)
+            .take_while(|row_start| row_start.byte_index() <= byte_index)
+            .last()
+            .unwrap_or_else(|| RowStart::from_line(*self, line))
+    }
+
+    fn row_starts_for_line(
+        &self,
+        line_index: LineIndex,
+        max_width: NonZeroColumns,
+    ) -> impl Iterator<Item = RowStart> {
+        GraphemeLayoutIterator::new(self.line_at(line_index).graphemes(), WrapBehavior::Wrap {
+            max_width,
+        })
+        .starting_at(RowStart::from_line(*self, line_index))
+        .filter(|grapheme| grapheme.position().left() == Columns::new(0))
+        .map(|grapheme| RowStart::new_unchecked(grapheme.byte_index()))
     }
 }
 
@@ -364,15 +405,14 @@ impl<'text> VisualLineInfo<'text> {
     ) -> Self {
         let mut visual_line_starts = Vec::new();
 
-        let start = text.line_start_byte(line_index);
-
         for grapheme in
             GraphemeLayoutIterator::new(text.line_at(line_index).graphemes(), WrapBehavior::Wrap {
                 max_width,
             })
+            .starting_at(RowStart::from_line(text, line_index))
         {
             if grapheme.position().left() == Columns::new(0) {
-                visual_line_starts.push(start + grapheme.byte_index());
+                visual_line_starts.push(grapheme.byte_index());
             }
         }
 

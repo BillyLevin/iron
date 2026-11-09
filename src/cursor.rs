@@ -17,6 +17,7 @@ use ropey::{
 use crate::{
     grapheme_layout::{
         GraphemeLayoutIterator,
+        RowStart,
         WrapBehavior,
     },
     text::{
@@ -67,8 +68,10 @@ impl CursorState {
         let cursor = self.cursor();
 
         *self.desired_cursor_column.get_or_insert_with(|| {
-            let cursor_line = text.line_idx_containing_byte(cursor);
-            visual_cursor_position(text, cursor, cursor_line, text_width).left()
+            let cursor_line_start =
+                RowStart::from_line(text, text.line_idx_containing_byte(cursor));
+
+            visual_cursor_position(text, cursor, cursor_line_start, text_width).left()
         })
     }
 
@@ -595,19 +598,18 @@ enum PairPosition {
 pub(crate) fn visual_cursor_position(
     text: RopeSlice<'_>,
     cursor: ByteIndex,
-    scroll_offset: LineIndex,
+    start: RowStart,
     text_width: NonZeroColumns,
 ) -> Position {
-    let start = text.line_start_byte(scroll_offset);
-
     match GraphemeLayoutIterator::new(
-        text.slice(start.value()..).graphemes(),
+        text.slice(start.byte_index().value()..).graphemes(),
         WrapBehavior::Wrap {
             max_width: text_width,
         },
     )
+    .starting_at(start)
     .try_fold(Position::default(), |_, grapheme| {
-        if start + grapheme.byte_index() >= cursor {
+        if grapheme.byte_index() >= cursor {
             ControlFlow::Break(grapheme.position())
         } else {
             // if we never find a matching grapheme, that means we've reached
@@ -754,7 +756,7 @@ mod tests {
             visual_cursor_position(
                 text.slice(..),
                 ByteIndex::new(1),
-                LineIndex::new(0),
+                RowStart::from_line(text.slice(..), LineIndex::new(0)),
                 text_width,
             ),
             Position::new(Columns::new(0), Rows::new(1)),

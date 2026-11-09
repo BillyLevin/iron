@@ -145,7 +145,8 @@ impl Layer for DiagnosticList {
         };
 
         let text = self.text.slice(..);
-        let start_byte = text.line_start_byte(self.layout.text.scroll_offset());
+        let scroll_offset = self.layout.text.scroll_offset();
+        let start_byte = scroll_offset.byte_index();
 
         let mut entries = self
             .styles
@@ -162,14 +163,16 @@ impl Layer for DiagnosticList {
             WrapBehavior::Wrap {
                 max_width: text_width,
             },
-        ) {
+        )
+        .starting_at(scroll_offset)
+        {
             let row = grapheme.position().top();
 
             if row >= self.layout.text.area().height() {
                 break;
             }
 
-            let byte_index = start_byte + grapheme.byte_index().value();
+            let byte_index = grapheme.byte_index();
 
             if let Some((index, _entry)) =
                 entries.next_if(|&(_index, entry)| entry.range.start <= byte_index)

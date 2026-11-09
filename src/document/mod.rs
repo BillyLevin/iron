@@ -544,7 +544,7 @@ impl Document {
 
         self.layout
             .text
-            .set_scroll_offset(cursor_line.saturating_sub(middle));
+            .scroll_to_line(text, cursor_line.saturating_sub(middle));
     }
 
     const fn event_fallback(&self, key_event: KeyEvent) -> Option<DocumentAction> {
@@ -1073,7 +1073,8 @@ impl Layer for Document {
     fn render(&mut self, buffer: &mut Buffer) {
         let text = self.text.slice(..);
 
-        let start_byte = text.line_start_byte(self.layout.text.scroll_offset());
+        let scroll_offset = self.layout.text.scroll_offset();
+        let start_byte = scroll_offset.byte_index();
 
         buffer.clear_and_style_rectangle(&self.layout.gutter.area, Style::BACKGROUND);
         buffer.clear_and_style_rectangle(self.layout.text.area(), Style::BACKGROUND);
@@ -1085,7 +1086,7 @@ impl Layer for Document {
 
         let cursor_line = text.line_idx_containing_byte(self.cursor());
 
-        let mut line_index = self.layout.text.scroll_offset();
+        let mut line_index = text.line_idx_containing_byte(start_byte);
 
         let mut highlighter = Highlighter::new(
             self.text.clone(),
@@ -1107,7 +1108,9 @@ impl Layer for Document {
             WrapBehavior::Wrap {
                 max_width: text_width,
             },
-        ) {
+        )
+        .starting_at(scroll_offset)
+        {
             if visual_grapheme.position().top() >= self.layout.text.area().height() {
                 break;
             }
@@ -1133,7 +1136,7 @@ impl Layer for Document {
 
             let grapheme = visual_grapheme.grapheme();
 
-            let grapheme_index = start_byte + visual_grapheme.byte_index();
+            let grapheme_index = visual_grapheme.byte_index();
 
             while current_highlight
                 .as_ref()
@@ -2168,7 +2171,7 @@ mod tests {
 
             expected_text: &text,
             expected_cursor: (200 * 99) + 99,
-            expected_text_position: (0, 0),
+            expected_text_position: (0, 21),
         }
         .run();
     }
