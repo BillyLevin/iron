@@ -263,7 +263,8 @@ impl Document {
                 (
                     hints + &hint,
                     cmp::max(max_width, text_width(&hint)),
-                    // we will disable wrapping so we can simply increment the count
+                    // we will disable wrapping so we can simply increment the
+                    // count
                     max_height + Rows::new(1),
                 )
             },
@@ -835,11 +836,11 @@ impl Document {
         let cursor = range.start;
 
         Transaction::new(
-            // we removed the linebreak (if there was one), and so we need to make room to
-            // append text by adding one. we will not shift the cursor, so the user
-            // will overwrite the empty space when they enter text
-            // TODO: use the same linebreak style that the rest of the document uses, if
-            // applicable
+            // we removed the linebreak (if there was one), and so we need to
+            // make room to append text by adding one. we will not shift the
+            // cursor, so the user will overwrite the empty space when they
+            // enter text TODO: use the same linebreak style that the rest of
+            // the document uses, if applicable
             Some(TextEdit::replace(range, "\n")),
             self.selection().with_cursor(cursor),
         )
@@ -1302,7 +1303,8 @@ impl GutterRenderer<'_> {
         buffer: &mut Buffer,
     ) {
         let diagnostic_contents = match (wrapped, severity) {
-            // we only display gutter contents on the first visual row of a wrapped line
+            // we only display gutter contents on the first visual row of a
+            // wrapped line
             (WrapOutcome::Wrapped, _) | (_, None) => {
                 " ".repeat(text_width(Gutter::DIAGNOSTIC_ICON).value())
             }
@@ -1310,7 +1312,8 @@ impl GutterRenderer<'_> {
         };
 
         let line_number_contents = match wrapped {
-            // we only display gutter contents on the first visual row of a wrapped line
+            // we only display gutter contents on the first visual row of a
+            // wrapped line
             WrapOutcome::Wrapped => {
                 " ".repeat(
                     self.gutter.line_number_width.value()
@@ -1587,8 +1590,9 @@ impl Diagnostics {
                         severity: diagnostic.severity,
                     },
                     DiagnosticEvent {
-                        // some diagnostics come back as an empty range, but we still want to
-                        // display an underline, and so we extend it
+                        // some diagnostics come back as an empty range, but we
+                        // still want to display an underline, and so we extend
+                        // it
                         at: if start == end { start + 1 } else { end },
                         kind: DiagnosticEventKind::End,
                         severity: diagnostic.severity,
@@ -2143,8 +2147,8 @@ mod tests {
 
             expected_text: &text,
             expected_cursor: 22 * 5,
-            // visual position stays the same because we scrolled down, keeping the
-            // cursor on the final line
+            // visual position stays the same because we scrolled down, keeping
+            // the cursor on the final line
             expected_text_position: (0, 21),
         }
         .run();
@@ -2182,8 +2186,8 @@ mod tests {
 
             expected_text: &text,
             expected_cursor: 6,
-            // visual position stays the same because we scrolled up, keeping the
-            // cursor on the first line
+            // visual position stays the same because we scrolled up, keeping
+            // the cursor on the first line
             expected_text_position: (1, 0),
         }
         .run();

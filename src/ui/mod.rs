@@ -1029,7 +1029,8 @@ mod proptests {
     #[hegel::test]
     fn maybe_bordered(test_case: TestCase) {
         let dimension = hegel::one_of![
-            // biasing towards edge cases: border exists only when width/height both >= 3
+            // biasing towards edge cases: border exists only when width/height
+            // both >= 3
             generators::just(2_usize),
             generators::just(3_usize),
             generators::integers().max_value(20),

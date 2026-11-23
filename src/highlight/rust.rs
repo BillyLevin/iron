@@ -358,7 +358,8 @@ impl RustLexer {
                         self.source.next_char();
                         return TokenKind::Character;
                     }
-                    // escaping something; let's skip the slash and the next char
+                    // escaping something; let's skip the slash and the next
+                    // char
                     '\\' => {
                         self.source.next_char();
                         self.source.next_char();

@@ -736,8 +736,8 @@ impl LanguageServer {
                 }),
                 experimental: None,
             },
-            // TODO: we may want some stuff here, e.g. telling rust-analyzer to use
-            // nightly fmt or whatever
+            // TODO: we may want some stuff here, e.g. telling rust-analyzer to
+            // use nightly fmt or whatever
             initialization_options: None,
             trace: None,
             work_done_progress_params: WorkDoneProgressParams::default(),
