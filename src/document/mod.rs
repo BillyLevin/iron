@@ -1362,6 +1362,7 @@ impl GutterRenderer<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(hegel::DefaultGenerator))]
 pub(crate) enum Mode {
     Normal,
     Insert,

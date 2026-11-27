@@ -10,7 +10,6 @@ use crossterm::event::{
 };
 use hegel::{
     Generator as _,
-    PrettyPrinter,
     TestCase,
     generators,
 };
@@ -33,7 +32,6 @@ use crate::{
 
 struct Fuzzer {
     harness: TestHarness,
-    bindings: Vec<(Mode, Vec<KeyEvent>)>,
 }
 
 #[hegel::state_machine]
@@ -43,26 +41,9 @@ struct Fuzzer {
 )]
 impl Fuzzer {
     fn new(test_case: &TestCase) -> Self {
-        let harness = TestHarness::new(&draw_contents(test_case), draw_dimensions(test_case));
-
-        let bindings = [Mode::Normal, Mode::Visual, Mode::Insert]
-            .into_iter()
-            .flat_map(|mode| {
-                KeyMap::for_mode(mode)
-                    .bindings()
-                    .into_iter()
-                    .map(move |keys| {
-                        (
-                            mode,
-                            keys.into_iter()
-                                .map(|key| KeyEvent::new(key.code(), key.modifiers()))
-                                .collect(),
-                        )
-                    })
-            })
-            .collect();
-
-        Self { harness, bindings }
+        Self {
+            harness: TestHarness::new(&draw_contents(test_case), draw_dimensions(test_case)),
+        }
     }
 
     #[rule]
@@ -70,23 +51,31 @@ impl Fuzzer {
         test_case.assume(!self.harness.is_closed());
 
         let match_current_mode = test_case.draw_silent(generators::weighted_booleans(0.9));
-        let mode_filter = match_current_mode.then(|| self.harness.editor().document().mode());
 
-        let keys = test_case.draw(
-            generators::sampled_from(
-                self.bindings
-                    .iter()
-                    .filter(|&&(binding_mode, _)| {
-                        mode_filter.is_none_or(|mode| mode == binding_mode)
-                    })
-                    .map(|&(_, ref keys)| keys.clone())
-                    .collect::<Vec<_>>(),
-            )
-            .print_with(|keys, printer| print_keys(keys, printer)),
-        );
+        let mode = if match_current_mode {
+            self.harness.editor().document().mode()
+        } else {
+            test_case.draw_silent(generators::default::<Mode>())
+        };
+
+        let mut keys = Vec::new();
+
+        let mut keymap = KeyMap::for_mode(mode);
+
+        while let KeyMap::BindingPart { map } = *keymap {
+            let index = test_case.draw_silent(generators::integers().max_value(map.len() - 1));
+            let (key, ref next_map) = map[index];
+
+            keys.push(key);
+
+            keymap = next_map;
+        }
+
+        test_case.note(&keys.iter().join(" "));
 
         for key in keys {
-            self.harness.send_key(key);
+            self.harness
+                .send_key(KeyEvent::new(key.code(), key.modifiers()));
         }
     }
 
@@ -148,16 +137,6 @@ impl Fuzzer {
             "cursor at {cursor:?} is outside the screen ({dimensions:?})"
         );
     }
-}
-
-fn print_keys(keys: &[KeyEvent], printer: &mut PrettyPrinter) {
-    let keys = keys
-        .iter()
-        .map(|&key| KeyBinding::from(key).to_string())
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    printer.text(&format!("{keys:?}"));
 }
 
 #[derive(Debug, Clone, Copy, hegel::DefaultGenerator)]
